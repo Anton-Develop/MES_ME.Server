@@ -1,0 +1,526 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Container,
+  Paper,
+  Typography,
+  Box,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Button,
+  Grid,
+  Alert,
+  CircularProgress,
+  InputAdornment,
+  IconButton,
+} from '@mui/material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'; // Требует @mui/x-date-pickers
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'; // Требует dayjs и @mui/x-date-pickers
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DataGrid } from '@mui/x-data-grid';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
+import api from '../api';
+
+// Установите dayjs и его адаптер, если ещё не установлены
+// npm install dayjs @mui/x-date-pickers
+
+const InputDataView = () => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [sortModel, setSortModel] = useState([{ field: 'matid', sort: 'asc' }]);
+  const [filterModel, setFilterModel] = useState({
+    matid: '',
+    status: '',
+    meltNumber: '',
+    batchNumber: '',
+    packNumber: '',
+    sheetNumber: '',
+    rollDateFrom: null,
+    rollDateTo: null,
+    // ... другие фильтры ...
+  });
+
+  // Преобразование sortModel в параметры для API
+  const [sortField, sortOrder] = useMemo(() => {
+    if (sortModel.length > 0) {
+      return [sortModel[0].field, sortModel[0].sort];
+    }
+    return ['matid', 'asc'];
+  }, [sortModel]);
+
+  // Загрузка данных
+  const fetchData = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = {
+        page,
+        pageSize,
+        sortField,
+        sortOrder,
+        // Фильтры
+        matidFilter: filterModel.matid,
+        statusFilter: filterModel.status,
+        meltNumberFilter: filterModel.meltNumber,
+        batchNumberFilter: filterModel.batchNumber,
+        packNumberFilter: filterModel.packNumber,
+        sheetNumberFilter: filterModel.sheetNumber,
+        rollDateFromFilter: filterModel.rollDateFrom ? filterModel.rollDateFrom.toISOString().split('T')[0] : null,
+        rollDateToFilter: filterModel.rollDateTo ? filterModel.rollDateTo.toISOString().split('T')[0] : null,
+        // ... другие фильтры ...
+      };
+
+      const response = await api.get('/inputdata', { params });
+      setData(response.data.data); // Данные
+      setTotalCount(response.data.totalCount); // Общее количество
+    } catch (err) {
+      console.error('Ошибка загрузки данных:', err);
+      setError(err.response?.data?.message || err.message || 'Ошибка при загрузке данных.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [page, pageSize, sortModel]); // fetchData зависит от filterModel, но вызываем отдельно по кнопке
+
+  // Обработчики изменения фильтров
+  const handleFilterChange = (field, value) => {
+    setFilterModel(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Обработчик сброса фильтров
+  const handleClearFilters = () => {
+    setFilterModel({
+      matid: '',
+      status: '',
+      meltNumber: '',
+      batchNumber: '',
+      packNumber: '',
+      sheetNumber: '',
+      rollDateFrom: null,
+      rollDateTo: null,
+      // ... другие фильтры ...
+    });
+    // После сброса фильтров, сбрасываем страницу и загружаем данные
+    setPage(1);
+    fetchData(); // Перезагружаем с новыми фильтрами (пустыми)
+  };
+
+  // Обработчик поиска (применения фильтров)
+  const handleSearch = () => {
+    setPage(1); // Сброс на первую страницу при применении фильтра
+    fetchData();
+  };
+
+  // Определение колонок для DataGrid
+  const columns = [
+    { field: 'matid', headerName: 'MatID', width: 120, sortable: true },
+    { field: 'status', headerName: 'Статус', width: 150, sortable: true },
+    { field: 'certificateNumber', headerName: 'Сертификат', width: 150, sortable: true },
+    { field: 'shortOrderNumber', headerName: 'Короткий заказ', width: 150, sortable: true },
+    { field: 'commercialOrderNumber', headerName: 'Комерческий заказ', width: 150, sortable: true },
+    {
+      field: 'rollDate',
+      headerName: 'Дата поступления проката',
+      width: 180,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '', // Форматирование даты
+    },
+    { field: 'meltNumber', headerName: 'Номер плавки', width: 120, sortable: true },
+    { field: 'batchNumber', headerName: 'Номер партии', width: 120, sortable: true },
+    { field: 'packNumber', headerName: 'Номер пачки', width: 120, sortable: true },
+    { field: 'packSystemNumber', headerName: 'Номер пачки в системе', width: 150, sortable: true },
+    { field: 'steelGrade', headerName: 'Марка стали', width: 120, sortable: true },
+    { field: 'sheetDimensions', headerName: 'Размеры листа', width: 150, sortable: true },
+    { field: 'slabNumber', headerName: 'Номер сляба', width: 120, sortable: true },
+    {
+      field: 'actualNetWeightKg',
+      headerName: 'Факт. вес нетто (кг)',
+      width: 180,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '', // Форматирование числа
+    },
+    {
+      field: 'certificateNetWeightKg',
+      headerName: 'Вес по сертификату (кг)',
+      width: 180,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    { field: 'sheetsCount', headerName: 'Кол-во листов', width: 120, sortable: true },
+    {
+      field: 'sheetWeightKg',
+      headerName: 'Вес листа (кг)',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    {
+      field: 'rawMaterialKg',
+      headerName: 'Сырье (кг)',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    { field: 'sheetNumber', headerName: '№ листа', width: 120, sortable: true },
+    {
+      field: 'quenchingDate',
+      headerName: 'Дата закалки',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    { field: 'quenchingStatus', headerName: 'Закалка', width: 120, sortable: true },
+    { field: 'marking', headerName: 'Маркировка', width: 120, sortable: true },
+    {
+      field: 'repeatedToDate',
+      headerName: 'Повторная ТО',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    { field: 'gpAcceptanceStatusWeight', headerName: 'Приемка ГП', width: 150, sortable: true },
+    { field: 'npAcceptanceStatusWeight', headerName: 'Приемка НП', width: 150, sortable: true },
+    { field: 'scrapAcceptanceStatusWeight', headerName: 'Приемка БРАК', width: 150, sortable: true },
+    {
+      field: 'actualWeight',
+      headerName: 'Факт. вес',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    {
+      field: 'nonReturnScrap',
+      headerName: 'Невозвратный лом',
+      width: 150,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    {
+      field: 'trimming',
+      headerName: 'Обрезь',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    {
+      field: 'flatnessMm',
+      headerName: 'Плоскостность (мм)',
+      width: 150,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    { field: 'defect', headerName: 'Дефект', width: 120, sortable: true },
+    { field: 'note', headerName: 'Примечание', width: 200, sortable: true },
+    { field: 'npAct', headerName: 'Акт НП', width: 120, sortable: true },
+    { field: 'mmkClaimReason', headerName: 'Претензия ММК', width: 150, sortable: true },
+    { field: 'npDecision', headerName: 'Решение НП', width: 120, sortable: true },
+    { field: 'sampleCardsSelection', headerName: 'Отбор проб', width: 150, sortable: true },
+    { field: 'sampleNumberVk', headerName: 'Номер образца ВК', width: 150, sortable: true },
+    {
+      field: 'ballisticsSampleSendDate1',
+      headerName: 'Баллистика 1',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'ballisticsSampleSendDate2',
+      headerName: 'Баллистика 2',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'ballisticsSampleSendDate3',
+      headerName: 'Баллистика 3',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'metallographySampleSendDate1',
+      headerName: 'Металлография 1',
+      width: 150,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'metallographySampleSendDate2',
+      headerName: 'Металлография 2',
+      width: 150,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'hardnessSampleSendDate1',
+      headerName: 'Твердость 1',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'hardnessSampleSendDate2',
+      headerName: 'Твердость 2',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'hardnessSampleSendDate3',
+      headerName: 'Твердость 3',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    { field: 'orderLink', headerName: 'Привязка к заказу', width: 150, sortable: true },
+    { field: 'igkLink', headerName: 'Привязка к ИГК', width: 150, sortable: true },
+    { field: 'testingStatus', headerName: 'Статус испытаний', width: 150, sortable: true },
+    {
+      field: 'gpVpPresentationDate',
+      headerName: 'Предъявление ГП ВП',
+      width: 150,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    {
+      field: 'shipmentDate',
+      headerName: 'Дата отгрузки',
+      width: 120,
+      sortable: true,
+      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+    },
+    { field: 'orderNumber', headerName: 'Номер заказа', width: 120, sortable: true },
+    { field: 'certificateNumber2', headerName: 'Номер сертификата 2', width: 150, sortable: true },
+    {
+      field: 'shippedSheetsWeightKg',
+      headerName: 'Вес отгр. листов (кг)',
+      width: 180,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    {
+      field: 'sheetWeightAfterToStorageKg',
+      headerName: 'Вес листа после ТО (кг)',
+      width: 200,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    {
+      field: 'postShipDiff',
+      headerName: 'Разница пост/отгр',
+      width: 150,
+      sortable: true,
+      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+    },
+    // ... добавьте другие колонки по мере необходимости ...
+  ];
+
+  // Маппинг столбцов для выпадающего списка сортировки (опционально, если DataGrid сам с этим справляется)
+  // const sortOptions = columns.filter(col => col.sortable).map(col => ({ label: col.headerName, value: col.field }));
+
+  return (
+    <Container maxWidth="xl" sx={{ mt: 4 }}>
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom align="center">
+          Просмотр данных листов
+        </Typography>
+
+        {/* Фильтры */}
+        <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+          <Grid container spacing={2} alignItems="end">
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="MatID"
+                value={filterModel.matid}
+                onChange={(e) => handleFilterChange('matid', e.target.value)}
+                size="small"
+                InputProps={{
+                  endAdornment: filterModel.matid ? (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => handleFilterChange('matid', '')} size="small">
+                        <ClearIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="Статус"
+                value={filterModel.status}
+                onChange={(e) => handleFilterChange('status', e.target.value)}
+                size="small"
+                InputProps={{
+                  endAdornment: filterModel.status ? (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => handleFilterChange('status', '')} size="small">
+                        <ClearIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="Номер плавки"
+                value={filterModel.meltNumber}
+                onChange={(e) => handleFilterChange('meltNumber', e.target.value)}
+                size="small"
+                InputProps={{
+                  endAdornment: filterModel.meltNumber ? (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => handleFilterChange('meltNumber', '')} size="small">
+                        <ClearIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="Номер партии"
+                value={filterModel.batchNumber}
+                onChange={(e) => handleFilterChange('batchNumber', e.target.value)}
+                size="small"
+                InputProps={{
+                  endAdornment: filterModel.batchNumber ? (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => handleFilterChange('batchNumber', '')} size="small">
+                        <ClearIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="Номер пачки"
+                value={filterModel.packNumber}
+                onChange={(e) => handleFilterChange('packNumber', e.target.value)}
+                size="small"
+                InputProps={{
+                  endAdornment: filterModel.packNumber ? (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => handleFilterChange('packNumber', '')} size="small">
+                        <ClearIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="№ листа"
+                value={filterModel.sheetNumber}
+                onChange={(e) => handleFilterChange('sheetNumber', e.target.value)}
+                size="small"
+                InputProps={{
+                  endAdornment: filterModel.sheetNumber ? (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => handleFilterChange('sheetNumber', '')} size="small">
+                        <ClearIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2}>
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  label="Дата пост. от"
+                  value={filterModel.rollDateFrom ? dayjs(filterModel.rollDateFrom) : null} // dayjs объект
+                  onChange={(newValue) => handleFilterChange('rollDateFrom', newValue ? newValue.toDate() : null)} // возвращаем Date JS
+                  slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                />
+              </LocalizationProvider>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  label="Дата пост. до"
+                  value={filterModel.rollDateTo ? dayjs(filterModel.rollDateTo) : null}
+                  onChange={(newValue) => handleFilterChange('rollDateTo', newValue ? newValue.toDate() : null)}
+                  slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                />
+              </LocalizationProvider>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="contained"
+                startIcon={<SearchIcon />}
+                onClick={handleSearch}
+                fullWidth
+              >
+                Найти
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="outlined"
+                startIcon={<ClearIcon />}
+                onClick={handleClearFilters}
+                fullWidth
+              >
+                Сбросить
+              </Button>
+            </Grid>
+          </Grid>
+        </Box>
+
+        {/* DataGrid */}
+        {error && <Alert severity="error">{error}</Alert>}
+        {loading ? (
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Box height={600} width="100%">
+            <DataGrid
+              rows={data}
+              columns={columns}
+			  getRowId={(row) => row.matId}
+              rowCount={totalCount}
+              pagination
+              page={page - 1} // DataGrid использует индексацию с 0
+              onPageChange={(newPage) => setPage(newPage + 1)} // Конвертируем индекс в номер страницы
+              pageSize={pageSize}
+              onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
+              paginationMode="server" // Пагинация на сервере
+              sortingMode="server" // Сортировка на сервере
+              onSortModelChange={setSortModel}
+              loading={loading}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+              disableSelectionOnClick
+            />
+          </Box>
+        )}
+      </Paper>
+    </Container>
+  );
+};
+
+export default InputDataView;

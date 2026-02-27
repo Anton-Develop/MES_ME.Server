@@ -1,6 +1,7 @@
 ﻿using MES_ME.Server.Models;
-using Microsoft.EntityFrameworkCore;
 using MES_ME.Server.Models;
+using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.EntityFrameworkCore;
 
 namespace MES_ME.Server.Data
 {
@@ -15,7 +16,9 @@ namespace MES_ME.Server.Data
         public DbSet<LoginLog> LoginLogs => Set<LoginLog>();
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
-        public DbSet<Sheet> Sheets { get; set; }
+       // public DbSet<Sheet> Sheets { get; set; }
+
+        public DbSet<InputDatum> InputData { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
