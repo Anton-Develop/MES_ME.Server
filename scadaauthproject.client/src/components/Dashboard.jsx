@@ -26,6 +26,7 @@ const Dashboard = () => {
   const showSidebar = user && ['superadmin', 'developer'].includes(user.role);
 
   return (
+  
     <Box sx={{ display: 'flex' }}>
       <CssBaseline />
       <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
@@ -47,7 +48,9 @@ const Dashboard = () => {
       </AppBar>
 
       {showSidebar && <AdminSidebar open={sidebarOpen} toggleDrawer={toggleDrawer} />}
-
+		
+		
+		
       <Box
         component="main"
         sx={{
@@ -72,6 +75,7 @@ const Dashboard = () => {
         </Container>
       </Box>
     </Box>
+	
   );
 };
 

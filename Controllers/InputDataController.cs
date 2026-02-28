@@ -42,8 +42,7 @@ namespace MES_ME.Server.Controllers
             if (pageSize < 1 || pageSize > 100) pageSize = 10; // Ограничим максимальный размер страницы
 
             // Начинаем строить запрос IQueryable
-            var query = _context.InputData.AsQueryable(); // Предполагаем, что у вас есть DbSet<InputDatum> InputData в AppDbContext
-
+            var query = _context.InputData.AsQueryable(); // 
             // Применяем фильтры
             if (!string.IsNullOrEmpty(matidFilter))
             {

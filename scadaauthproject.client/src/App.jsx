@@ -13,6 +13,7 @@ import RolesManager from './components/RolesManager';
 import RolePermissionsManager from './components/RolePermissionsManager';
 import ImportPage from './pages/ImportPage';
 import InputDataView from './pages/InputDataView';
+import CassetteManagementPage from './pages/CassetteManagementPage'; 
 
 const theme = createTheme({
   palette: {
@@ -37,6 +38,11 @@ const AppContent = () => {
           <Route path="/users" element={
             <ProtectedRoute allowedRoles={['superadmin', 'developer']}>
               <UsersList />
+            </ProtectedRoute>
+          } />
+		  <Route path="/cassette-management" element={ // Новый маршрут
+            <ProtectedRoute allowedRoles={['master', 'operator', 'developer', 'superadmin']}>
+              <CassetteManagementPage />
             </ProtectedRoute>
           } />
           <Route path="/roles" element={

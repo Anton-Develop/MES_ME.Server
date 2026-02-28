@@ -20,6 +20,10 @@ namespace MES_ME.Server.Data
 
         public DbSet<InputDatum> InputData { get; set; }
 
+        public DbSet<Cassette> Cassettes { get; set; } // Добавляем DbSet для кассет
+        public DbSet<CassetteStatusLog> CassetteStatusLogs { get; set; } // Добавляем DbSet для лога
+        public DbSet<SheetCassetteLink> SheetCassetteLinks { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<User>()

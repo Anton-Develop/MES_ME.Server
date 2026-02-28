@@ -16,16 +16,14 @@ import {
   InputAdornment,
   IconButton,
 } from '@mui/material';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker'; // Требует @mui/x-date-pickers
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'; // Требует dayjs и @mui/x-date-pickers
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DataGrid } from '@mui/x-data-grid';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import dayjs from 'dayjs';
 import api from '../api';
-
-// Установите dayjs и его адаптер, если ещё не установлены
-// npm install dayjs @mui/x-date-pickers
 
 const InputDataView = () => {
   const [data, setData] = useState([]);
@@ -44,7 +42,6 @@ const InputDataView = () => {
     sheetNumber: '',
     rollDateFrom: null,
     rollDateTo: null,
-    // ... другие фильтры ...
   });
 
   // Преобразование sortModel в параметры для API
@@ -65,7 +62,6 @@ const InputDataView = () => {
         pageSize,
         sortField,
         sortOrder,
-        // Фильтры
         matidFilter: filterModel.matid,
         statusFilter: filterModel.status,
         meltNumberFilter: filterModel.meltNumber,
@@ -74,12 +70,12 @@ const InputDataView = () => {
         sheetNumberFilter: filterModel.sheetNumber,
         rollDateFromFilter: filterModel.rollDateFrom ? filterModel.rollDateFrom.toISOString().split('T')[0] : null,
         rollDateToFilter: filterModel.rollDateTo ? filterModel.rollDateTo.toISOString().split('T')[0] : null,
-        // ... другие фильтры ...
       };
 
       const response = await api.get('/inputdata', { params });
-      setData(response.data.data); // Данные
-      setTotalCount(response.data.totalCount); // Общее количество
+	  //console.log(response);
+      setData(response.data.data || []);
+      setTotalCount(response.data.totalCount || 0);
     } catch (err) {
       console.error('Ошибка загрузки данных:', err);
       setError(err.response?.data?.message || err.message || 'Ошибка при загрузке данных.');
@@ -90,7 +86,7 @@ const InputDataView = () => {
 
   useEffect(() => {
     fetchData();
-  }, [page, pageSize, sortModel]); // fetchData зависит от filterModel, но вызываем отдельно по кнопке
+  }, [page, pageSize, sortField, sortOrder]); // Убрали filterModel из зависимостей
 
   // Обработчики изменения фильтров
   const handleFilterChange = (field, value) => {
@@ -108,22 +104,40 @@ const InputDataView = () => {
       sheetNumber: '',
       rollDateFrom: null,
       rollDateTo: null,
-      // ... другие фильтры ...
     });
-    // После сброса фильтров, сбрасываем страницу и загружаем данные
     setPage(1);
-    fetchData(); // Перезагружаем с новыми фильтрами (пустыми)
+    fetchData();
   };
 
   // Обработчик поиска (применения фильтров)
   const handleSearch = () => {
-    setPage(1); // Сброс на первую страницу при применении фильтра
+    setPage(1);
     fetchData();
+  };
+
+  // Вспомогательная функция для безопасного форматирования даты
+  const formatDate = (dateValue) => {
+    if (!dateValue) return '';
+    try {
+      return new Date(dateValue).toLocaleDateString('ru-RU');
+    } catch {
+      return '';
+    }
+  };
+
+  // Вспомогательная функция для безопасного форматирования числа
+  const formatNumber = (numValue) => {
+    if (numValue == null || numValue === '') return '';
+    try {
+      return parseFloat(numValue).toFixed(2);
+    } catch {
+      return '';
+    }
   };
 
   // Определение колонок для DataGrid
   const columns = [
-    { field: 'matid', headerName: 'MatID', width: 120, sortable: true },
+    { field: 'matId', headerName: 'MatID', width: 120, sortable: true },
     { field: 'status', headerName: 'Статус', width: 150, sortable: true },
     { field: 'certificateNumber', headerName: 'Сертификат', width: 150, sortable: true },
     { field: 'shortOrderNumber', headerName: 'Короткий заказ', width: 150, sortable: true },
@@ -133,7 +147,7 @@ const InputDataView = () => {
       headerName: 'Дата поступления проката',
       width: 180,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '', // Форматирование даты
+      valueFormatter: (params) => formatDate(params?.value),
     },
     { field: 'meltNumber', headerName: 'Номер плавки', width: 120, sortable: true },
     { field: 'batchNumber', headerName: 'Номер партии', width: 120, sortable: true },
@@ -147,14 +161,14 @@ const InputDataView = () => {
       headerName: 'Факт. вес нетто (кг)',
       width: 180,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '', // Форматирование числа
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'certificateNetWeightKg',
       headerName: 'Вес по сертификату (кг)',
       width: 180,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     { field: 'sheetsCount', headerName: 'Кол-во листов', width: 120, sortable: true },
     {
@@ -162,14 +176,14 @@ const InputDataView = () => {
       headerName: 'Вес листа (кг)',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'rawMaterialKg',
       headerName: 'Сырье (кг)',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     { field: 'sheetNumber', headerName: '№ листа', width: 120, sortable: true },
     {
@@ -177,7 +191,7 @@ const InputDataView = () => {
       headerName: 'Дата закалки',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     { field: 'quenchingStatus', headerName: 'Закалка', width: 120, sortable: true },
     { field: 'marking', headerName: 'Маркировка', width: 120, sortable: true },
@@ -186,7 +200,7 @@ const InputDataView = () => {
       headerName: 'Повторная ТО',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     { field: 'gpAcceptanceStatusWeight', headerName: 'Приемка ГП', width: 150, sortable: true },
     { field: 'npAcceptanceStatusWeight', headerName: 'Приемка НП', width: 150, sortable: true },
@@ -196,28 +210,28 @@ const InputDataView = () => {
       headerName: 'Факт. вес',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'nonReturnScrap',
       headerName: 'Невозвратный лом',
       width: 150,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'trimming',
       headerName: 'Обрезь',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'flatnessMm',
       headerName: 'Плоскостность (мм)',
       width: 150,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     { field: 'defect', headerName: 'Дефект', width: 120, sortable: true },
     { field: 'note', headerName: 'Примечание', width: 200, sortable: true },
@@ -231,56 +245,56 @@ const InputDataView = () => {
       headerName: 'Баллистика 1',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'ballisticsSampleSendDate2',
       headerName: 'Баллистика 2',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'ballisticsSampleSendDate3',
       headerName: 'Баллистика 3',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'metallographySampleSendDate1',
       headerName: 'Металлография 1',
       width: 150,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'metallographySampleSendDate2',
       headerName: 'Металлография 2',
       width: 150,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'hardnessSampleSendDate1',
       headerName: 'Твердость 1',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'hardnessSampleSendDate2',
       headerName: 'Твердость 2',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'hardnessSampleSendDate3',
       headerName: 'Твердость 3',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     { field: 'orderLink', headerName: 'Привязка к заказу', width: 150, sortable: true },
     { field: 'igkLink', headerName: 'Привязка к ИГК', width: 150, sortable: true },
@@ -290,14 +304,14 @@ const InputDataView = () => {
       headerName: 'Предъявление ГП ВП',
       width: 150,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     {
       field: 'shipmentDate',
       headerName: 'Дата отгрузки',
       width: 120,
       sortable: true,
-      valueFormatter: (params) => params.value ? new Date(params.value).toLocaleDateString('ru-RU') : '',
+      valueFormatter: (params) => formatDate(params?.value),
     },
     { field: 'orderNumber', headerName: 'Номер заказа', width: 120, sortable: true },
     { field: 'certificateNumber2', headerName: 'Номер сертификата 2', width: 150, sortable: true },
@@ -306,27 +320,23 @@ const InputDataView = () => {
       headerName: 'Вес отгр. листов (кг)',
       width: 180,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'sheetWeightAfterToStorageKg',
       headerName: 'Вес листа после ТО (кг)',
       width: 200,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
     {
       field: 'postShipDiff',
       headerName: 'Разница пост/отгр',
       width: 150,
       sortable: true,
-      valueFormatter: (params) => params.value != null ? parseFloat(params.value).toFixed(2) : '',
+      valueFormatter: (params) => formatNumber(params?.value),
     },
-    // ... добавьте другие колонки по мере необходимости ...
   ];
-
-  // Маппинг столбцов для выпадающего списка сортировки (опционально, если DataGrid сам с этим справляется)
-  // const sortOptions = columns.filter(col => col.sortable).map(col => ({ label: col.headerName, value: col.field }));
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4 }}>
@@ -451,8 +461,8 @@ const InputDataView = () => {
               <LocalizationProvider dateAdapter={AdapterDayjs}>
                 <DatePicker
                   label="Дата пост. от"
-                  value={filterModel.rollDateFrom ? dayjs(filterModel.rollDateFrom) : null} // dayjs объект
-                  onChange={(newValue) => handleFilterChange('rollDateFrom', newValue ? newValue.toDate() : null)} // возвращаем Date JS
+                  value={filterModel.rollDateFrom ? dayjs(filterModel.rollDateFrom) : null}
+                  onChange={(newValue) => handleFilterChange('rollDateFrom', newValue ? newValue.toDate() : null)}
                   slotProps={{ textField: { size: 'small', fullWidth: true } }}
                 />
               </LocalizationProvider>
@@ -502,15 +512,22 @@ const InputDataView = () => {
             <DataGrid
               rows={data}
               columns={columns}
-			  getRowId={(row) => row.matId}
+              getRowId={(row) => {
+  // Если matid существует и не пустой, используем его
+  if (row.matid && row.matid.trim() !== '') {
+    return row.matid;
+  }
+  // Иначе создаём составной ключ из доступных полей
+  return `row-${row.sheetNumber || ''}-${row.batchNumber || ''}-${Math.random()}`;
+}}
               rowCount={totalCount}
               pagination
-              page={page - 1} // DataGrid использует индексацию с 0
-              onPageChange={(newPage) => setPage(newPage + 1)} // Конвертируем индекс в номер страницы
+              page={page - 1}
+              onPageChange={(newPage) => setPage(newPage + 1)}
               pageSize={pageSize}
               onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
-              paginationMode="server" // Пагинация на сервере
-              sortingMode="server" // Сортировка на сервере
+              paginationMode="server"
+              sortingMode="server"
               onSortModelChange={setSortModel}
               loading={loading}
               rowsPerPageOptions={[10, 25, 50, 100]}

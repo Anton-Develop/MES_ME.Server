@@ -9,6 +9,7 @@
         {
             // Уникальный идентификатор листа (MatID) - Primary Key
             [Key]
+             [Required]
             [Column("matid")]
             public string MatId { get; set; } = null!; // Используем null-forgiving operator (!), если свойство обязательно для заполнения
 
@@ -175,6 +176,9 @@
 
             [Column("post_ship_diff")]
             public decimal? PostShipDiff { get; set; }
-        }
+
+        // Навигационное свойство для связи с кассетой (опционально)
+        public virtual SheetCassetteLink? SheetCassetteLink { get; set; }
+    }
     }
 

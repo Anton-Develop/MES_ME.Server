@@ -40,7 +40,11 @@ const Navbar = () => {
                 Импорт Excel
               </Button>
             )}
-
+			{user && (['superadmin','developer', 'master'].includes(user.role)) && ( // Показываем только для admin и master
+    <Button color="inherit" onClick={() => navigate('/cassette-management')}>
+        Управление кассетами
+    </Button>
+)}
             {/* Кнопка открытия бокового меню для админов/разработчиков */}
             {isAdminOrDev && (
               <Button color="inherit" onClick={() => navigate('/')}>
