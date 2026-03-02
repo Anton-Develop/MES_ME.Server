@@ -22,10 +22,17 @@ namespace MES_ME.Server.Data
         public DbSet<Cassette> Cassettes { get; set; } // Добавляем DbSet для кассет
         public DbSet<CassetteStatusLog> CassetteStatusLogs { get; set; } // Добавляем DbSet для лога
         public DbSet<SheetCassetteLink> SheetCassetteLinks { get; set; }
+        public DbSet<AnnealingSchedule> AnnealingSchedules { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
              base.OnModelCreating(modelBuilder);
+            // Настройка связи AnnealingSchedule -> InputDatum (Many-to-One)
+            modelBuilder.Entity<AnnealingSchedule>()
+                .HasOne(s => s.Sheet) // У AnnealingSchedule есть свойство Sheet (если добавлено)
+                .WithMany()          // У InputDatum НЕТ свойства, указывающего на список планов закалки
+                .HasForeignKey(s => s.MatId) // Внешний ключ в AnnealingSchedule
+                .OnDelete(DeleteBehavior.Cascade); // При удалении InputDatum - удаляется план закалки
 
             // Настройка связи SheetCassetteLink -> InputDatum (Many-to-One)
             modelBuilder.Entity<SheetCassetteLink>()

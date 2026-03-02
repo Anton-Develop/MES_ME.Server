@@ -14,6 +14,7 @@ import RolePermissionsManager from './components/RolePermissionsManager';
 import ImportPage from './pages/ImportPage';
 import InputDataView from './pages/InputDataView';
 import CassetteManagementPage from './pages/CassetteManagementPage'; 
+import AnnealingSchedulePage from './pages/AnnealingSchedulePage';
 
 const theme = createTheme({
   palette: {
@@ -45,6 +46,11 @@ const AppContent = () => {
               <CassetteManagementPage />
             </ProtectedRoute>
           } />
+		  <Route path="/annealing-schedule" element={
+  <ProtectedRoute allowedRoles={['master', 'operator', 'developer', 'superadmin']}> {/* Уточните роли */}
+    <AnnealingSchedulePage />
+  </ProtectedRoute>
+} />
           <Route path="/roles" element={
             <ProtectedRoute allowedRoles={['superadmin', 'developer']}>
               <RolesManager />

@@ -460,7 +460,7 @@ namespace MES_ME.Server.Controllers
             return Ok(new { message = $"Лист {matId} успешно удалён из кассеты {cassetteId}." });
         }
 
-        // --- ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Проверка финальных статусов ---
+        // --- ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Проверка финальных статусов --- Надо сделать чтобы только мастер или суперадмин могли менять
         private static bool IsTerminalStatus(string status)
         {
             // Список статусов, из которых нельзя выйти (по вашей логике)
@@ -469,14 +469,6 @@ namespace MES_ME.Server.Controllers
         }
     }
 
-    // --- DTOs (Data Transfer Objects) для запросов ---
-    // Файл: DTOs/CreateCassetteRequest.cs (уже был)
-    // Файл: DTOs/UpdateCassetteStatusRequest.cs (уже был)
-
-    // Файл: DTOs/AddSheetToCassetteRequest.cs (новый)
-    public class AddSheetToCassetteRequest
-    {
-        [Required(ErrorMessage = "Идентификатор листа (MatId) обязателен.")]
-        public string MatId { get; set; } = null!;
-    }
+    
+    
 }
