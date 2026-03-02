@@ -25,14 +25,32 @@ import {
   Chip,
   IconButton,
   Tooltip,
+  Tabs,
+  Tab,
+  Card,
+  CardContent,
+  CardHeader,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  Divider,
+  Badge,
+  Grid, // Добавим Grid для фильтров
+  Pagination, // Добавим компонент пагинации
+  InputAdornment, // Для кнопки очистки
+  IconButton as MuiIconButton, // Переименуем, чтобы не путать с нашим IconButton
 } from '@mui/material';
 import {
   Add as AddIcon,
   History as HistoryIcon,
   Save as SaveIcon,
   Close as CloseIcon,
+  Delete as DeleteIcon,
+  Clear as ClearIcon, // Иконка для очистки
 } from '@mui/icons-material';
-import api from '../api'; // Используем наш настроенный axios instance
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import api from '../api';
 
 const CassetteManagementPage = () => {
   const [cassettes, setCassettes] = useState([]);
@@ -54,7 +72,26 @@ const CassetteManagementPage = () => {
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Возможные статусы (в реальном приложении можно загружать с сервера)
+  // Состояния для управления листами
+  const [availableSheets, setAvailableSheets] = useState({ data: [], totalCount: 0, page: 1, pageSize: 10, totalPages: 1 });
+  const [loadingAvailable, setLoadingAvailable] = useState(false);
+  const [selectedCassetteForSheets, setSelectedCassetteForSheets] = useState(null);
+  const [linkedSheets, setLinkedSheets] = useState([]);
+  const [loadingLinked, setLoadingLinked] = useState(false);
+  const [openSheetsDialog, setOpenSheetsDialog] = useState(false);
+
+  // Состояния для фильтров доступных листов
+  const [availableSheetsFilters, setAvailableSheetsFilters] = useState({
+    matIdFilter: '',
+    meltNumberFilter: '',
+    batchNumberFilter: '',
+    packNumberFilter: '',
+    steelGradeFilter: '',
+    sheetDimensionsFilter: '',
+    sheetNumberFilter: '',
+  });
+
+  // Возможные статусы
   const possibleStatuses = [
     'Создана',
     'Формируется',
@@ -71,11 +108,7 @@ const CassetteManagementPage = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get('/cassette'); // Предполагаем, что у нас будет эндпоинт GET /api/cassette
-      // Если эндпоинта нет, используем /api/cassette/status-history для получения списка кассет через лог
-      // или добавим его в контроллер. Пока используем /cassette, если он есть.
-      // Если эндпоинт возвращает только историю, нужно будет модифицировать логику.
-      // Для простоты, предположим, что есть эндпоинт GET /api/cassette, возвращающий список кассет.
+      const response = await api.get('/cassette');
       setCassettes(response.data);
     } catch (err) {
       console.error('Ошибка загрузки кассет:', err);
@@ -85,9 +118,71 @@ const CassetteManagementPage = () => {
     }
   };
 
-  useEffect(() => {
-    fetchCassettes();
-  }, []);
+  // Загрузка доступных листов с фильтрацией и пагинацией
+  const fetchAvailableSheets = async (page = 1) => {
+    setLoadingAvailable(true);
+    setError('');
+    try {
+      const params = {
+        page,
+        pageSize: availableSheets.pageSize,
+        ...availableSheetsFilters, // Передаём фильтры
+      };
+      // Убираем пустые фильтры из параметров
+      Object.keys(params).forEach(key => params[key] === '' && delete params[key]);
+
+      const response = await api.get('/cassette/available-sheets', { params });
+      setAvailableSheets(response.data);
+    } catch (err) {
+      console.error('Ошибка загрузки доступных листов:', err);
+      setError(err.response?.data?.message || err.message || 'Ошибка при загрузке доступных листов.');
+    } finally {
+      setLoadingAvailable(false);
+    }
+  };
+
+  // Загрузка листов для конкретной кассеты
+  const fetchLinkedSheets = async (cassetteId) => {
+    if (!cassetteId) return;
+    setLoadingLinked(true);
+    setError('');
+    try {
+      const response = await api.get(`/cassette/${cassetteId}/sheets`);
+      setLinkedSheets(response.data);
+    } catch (err) {
+      console.error('Ошибка загрузки листов кассеты:', err);
+      setError(err.response?.data?.message || err.message || 'Ошибка при загрузке листов кассеты.');
+      setLinkedSheets([]);
+    } finally {
+      setLoadingLinked(false);
+    }
+  };
+
+  // Обработчик изменения фильтра
+  const handleFilterChange = (field, value) => {
+    setAvailableSheetsFilters(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Обработчик сброса фильтров
+  const handleClearFilters = () => {
+    setAvailableSheetsFilters({
+      matIdFilter: '',
+      meltNumberFilter: '',
+      batchNumberFilter: '',
+      packNumberFilter: '',
+      steelGradeFilter: '',
+      sheetDimensionsFilter: '',
+      sheetNumberFilter: '',
+    });
+    // После сброса фильтров, сбрасываем страницу и загружаем данные
+    setAvailableSheets(prev => ({ ...prev, page: 1 }));
+    fetchAvailableSheets(1);
+  };
+
+  // Обработчик изменения страницы
+  const handlePageChange = (event, newPage) => {
+    fetchAvailableSheets(newPage);
+  };
 
   // Обработчик создания новой кассеты
   const handleCreateCassette = async () => {
@@ -97,8 +192,8 @@ const CassetteManagementPage = () => {
       await api.post('/cassette', {
         notes: newCassetteNotes,
       });
-      setNewCassetteNotes(''); // Очистить поле после создания
-      fetchCassettes(); // Обновить список
+      setNewCassetteNotes('');
+      fetchCassettes();
       alert('Кассета создана успешно.');
     } catch (err) {
       console.error('Ошибка создания кассеты:', err);
@@ -111,8 +206,8 @@ const CassetteManagementPage = () => {
   // Обработчик открытия диалога изменения статуса
   const handleOpenStatusDialog = (cassette) => {
     setSelectedCassetteForStatus(cassette);
-    setNewStatus(cassette.status); // Установить текущий статус по умолчанию
-    setStatusComment(''); // Очистить комментарий
+    setNewStatus(cassette.status);
+    setStatusComment('');
     setOpenStatusDialog(true);
   };
 
@@ -135,10 +230,12 @@ const CassetteManagementPage = () => {
       await api.put(`/cassette/${selectedCassetteForStatus.cassetteId}/status`, {
         newStatus: newStatus,
         comment: statusComment,
-        // notes: notes // Если нужно обновлять заметки одновременно
       });
       handleCloseStatusDialog();
-      fetchCassettes(); // Обновить список кассет
+      fetchCassettes();
+      if (selectedCassetteForSheets && selectedCassetteForSheets.cassetteId === selectedCassetteForStatus.cassetteId) {
+          fetchLinkedSheets(selectedCassetteForSheets.cassetteId);
+      }
       alert(`Статус кассеты ${selectedCassetteForStatus.cassetteId} изменён на "${newStatus}".`);
     } catch (err) {
       console.error('Ошибка изменения статуса:', err);
@@ -159,7 +256,7 @@ const CassetteManagementPage = () => {
       setHistory(response.data);
     } catch (err) {
       console.error('Ошибка загрузки истории статусов:', err);
-      setHistory([]); // Очистить историю в случае ошибки
+      setHistory([]);
       setError(err.response?.data?.message || err.message || 'Ошибка при загрузке истории статусов.');
     } finally {
       setHistoryLoading(false);
@@ -171,6 +268,79 @@ const CassetteManagementPage = () => {
     setOpenHistoryDialog(false);
     setSelectedCassetteForHistory(null);
     setHistory([]);
+  };
+
+  // Обработчик открытия диалога листов кассеты
+  const handleOpenSheetsDialog = async (cassette) => {
+    setSelectedCassetteForSheets(cassette);
+    setOpenSheetsDialog(true);
+    await fetchLinkedSheets(cassette.cassetteId);
+    await fetchAvailableSheets(availableSheets.page); // Загрузим доступные листы для текущей страницы и фильтров
+  };
+
+  // Обработчик закрытия диалога листов кассеты
+  const handleCloseSheetsDialog = () => {
+    setOpenSheetsDialog(false);
+    setSelectedCassetteForSheets(null);
+    setLinkedSheets([]);
+    setAvailableSheets({ data: [], totalCount: 0, page: 1, pageSize: 10, totalPages: 1 });
+    // Сбросим фильтры при закрытии диалога, если нужно
+    // handleClearFilters(); // Раскомментируйте, если хотите сбрасывать при закрытии
+  };
+
+  // Обработчик Drag-and-Drop
+  const onDragEnd = async (result) => {
+    const { destination, source, draggableId } = result;
+
+    if (!destination) return;
+
+    if (destination.droppableId === source.droppableId) {
+        return;
+    }
+
+    const destDroppableId = destination.droppableId;
+    const sourceDroppableId = source.droppableId;
+    const matId = draggableId;
+
+    if (destDroppableId === 'linked-sheets-list' && sourceDroppableId === 'available-sheets-list') {
+        await handleAddSheetToCassette(matId);
+    } else if (destDroppableId === 'available-sheets-list' && sourceDroppableId === 'linked-sheets-list') {
+        await handleRemoveSheetFromCassette(matId);
+    }
+  };
+
+  // Обработчик добавления листа в кассету через DnD
+  const handleAddSheetToCassette = async (matId) => {
+    if (!selectedCassetteForSheets) return;
+
+    setError('');
+    try {
+      await api.post(`/cassette/${selectedCassetteForSheets.cassetteId}/add-sheet`, { matId });
+      await fetchLinkedSheets(selectedCassetteForSheets.cassetteId);
+      // Перезагружаем доступные листы, так как один из них ушёл в кассету
+      await fetchAvailableSheets(availableSheets.page);
+      alert(`Лист ${matId} добавлен в кассету ${selectedCassetteForSheets.cassetteId}.`);
+    } catch (err) {
+      console.error('Ошибка добавления листа в кассету:', err);
+      setError(err.response?.data?.message || err.message || 'Ошибка при добавлении листа в кассету.');
+    }
+  };
+
+  // Обработчик удаления листа из кассеты через DnD
+  const handleRemoveSheetFromCassette = async (matId) => {
+    if (!selectedCassetteForSheets) return;
+
+    setError('');
+    try {
+      await api.delete(`/cassette/${selectedCassetteForSheets.cassetteId}/remove-sheet/${matId}`);
+      await fetchLinkedSheets(selectedCassetteForSheets.cassetteId);
+      // Перезагружаем доступные листы, так как один из них вернулся из кассеты
+      await fetchAvailableSheets(availableSheets.page);
+      alert(`Лист ${matId} удалён из кассеты ${selectedCassetteForSheets.cassetteId}.`);
+    } catch (err) {
+      console.error('Ошибка удаления листа из кассеты:', err);
+      setError(err.response?.data?.message || err.message || 'Ошибка при удалении листа из кассеты.');
+    }
   };
 
   // Функция для получения цвета чипа статуса
@@ -197,6 +367,11 @@ const CassetteManagementPage = () => {
     }
   };
 
+  // Загрузка кассет при монтировании
+  useEffect(() => {
+    fetchCassettes();
+  }, []);
+
   return (
     <Container maxWidth="xl" sx={{ mt: 4 }}>
       <Paper sx={{ p: 3 }}>
@@ -214,7 +389,6 @@ const CassetteManagementPage = () => {
           </Button>
         </Box>
 
-        {/* Форма создания новой кассеты (опционально, можно в диалог) */}
         <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
           <Typography variant="subtitle2" gutterBottom>
             Создать новую кассету
@@ -241,7 +415,6 @@ const CassetteManagementPage = () => {
           </Box>
         </Box>
 
-        {/* Таблица кассет */}
         {error && <Alert severity="error">{error}</Alert>}
         {loading ? (
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -293,6 +466,15 @@ const CassetteManagementPage = () => {
                           <HistoryIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Управление листами">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenSheetsDialog(cassette)}
+                          color="success"
+                        >
+                          <AddIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -302,10 +484,9 @@ const CassetteManagementPage = () => {
         )}
       </Paper>
 
-      {/* Диалог изменения статуса */}
       <Dialog open={openStatusDialog} onClose={handleCloseStatusDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
-          Изменить статус кассеты {selectedCassetteForHistory?.cassetteId}
+          Изменить статус кассеты {selectedCassetteForStatus?.cassetteId}
         </DialogTitle>
         <DialogContent dividers>
           {selectedCassetteForStatus && (
@@ -358,7 +539,6 @@ const CassetteManagementPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Диалог истории статусов */}
       <Dialog open={openHistoryDialog} onClose={handleCloseHistoryDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           История статусов кассеты {selectedCassetteForHistory}
@@ -403,6 +583,314 @@ const CassetteManagementPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseHistoryDialog} startIcon={<CloseIcon />}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openSheetsDialog} onClose={handleCloseSheetsDialog} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          Управление листами кассеты {selectedCassetteForSheets?.cassetteId}
+        </DialogTitle>
+        <DialogContent dividers>
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Box display="flex" flexDirection="column" gap={2} minHeight="400px">
+              {/* Фильтры для доступных листов */}
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Фильтры доступных листов
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="ID"
+                        value={availableSheetsFilters.matIdFilter}
+                        onChange={(e) => handleFilterChange('matIdFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.matIdFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('matIdFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="Плавка"
+                        value={availableSheetsFilters.meltNumberFilter}
+                        onChange={(e) => handleFilterChange('meltNumberFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.meltNumberFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('meltNumberFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="Партия"
+                        value={availableSheetsFilters.batchNumberFilter}
+                        onChange={(e) => handleFilterChange('batchNumberFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.batchNumberFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('batchNumberFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="Пачка"
+                        value={availableSheetsFilters.packNumberFilter}
+                        onChange={(e) => handleFilterChange('packNumberFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.packNumberFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('packNumberFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="Марка стали"
+                        value={availableSheetsFilters.steelGradeFilter}
+                        onChange={(e) => handleFilterChange('steelGradeFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.steelGradeFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('steelGradeFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="Размер листа"
+                        value={availableSheetsFilters.sheetDimensionsFilter}
+                        onChange={(e) => handleFilterChange('sheetDimensionsFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.sheetDimensionsFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('sheetDimensionsFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <TextField
+                        fullWidth
+                        label="№ Листа"
+                        value={availableSheetsFilters.sheetNumberFilter}
+                        onChange={(e) => handleFilterChange('sheetNumberFilter', e.target.value)}
+                        size="small"
+                        InputProps={{
+                          endAdornment: availableSheetsFilters.sheetNumberFilter ? (
+                            <InputAdornment position="end">
+                              <MuiIconButton onClick={() => handleFilterChange('sheetNumberFilter', '')} size="small">
+                                <ClearIcon />
+                              </MuiIconButton>
+                            </InputAdornment>
+                          ) : null,
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<ClearIcon />}
+                        onClick={handleClearFilters}
+                        fullWidth
+                      >
+                        Сбросить
+                      </Button>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <Button
+                        variant="contained"
+                        onClick={() => fetchAvailableSheets(availableSheets.page)} // Применить фильтры к текущей странице
+                        fullWidth
+                      >
+                        Применить
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+
+              {/* Основной контент с двумя списками */}
+              <Box display="flex" gap={2} flex={1}>
+                <Card sx={{ flex: 1, minWidth: 300 }}>
+                  <CardHeader
+  title={`Доступные листы (${availableSheets.totalCount})`} // <-- Обратные апострофы
+  subheader={`Стр. ${availableSheets.page} из ${availableSheets.totalPages}`}
+  sx={{ pb: 0 }}
+/>
+                  <CardContent sx={{ p: 1, height: '100%' }}>
+                    {loadingAvailable ? (
+                      <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                        <CircularProgress size={24} />
+                      </Box>
+                    ) : (
+                      <Droppable droppableId="available-sheets-list">
+                        {(provided) => (
+                          <List
+                            {...provided.droppableProps}
+                            ref={provided.innerRef}
+                            dense
+                            sx={{ maxHeight: 400, overflow: 'auto', bgcolor: 'background.paper' }}
+                          >
+                            {availableSheets.data.map((sheet, index) => (
+                              <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
+                                {(provided) => (
+                                  <ListItem
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                    secondaryAction={
+                                      <Tooltip title="Добавить в кассету">
+                                        <IconButton edge="end" aria-label="add" size="small" onClick={() => handleAddSheetToCassette(sheet.matId)}>
+                                          <AddIcon />
+                                        </IconButton>
+                                      </Tooltip>
+                                    }
+                                  >
+                                    <ListItemText
+                                      primary={
+                                        <Typography variant="body2">
+                                          <strong>ID:</strong> {sheet.matId} <br />
+                                          <strong>Плавка:</strong> {sheet.meltNumber} <br />
+                                          <strong>Партия:</strong> {sheet.batchNumber} <br />
+                                          <strong>Пачка:</strong> {sheet.packNumber} <br />
+                                          <strong>Марка стали:</strong> {sheet.steelGrade} <br />
+                                          <strong>Размер листа:</strong> {sheet.sheetDimensions} <br />
+                                          <strong>№ Листа:</strong> {sheet.sheetNumber}
+                                        </Typography>
+                                      }
+                                    />
+                                  </ListItem>
+                                )}
+                              </Draggable>
+                            ))}
+                            {provided.placeholder}
+                          </List>
+                        )}
+                      </Droppable>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card sx={{ flex: 1, minWidth: 300 }}>
+                  <CardHeader
+                    title={`Листы в кассете (${linkedSheets.length})`}
+                    subheader={`Кассета: ${selectedCassetteForSheets?.cassetteId}`}
+                    sx={{ pb: 0 }}
+                  />
+                  <CardContent sx={{ p: 1, height: '100%' }}>
+                    {loadingLinked ? (
+                      <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                        <CircularProgress size={24} />
+                      </Box>
+                    ) : (
+                      <Droppable droppableId="linked-sheets-list">
+                        {(provided) => (
+                          <List
+                            {...provided.droppableProps}
+                            ref={provided.innerRef}
+                            dense
+                            sx={{ maxHeight: 400, overflow: 'auto', bgcolor: 'background.paper' }}
+                          >
+                            {linkedSheets.map((sheet, index) => (
+                              <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
+                                {(provided) => (
+                                  <ListItem
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                    secondaryAction={
+                                      <Tooltip title="Удалить из кассеты">
+                                        <IconButton edge="end" aria-label="delete" size="small" onClick={() => handleRemoveSheetFromCassette(sheet.matId)}>
+                                          <DeleteIcon />
+                                        </IconButton>
+                                      </Tooltip>
+                                    }
+                                  >
+                                    <ListItemText
+                                      primary={
+                                        <Typography variant="body2">
+                                          <strong>ID:</strong> {sheet.matId} <br />
+                                          <strong>Плавка:</strong> {sheet.meltNumber} <br />
+                                          <strong>Партия:</strong> {sheet.batchNumber} <br />
+                                          <strong>Пачка:</strong> {sheet.packNumber} <br />
+                                          <strong>Марка стали:</strong> {sheet.steelGrade} <br />
+                                          <strong>Размер листа:</strong> {sheet.sheetDimensions} <br />
+                                          <strong>№ Листа:</strong> {sheet.sheetNumber}
+                                        </Typography>
+                                      }
+                                    />
+                                  </ListItem>
+                                )}
+                              </Draggable>
+                            ))}
+                            {provided.placeholder}
+                          </List>
+                        )}
+                      </Droppable>
+                    )}
+                  </CardContent>
+                </Card>
+              </Box>
+
+              {/* Пагинация для доступных листов */}
+              {availableSheets.totalPages > 1 && (
+                <Box display="flex" justifyContent="center" mt={2}>
+                  <Pagination
+                    count={availableSheets.totalPages}
+                    page={availableSheets.page}
+                    onChange={handlePageChange}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </Box>
+          </DragDropContext>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseSheetsDialog} startIcon={<CloseIcon />}>
             Закрыть
           </Button>
         </DialogActions>

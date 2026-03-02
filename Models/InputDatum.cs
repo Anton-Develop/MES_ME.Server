@@ -178,7 +178,7 @@
             public decimal? PostShipDiff { get; set; }
 
         // Навигационное свойство для связи с кассетой (опционально)
-        public virtual SheetCassetteLink? SheetCassetteLink { get; set; }
+       // public virtual SheetCassetteLink? SheetCassetteLink { get; set; }
     }
     }
 

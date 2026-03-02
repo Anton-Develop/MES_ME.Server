@@ -29,7 +29,7 @@ namespace MES_ME.Server.Models
         public string? AssignedBy { get; set; } // Кто добавил
 
         // Навигационные свойства (опционально, если планируете использовать)
-        // public virtual InputDatum? Sheet { get; set; }
-        // public virtual Cassette? Cassette { get; set; }
+         public virtual InputDatum? Sheet { get; set; }
+         public virtual Cassette? Cassette { get; set; }
     }
 }

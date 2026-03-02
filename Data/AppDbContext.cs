@@ -1,5 +1,4 @@
 ﻿using MES_ME.Server.Models;
-using MES_ME.Server.Models;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +25,28 @@ namespace MES_ME.Server.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+             base.OnModelCreating(modelBuilder);
+
+            // Настройка связи SheetCassetteLink -> InputDatum (Many-to-One)
+            modelBuilder.Entity<SheetCassetteLink>()
+                .HasOne(scl => scl.Sheet) // У SheetCassetteLink есть свойство Sheet
+                .WithMany()               // У InputDatum НЕТ свойства, указывающего на список связей
+                .HasForeignKey(scl => scl.MatId) // Внешний ключ в SheetCassetteLink
+                .OnDelete(DeleteBehavior.Cascade); // При удалении InputDatum - удаляется связь
+
+            // Настройка связи SheetCassetteLink -> Cassette (Many-to-One)
+            modelBuilder.Entity<SheetCassetteLink>()
+                .HasOne(scl => scl.Cassette) // У SheetCassetteLink есть свойство Cassette
+                .WithMany(c => c.LinkedSheets) // У Cassette есть свойство LinkedSheets
+                .HasForeignKey(scl => scl.CassetteId) // Внешний ключ в SheetCassetteLink
+                .OnDelete(DeleteBehavior.Cascade); // При удалении Cassette - удаляются связи
+
+            // Убедимся, что UNIQUE ограничение на matid в sheet_cassette_links задано
+            modelBuilder.Entity<SheetCassetteLink>()
+                .HasIndex(scl => scl.MatId)
+                .IsUnique();
+
+
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
                 .IsUnique();
