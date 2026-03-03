@@ -34,6 +34,12 @@ const drawerWidth = 240;
 // Определяем структуру меню здесь
 const menuItems = [
   {
+    text: 'План закалки 2',
+    icon: <CalendarTodayIcon />,
+    link: '/annealing-batch-plan',
+    roles: ['master', 'operator', 'developer', 'superadmin'],
+  },
+  {
     text: 'План закалки',
     icon: <CalendarTodayIcon />,
     link: '/annealing-schedule',

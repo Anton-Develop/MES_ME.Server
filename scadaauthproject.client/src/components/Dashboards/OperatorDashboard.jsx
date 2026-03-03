@@ -3,14 +3,16 @@ import React from 'react';
 import { Container, Paper, Typography, Grid, Card, CardContent, Button } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { CalendarToday as CalendarTodayIcon, UploadFile as UploadFileIcon, TableChart as TableChartIcon } from '@mui/icons-material';
+import AssignmentIcon from '@mui/icons-material/Assignment'; 
 
 const OperatorDashboard = () => {
   const navigate = useNavigate();
 
   const operatorActions = [
-    { text: 'План закалки', icon: <CalendarTodayIcon />, route: '/annealing-schedule', role: 'operator' },
-    { text: 'Просмотр входных данных', icon: <TableChartIcon />, route: '/input-data', role: 'operator' },
-    { text: 'Импорт данных', icon: <UploadFileIcon />, route: '/import', role: 'operator' },
+     { text: 'План закалки ', icon: <AssignmentIcon />, route: '/annealing-batch-plan', role: 'operator' },
+   // { text: 'План закалки', icon: <CalendarTodayIcon />, route: '/annealing-schedule', role: 'operator' },
+   // { text: 'Просмотр входных данных', icon: <TableChartIcon />, route: '/input-data', role: 'operator' },
+    //{ text: 'Импорт данных', icon: <UploadFileIcon />, route: '/import', role: 'operator' },
   ];
 
   return (

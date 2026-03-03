@@ -8,6 +8,7 @@ const DeveloperDashboard = () => {
   const navigate = useNavigate();
 
   const devActions = [
+    { text: 'План закалки 2', icon: <AssignmentIcon />, route: '/annealing-batch-plan', role: 'developer' },
     { text: 'План закалки', icon: <CalendarTodayIcon />, route: '/annealing-schedule', role: 'developer' },
     { text: 'Управление кассетами', icon: <InventoryIcon />, route: '/cassette-management', role: 'developer' },
     { text: 'Входные данные', icon: <TableChartIcon />, route: '/input-data', role: 'developer' },

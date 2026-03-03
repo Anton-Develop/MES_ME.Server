@@ -3,11 +3,13 @@ import React from 'react';
 import { Container, Paper, Typography, Grid, Card, CardContent, Button } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { CalendarToday as CalendarTodayIcon, Inventory as InventoryIcon, TableChart as TableChartIcon } from '@mui/icons-material';
+import AssignmentIcon from '@mui/icons-material/Assignment'; 
 
 const MasterDashboard = () => {
   const navigate = useNavigate();
 
   const masterActions = [
+    { text: 'План закалки 2', icon: <AssignmentIcon />, route: '/annealing-batch-plan', role: 'master' },
     { text: 'План закалки', icon: <CalendarTodayIcon />, route: '/annealing-schedule', role: 'master' },
     { text: 'Управление кассетами', icon: <InventoryIcon />, route: '/cassette-management', role: 'master' },
     { text: 'Просмотр входных данных', icon: <TableChartIcon />, route: '/input-data', role: 'master' },

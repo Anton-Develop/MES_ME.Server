@@ -113,7 +113,7 @@ const AnnealingSchedulePage = () => {
       // Убираем пустые фильтры из параметров
       Object.keys(params).forEach(key => (params[key] === '' || params[key] === null) && delete params[key]);
 
-      const response = await api.get('/annealing-schedule', { params });
+      const response = await api.get('/annealingschedule', { params });
       setSchedules(response.data.data);
       setTotalCount(response.data.totalCount);
     } catch (err) {
@@ -213,7 +213,7 @@ const AnnealingSchedulePage = () => {
     setIsCreating(true);
     setError('');
     try {
-      await api.post('/annealing-schedule', newScheduleData);
+      await api.post('/annealingschedule', newScheduleData);
       handleCloseCreateDialog();
       fetchSchedules(); // Обновить список
       alert('Запись плана закалки создана успешно.');
@@ -254,7 +254,7 @@ const AnnealingSchedulePage = () => {
     setIsUpdating(true);
     setError('');
     try {
-      await api.put(`/annealing-schedule/${scheduleToUpdate.annealingPlanId}/execute`, updateStatusData);
+      await api.put(`/annealingschedule/${scheduleToUpdate.annealingPlanId}/execute`, updateStatusData);
       handleCloseUpdateDialog();
       fetchSchedules(); // Обновить список
       alert(`Статус выполнения для листа ${scheduleToUpdate.matId} обновлён.`);
@@ -286,7 +286,7 @@ const AnnealingSchedulePage = () => {
     setIsDeleting(true);
     setError('');
     try {
-      await api.delete(`/annealing-schedule/${scheduleToDelete.annealingPlanId}`);
+      await api.delete(`/annealingschedule/${scheduleToDelete.annealingPlanId}`);
       handleCloseDeleteDialog();
       fetchSchedules(); // Обновить список
       alert(`Запись плана закалки для листа ${scheduleToDelete.matId} удалена.`);

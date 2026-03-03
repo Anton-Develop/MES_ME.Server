@@ -16,6 +16,7 @@ import RolesManager from './components/RolesManager';
 import RolePermissionsManager from './components/RolePermissionsManager';
 import ImportPage from './pages/ImportPage';
 import InputDataView from './pages/InputDataView';
+import AnnealingBatchPlanPage from './pages/AnnealingBatchPlanPage';
 
 // Импорт общего макета
 import MainLayout from './components/MainLayout'; // <-- Новый компонент макета
@@ -52,6 +53,7 @@ const AppContent = () => {
           <Route path="/input-data" element={<MainLayout><InputDataView /></MainLayout>} />
           <Route path="/cassette-management" element={<MainLayout><CassetteManagementPage /></MainLayout>} />
           <Route path="/annealing-schedule" element={<MainLayout><AnnealingSchedulePage /></MainLayout>} />
+          <Route path="/annealing-batch-plan" element={<MainLayout><AnnealingBatchPlanPage /></MainLayout>} />
           {/* Добавьте другие защищенные маршруты аналогично */}
       
         {/* Редирект на главную для любых других неопределенных маршрутов после логина */}

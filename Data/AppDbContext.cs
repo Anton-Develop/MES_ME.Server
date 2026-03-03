@@ -23,10 +23,26 @@ namespace MES_ME.Server.Data
         public DbSet<CassetteStatusLog> CassetteStatusLogs { get; set; } // Добавляем DbSet для лога
         public DbSet<SheetCassetteLink> SheetCassetteLinks { get; set; }
         public DbSet<AnnealingSchedule> AnnealingSchedules { get; set; }
+        public DbSet<AnnealingBatchPlan> AnnealingBatchPlans { get; set; }
+        public DbSet<AnnealingBatchPlanSheet> AnnealingBatchPlanSheets { get; set; } 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
              base.OnModelCreating(modelBuilder);
+ // Настройка связи AnnealingBatchPlanSheet -> AnnealingBatchPlan (Many-to-One)
+            modelBuilder.Entity<AnnealingBatchPlanSheet>()
+                .HasOne(s => s.BatchPlan) // У AnnealingBatchPlanSheet есть свойство BatchPlan
+                .WithMany(bp => bp.LinkedSheets) // У AnnealingBatchPlan есть свойство LinkedSheets
+                .HasForeignKey(s => s.PlanId) // Внешний ключ в AnnealingBatchPlanSheet
+                .OnDelete(DeleteBehavior.Cascade); // При удалении плана - удаляются связи
+
+            // Настройка связи AnnealingBatchPlanSheet -> InputDatum (Many-to-One)
+            modelBuilder.Entity<AnnealingBatchPlanSheet>()
+                .HasOne(s => s.Sheet) // У AnnealingBatchPlanSheet есть свойство Sheet
+                .WithMany()          // У InputDatum НЕТ свойства, указывающего на список связей
+                .HasForeignKey(s => s.MatId) // Внешний ключ в AnnealingBatchPlanSheet
+                .OnDelete(DeleteBehavior.Cascade); // При удалении InputDatum - удаляется связь
+
             // Настройка связи AnnealingSchedule -> InputDatum (Many-to-One)
             modelBuilder.Entity<AnnealingSchedule>()
                 .HasOne(s => s.Sheet) // У AnnealingSchedule есть свойство Sheet (если добавлено)

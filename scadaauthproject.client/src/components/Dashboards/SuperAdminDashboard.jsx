@@ -8,6 +8,7 @@ const SuperAdminDashboard = () => {
   const navigate = useNavigate();
 
   const quickActions = [
+    { text: 'План закалки 2', icon: <AssignmentIcon />, route: '/annealing-batch-plan', role: 'superadmin' },
     { text: 'План закалки', icon: <CalendarTodayIcon />, route: '/annealing-schedule', role: 'superadmin' },
     { text: 'Управление кассетами', icon: <InventoryIcon />, route: '/cassette-management', role: 'superadmin' },
     { text: 'Входные данные', icon: <CalendarTodayIcon />, route: '/input-data', role: 'superadmin' }, // Используем иконку для данных
