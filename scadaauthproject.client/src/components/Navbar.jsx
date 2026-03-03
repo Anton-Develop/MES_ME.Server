@@ -1,75 +1,57 @@
-// src/components/Navbar.jsx (обновлённый пример)
+// src/components/Navbar.jsx
 import React from 'react';
-import { AppBar, Toolbar, Typography, Box, Button } from '@mui/material';
+import { AppBar, Toolbar, Typography, Box, Button, IconButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext'; // Нужен для получения user
+import MenuIcon from '@mui/icons-material/Menu'; // Импортируем иконку меню
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
-const Navbar = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+// Принимаем toggleSidebar и onLogout как пропсы
+const Navbar = ({ toggleSidebar, onLogout }) => {
+  const { user } = useAuth(); // Получаем user из контекста
+  const navigate = useNavigate(); // useNavigate нужен для других действий, если потребуется
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
-  // Определяем, какие ссылки показывать всем, а какие только определённым ролям
-  const isAdminOrDev = user && ['superadmin', 'developer'].includes(user.role);
-  const canImport = user && ['superadmin', 'operator'].includes(user.role);
+  // Проверяем, какие действия доступны пользователю (например, профиль)
+  // const canAccessProfile = user; // Пока просто если залогинен
 
   return (
-    <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}> {/* Увеличиваем z-index AppBar */}
+    <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
       <Toolbar>
+        {/* Кнопка для открытия Sidebar */}
+        <IconButton
+          color="inherit"
+          aria-label="open drawer"
+          onClick={toggleSidebar} // Вызываем переданную функцию
+          edge="start"
+          sx={{ mr: 2 }}
+        >
+          <MenuIcon />
+        </IconButton>
         <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
           МеталлЭнерго
         </Typography>
         {user ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton
+              color="inherit"
+              aria-label="profile"
+              // onClick={() => navigate('/profile')} // Если будет страница профиля
+              edge="end"
+              size="large"
+            >
+              <AccountCircleIcon />
+            </IconButton>
             <Typography variant="body2" sx={{ mr: 2 }}>
               {user.username} ({user.role})
             </Typography>
-
-            {/* Основные ссылки */}
-            <Button color="inherit" onClick={() => navigate('/')}>
-              Главная
-            </Button>
-
-            {/* Ссылка на импорт, если разрешена */}
-            {canImport && (
-              <Button color="inherit" onClick={() => navigate('/import')}>
-                Импорт Excel
-              </Button>
-            )}
-			
-			{user && (['superadmin','developer','master', 'operator'].includes(user.role)) && ( // Показываем только для master и operator
-    <Button color="inherit" onClick={() => navigate('/annealing-schedule')}>
-        План закалки
-    </Button>
-)}
-
-			{user && (['superadmin','developer', 'master'].includes(user.role)) && ( // Показываем только для admin и master
-			<Button color="inherit" onClick={() => navigate('/cassette-management')}>
-				Управление кассетами
-			</Button>
-	
-			
-)}
-            {/* Кнопка открытия бокового меню для админов/разработчиков */}
-            {isAdminOrDev && (
-              <Button color="inherit" onClick={() => navigate('/')}>
-                Админ-панель
-              </Button>
-              // ВАЖНО: На практике, переход по '/' откроет Dashboard, где уже есть кнопка меню.
-              // Поэтому, возможно, эту кнопку стоит убрать или оставить просто иконку меню внутри Dashboard, как сделано выше.
-              // Цель - показать, что доступна специальная панель.
-              // Лучше оставить кнопку в Dashboard и убрать отсюда.
-            )}
-
-            <Button color="inherit" onClick={handleLogout}>
+            {/* Используем переданную функцию выхода */}
+            <Button color="inherit" onClick={onLogout}>
               Выйти
             </Button>
           </Box>
         ) : (
+          // Этот случай вряд ли произойдёт на MainLayout, так как он защищён ProtectedRoute
+          // Но если вдруг, показываем кнопку входа
           <Button color="inherit" onClick={() => navigate('/login')}>
             Войти
           </Button>

@@ -1,11 +1,11 @@
+// src/pages/Dashboard.jsx (Опционально, если нужна обертка)
 import React, { useState } from 'react';
-import { Box, Container, Typography, AppBar, Toolbar, IconButton, CssBaseline, CircularProgress } from '@mui/material';
-import MenuIcon from '@mui/icons-material/Menu';
-import { useAuth } from '../context/AuthContext';
+import { Box, CssBaseline } from '@mui/material';
+import Navbar from '../components/Navbar';
 import AdminSidebar from '../components/AdminSidebar';
+import { Outlet } from 'react-router-dom'; // Используем Outlet для рендеринга дочерних маршрутов
 
-const Dashboard = () => {
-  const { user, loading } = useAuth();
+const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const toggleDrawer = (open) => (event) => {
@@ -15,68 +15,38 @@ const Dashboard = () => {
     setSidebarOpen(open);
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  const showSidebar = user && ['superadmin', 'developer'].includes(user.role);
-
   return (
-  
     <Box sx={{ display: 'flex' }}>
       <CssBaseline />
-      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-        <Toolbar>
-          {showSidebar && (
-            <IconButton
-              color="inherit"
-              edge="start"
-              onClick={toggleDrawer(!sidebarOpen)}
-              sx={{ mr: 2, ...(sidebarOpen && { display: 'none' }) }}
-            >
-              <MenuIcon />
-            </IconButton>
-          )}
-          <Typography variant="h6" noWrap component="div">
-            Dashboard
-          </Typography>
-        </Toolbar>
-      </AppBar>
-
-      {showSidebar && <AdminSidebar open={sidebarOpen} toggleDrawer={toggleDrawer} />}
-		
-		
-		
+      <Navbar />
+      <AdminSidebar open={sidebarOpen} toggleDrawer={toggleDrawer} />
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           p: 3,
-          marginLeft: showSidebar && sidebarOpen ? '240px' : 0,
+          marginTop: '64px', // Компенсируем высоту AppBar
+          marginLeft: sidebarOpen ? '240px' : '0px', // Компенсируем ширину Sidebar
           transition: (theme) =>
-            theme.transitions.create('margin-left', {
+            theme.transitions.create(['margin-left'], {
               easing: theme.transitions.easing.sharp,
               duration: theme.transitions.duration.leavingScreen,
             }),
+          ...(sidebarOpen && {
+            marginLeft: '240px',
+            transition: (theme) =>
+              theme.transitions.create(['margin-left'], {
+                easing: theme.transitions.easing.easeOut,
+                duration: theme.transitions.duration.enteringScreen,
+              }),
+          }),
         }}
       >
-        <Toolbar />
-        <Container maxWidth="lg">
-          <Typography variant="h4" gutterBottom>
-            Добро пожаловать, {user?.username} ({user?.role})!
-          </Typography>
-          <Typography variant="body1">
-            Это главная панель управления. Здесь отображаются ключевые метрики и действия.
-          </Typography>
-        </Container>
+        {/* Outlet рендерит соответствующий дашборд или другую страницу */}
+        <Outlet />
       </Box>
     </Box>
-	
   );
 };
 
-export default Dashboard;
+export default DashboardLayout;

@@ -1,93 +1,76 @@
+// src/App.jsx
 import React from 'react';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { CssBaseline, ThemeProvider } from '@mui/material';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import theme from './theme';
 import ProtectedRoute from './components/ProtectedRoute';
-import Navbar from './components/Navbar';
 import Login from './components/Login';
 import Register from './components/Register';
-import Dashboard from './components/Dashboard';
+
+// Импорт страниц
+import AnnealingSchedulePage from './pages/AnnealingSchedulePage';
+import CassetteManagementPage from './pages/CassetteManagementPage';
 import UsersList from './components/UsersList';
 import RolesManager from './components/RolesManager';
 import RolePermissionsManager from './components/RolePermissionsManager';
 import ImportPage from './pages/ImportPage';
 import InputDataView from './pages/InputDataView';
-import CassetteManagementPage from './pages/CassetteManagementPage'; 
-import AnnealingSchedulePage from './pages/AnnealingSchedulePage';
 
-const theme = createTheme({
-  palette: {
-    primary: { main: '#1976d2' },
-    secondary: { main: '#dc004e' },
-  },
-});
+// Импорт общего макета
+import MainLayout from './components/MainLayout'; // <-- Новый компонент макета
+
+
 
 const AppContent = () => {
+  const { user, loading } = useAuth(); // Проверим, можно ли вызвать useAuth здесь
+
+  if (loading) {
+    return <div>App Loading...</div>; // Показываем, если идет загрузка в App
+  }
   return (
-    <Router>
-      <>
-        <Navbar />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+    
+    <>
+      <CssBaseline />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        {/* Все защищенные маршруты оборачиваются в MainLayout */}
+        
           <Route path="/" element={
-            <ProtectedRoute allowedRoles={['master', 'operator', 'developer', 'superadmin']}>
-              <Dashboard />
-            </ProtectedRoute>
+            // Главная страница теперь тоже использует MainLayout
+            // Внутри MainLayout будет определено, что рендерить: дашборд или ничего (если не /)
+            <MainLayout>
+              {/* Пустой компонент или дашборд будет отрендерен внутри MainLayout */}
+              {/* <DashboardRedirector /> */}
+            </MainLayout>
           } />
-          <Route path="/users" element={
-            <ProtectedRoute allowedRoles={['superadmin', 'developer']}>
-              <UsersList />
-            </ProtectedRoute>
-          } />
-		  <Route path="/cassette-management" element={ // Новый маршрут
-            <ProtectedRoute allowedRoles={['master', 'operator', 'developer', 'superadmin']}>
-              <CassetteManagementPage />
-            </ProtectedRoute>
-          } />
-		  <Route path="/annealing-schedule" element={
-  <ProtectedRoute allowedRoles={['master', 'operator', 'developer', 'superadmin']}> {/* Уточните роли */}
-    <AnnealingSchedulePage />
-  </ProtectedRoute>
-} />
-          <Route path="/roles" element={
-            <ProtectedRoute allowedRoles={['superadmin', 'developer']}>
-              <RolesManager />
-            </ProtectedRoute>
-          } />
-		    <Route path="/import" element={
-            <ProtectedRoute allowedRoles={['superadmin', 'developer']}>
-              <ImportPage />
-            </ProtectedRoute>
-          } />
-		  <Route path="/input-data-view" element={ // Новый маршрут
-            <ProtectedRoute allowedRoles={['superadmin', 'developer']}>
-              <InputDataView />
-            </ProtectedRoute>
-          } />
-		  <Route path="/role-permissions" element={
-			<ProtectedRoute allowedRoles={['superadmin', 'developer']}>
-				<RolePermissionsManager />
-			</ProtectedRoute>
-			} />
-          <Route path="/unauthorized" element={<div style={{ padding: '20px', textAlign: 'center' }}>Доступ запрещён</div>} />
-          <Route path="*" element={<Navigate to="/login" />} />
-        </Routes>
-      </>
-    </Router>
+          <Route path="/users" element={<MainLayout><UsersList /></MainLayout>} />
+          <Route path="/roles" element={<MainLayout><RolesManager /></MainLayout>} />
+          <Route path="/permissions" element={<MainLayout><RolePermissionsManager /></MainLayout>} />
+          <Route path="/import" element={<MainLayout><ImportPage /></MainLayout>} />
+          <Route path="/input-data" element={<MainLayout><InputDataView /></MainLayout>} />
+          <Route path="/cassette-management" element={<MainLayout><CassetteManagementPage /></MainLayout>} />
+          <Route path="/annealing-schedule" element={<MainLayout><AnnealingSchedulePage /></MainLayout>} />
+          {/* Добавьте другие защищенные маршруты аналогично */}
+      
+        {/* Редирект на главную для любых других неопределенных маршрутов после логина */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 };
 
-const App = () => {
+function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider theme={theme}>
+        <Router>
+          <AppContent />
+        </Router>
+      </ThemeProvider>
+    </AuthProvider>
   );
-};
+}
 
 export default App;
