@@ -46,7 +46,6 @@ import {
   Save as SaveIcon,
   Close as CloseIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon,
   CheckCircle as CheckCircleIcon,
   Clear as ClearIcon,
   ExpandMore as ExpandMoreIcon,
