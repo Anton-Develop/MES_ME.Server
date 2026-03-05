@@ -280,5 +280,61 @@ namespace MES_ME.Server.Controllers
 
             return NoContent(); // 204 No Content
         }
+        [HttpGet("report")]
+public async Task<IActionResult> GetAnnealingReport(
+    [FromQuery] DateTime? dateFrom,
+    [FromQuery] DateTime? dateTo,
+    [FromQuery] string? statusFilter = null,
+    [FromQuery] string? furnaceNumberFilter = null)
+{
+    var query = _context.AnnealingBatchPlans
+        .Include(bp => bp.LinkedSheets)
+        .ThenInclude(ls => ls.Sheet)
+        .AsQueryable();
+
+    // Фильтрация по датам (берем Planned Start Time как основную дату графика)
+    if (dateFrom.HasValue)
+    {
+        query = query.Where(bp => bp.ScheduledStartTime >= dateFrom.Value);
+    }
+    if (dateTo.HasValue)
+    {
+        // Добавляем 1 день, чтобы включить всю дату "до"
+        query = query.Where(bp => bp.ScheduledStartTime <= dateTo.Value.AddDays(1).AddTicks(-1));
+    }
+
+    if (!string.IsNullOrEmpty(statusFilter))
+    {
+        query = query.Where(bp => bp.Status.Contains(statusFilter));
+    }
+
+    if (!string.IsNullOrEmpty(furnaceNumberFilter))
+    {
+        query = query.Where(bp => bp.FurnaceNumber.Contains(furnaceNumberFilter));
+    }
+
+    // Сортировка по времени начала
+    query = query.OrderBy(bp => bp.ScheduledStartTime);
+
+    var data = await query.ToListAsync();
+
+    var reportData = data.Select(bp => new AnnealingReportItem
+    {
+        PlanId = bp.PlanId,
+        PlanName = bp.PlanName,
+        Status = bp.Status,
+        FurnaceNumber = bp.FurnaceNumber,
+        ScheduledStartTime = bp.ScheduledStartTime,
+        ScheduledEndTime = bp.ScheduledEndTime,
+        ActualStartTime = bp.ActualStartTime,
+        ActualEndTime = bp.ActualEndTime,
+        Notes = bp.Notes,
+        SheetsCount = bp.LinkedSheets.Count,
+      //  TotalWeightKg = bp.LinkedSheets.Sum(ls => ls.Sheet != null ? ls.Sheet.ActualNetWeightKg : 0),
+        SheetDetails = string.Join(", ", bp.LinkedSheets.Take(5).Select(ls => ls.MatId)) + (bp.LinkedSheets.Count > 5 ? "..." : "")
+    }).ToList();
+
+    return Ok(reportData);
+}
     }
 }

@@ -39,7 +39,12 @@ const menuItems = [
     link: '/annealing-batch-plan',
     roles: ['master', 'operator', 'developer', 'superadmin'],
   },
-  
+   {
+    text: 'Отчет закалки',
+    icon: <CalendarTodayIcon />,
+    link: '/reports/annealing',
+    roles: ['master', 'operator', 'developer', 'superadmin'],
+  },
   {
     text: 'Управление кассетами',
     icon: <InventoryIcon />,

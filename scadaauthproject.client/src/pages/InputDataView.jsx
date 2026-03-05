@@ -36,9 +36,15 @@ const InputDataView = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  
+  // ИСПРАВЛЕНИЕ 1: Используем единый объект модели пагинации
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0, // DataGrid использует 0-based индексацию (0, 1, 2...)
+    pageSize: 10,
+  });
+
   const [sortModel, setSortModel] = useState([{ field: 'matid', sort: 'asc' }]);
+  
   const [filterModel, setFilterModel] = useState({
     matid: '',
     status: '',
@@ -80,9 +86,17 @@ const InputDataView = () => {
     setLoading(true);
     setError('');
     try {
+      // Преобразуем 0-based page из DataGrid в 1-based page для вашего API
+      const apiPage = paginationModel.page + 1; 
+      const apiPageSize = paginationModel.pageSize;
+
+      const [sortField, sortOrder] = sortModel.length > 0 
+        ? [sortModel[0].field, sortModel[0].sort] 
+        : ['matid', 'asc'];
+
       const params = {
-        page,
-        pageSize,
+        page: apiPage,
+        pageSize: apiPageSize,
         sortField,
         sortOrder,
         matidFilter: filterModel.matid,
@@ -96,7 +110,7 @@ const InputDataView = () => {
       };
 
       const response = await api.get('/inputdata', { params });
-	  //console.log(response);
+      
       setData(response.data.data || []);
       setTotalCount(response.data.totalCount || 0);
     } catch (err) {
@@ -109,33 +123,29 @@ const InputDataView = () => {
 
   useEffect(() => {
     fetchData();
-  }, [page, pageSize, sortField, sortOrder]); // Убрали filterModel из зависимостей
+    // Теперь данные будут грузиться при изменении страницы, размера страницы, сортировки ИЛИ фильтров
+  }, [paginationModel, sortModel, filterModel]); 
 
-  // Обработчики изменения фильтров
+  // Обработчики фильтров
   const handleFilterChange = (field, value) => {
     setFilterModel(prev => ({ ...prev, [field]: value }));
+    // Примечание: Сброс страницы на 0 произойдет автоматически в handleSearch или можно сделать здесь,
+    // но лучше явно сбрасывать при нажатии "Найти", чтобы избежать лишних запросов при вводе текста.
   };
 
-  // Обработчик сброса фильтров
   const handleClearFilters = () => {
     setFilterModel({
-      matid: '',
-      status: '',
-      meltNumber: '',
-      batchNumber: '',
-      packNumber: '',
-      sheetNumber: '',
-      rollDateFrom: null,
-      rollDateTo: null,
+      matid: '', status: '', meltNumber: '', batchNumber: '',
+      packNumber: '', sheetNumber: '', rollDateFrom: null, rollDateTo: null,
     });
-    setPage(1);
-    fetchData();
+    setPaginationModel(prev => ({ ...prev, page: 0 })); // Сброс на первую страницу
+    // fetchData вызвется через useEffect из-за изменения filterModel
   };
 
-  // Обработчик поиска (применения фильтров)
   const handleSearch = () => {
-    setPage(1);
-    fetchData();
+    // При явном поиске сбрасываем на первую страницу
+    setPaginationModel(prev => ({ ...prev, page: 0 }));
+    // fetchData вызвется через useEffect из-за изменения paginationModel.page
   };
 
   // Вспомогательная функция для безопасного форматирования даты
@@ -603,17 +613,24 @@ const InputDataView = () => {
   return `row-${row.sheetNumber || ''}-${row.batchNumber || ''}-${Math.random()}`;
 }}
               rowCount={totalCount}
-              pagination
-              page={page - 1}
-              onPageChange={(newPage) => setPage(newPage + 1)}
-              pageSize={pageSize}
-              onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
               paginationMode="server"
               sortingMode="server"
+              
+              // Передаем модель и обработчик изменения
+              paginationModel={paginationModel}
+              onPaginationModelChange={setPaginationModel}
+              
+              sortModel={sortModel}
               onSortModelChange={setSortModel}
+              
               loading={loading}
-              rowsPerPageOptions={[10, 25, 50, 100]}
+              pageSizeOptions={[10, 25, 50, 100]} // Новое имя пропа вместо rowsPerPageOptions
               disableSelectionOnClick
+              localeText={{
+                noRowsLabel: 'Нет данных',
+                footerRowSelected: (count) => `${count} строк выбрано`,
+                footerTotalRows: (total) => `Всего строк: ${total}`,
+              }}
             />
           </Box>
         )}
