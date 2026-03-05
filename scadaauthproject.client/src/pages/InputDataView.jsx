@@ -15,6 +15,11 @@ import {
   CircularProgress,
   InputAdornment,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -22,6 +27,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DataGrid } from '@mui/x-data-grid';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import EditIcon from '@mui/icons-material/Edit';
 import dayjs from 'dayjs';
 import api from '../api';
 
@@ -43,6 +49,23 @@ const InputDataView = () => {
     rollDateFrom: null,
     rollDateTo: null,
   });
+
+  // --- НОВЫЕ СОСТОЯНИЯ ДЛЯ ДИАЛОГА ИЗМЕНЕНИЯ СТАТУСА ---
+  const [openStatusDialog, setOpenStatusDialog] = useState(false);
+  const [selectedSheetForStatusChange, setSelectedSheetForStatusChange] = useState(null);
+  const [newStatus, setNewStatus] = useState('');
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [statusError, setStatusError] = useState('');
+
+  // Возможные статусы
+  const possibleStatuses = [
+    'Подготовлен к прокату',
+    'Прошел закалку',
+    'Добавлен в кассету',
+    'Прошел отпуск',
+    'Недокат',
+    'Чистый выброс',
+  ];
 
   // Преобразование sortModel в параметры для API
   const [sortField, sortOrder] = useMemo(() => {
@@ -135,8 +158,67 @@ const InputDataView = () => {
     }
   };
 
+  // --- НОВЫЕ ОБРАБОТЧИКИ ДЛЯ ДИАЛОГА ИЗМЕНЕНИЯ СТАТУСА ---
+
+  const handleOpenStatusDialog = (sheetData) => {
+    setSelectedSheetForStatusChange(sheetData);
+    setNewStatus(sheetData.status || ''); // Устанавливаем текущий статус по умолчанию
+    setStatusError(''); // Очищаем ошибки при открытии
+    setOpenStatusDialog(true);
+  };
+
+  const handleCloseStatusDialog = () => {
+    setOpenStatusDialog(false);
+    setSelectedSheetForStatusChange(null);
+    setNewStatus('');
+    setUpdatingStatus(false);
+    setStatusError('');
+  };
+
+  const handleStatusChange = (event) => {
+    setNewStatus(event.target.value);
+  };
+
+  const handleSaveStatus = async () => {
+    if (!selectedSheetForStatusChange || !newStatus) return;
+
+    setUpdatingStatus(true);
+    setStatusError('');
+
+    try {
+      await api.put(`/import/update-sheet-status/${selectedSheetForStatusChange.matId}`, { newStatus });
+      // Успешно обновлено. Обновим локальное состояние данных.
+      setData(prevData =>
+        prevData.map(sheet =>
+          sheet.matId === selectedSheetForStatusChange.matId
+            ? { ...sheet, status: newStatus }
+            : sheet
+        )
+      );
+      handleCloseStatusDialog();
+      // Опционально: показать уведомление об успехе
+      // alert(`Статус листа ${selectedSheetForStatusChange.matId} успешно изменён на '${newStatus}'.`);
+    } catch (err) {
+      console.error('Ошибка изменения статуса:', err);
+      setStatusError(err.response?.data?.message || err.message || 'Ошибка при изменении статуса.');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
   // Определение колонок для DataGrid
   const columns = [
+    {
+      field: 'actions',headerName: 'Действия',width: 120, sortable: false,renderCell: (params) => (
+        <IconButton
+          size="small"
+          onClick={() => handleOpenStatusDialog(params.row)} // Передаём всю строку
+          color="primary"
+          title="Изменить статус"
+        >
+          <EditIcon />
+        </IconButton>
+      ),
+    },
     { field: 'matId', headerName: 'MatID', width: 120, sortable: true },
     { field: 'status', headerName: 'Статус', width: 150, sortable: true },
     { field: 'certificateNumber', headerName: 'Сертификат', width: 150, sortable: true },
@@ -536,6 +618,55 @@ const InputDataView = () => {
           </Box>
         )}
       </Paper>
+      {/* --- ДИАЛОГ ИЗМЕНЕНИЯ СТАТУСА --- */}
+      <Dialog open={openStatusDialog} onClose={handleCloseStatusDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Изменить статус листа
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedSheetForStatusChange && (
+            <>
+              <Typography variant="body1" gutterBottom>
+                <strong>MatID:</strong> {selectedSheetForStatusChange.matId}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                <strong>Текущий статус:</strong> <Chip label={selectedSheetForStatusChange.status} size="small" />
+              </Typography>
+              <FormControl fullWidth margin="dense">
+                <InputLabel id="status-select-label">Новый статус</InputLabel>
+                <Select
+                  labelId="status-select-label"
+                  id="status-select"
+                  value={newStatus}
+                  label="Новый статус"
+                  onChange={handleStatusChange}
+                  size="small"
+                  disabled={updatingStatus} // Блокируем во время обновления
+                >
+                  {possibleStatuses.map((status) => (
+                    <MenuItem key={status} value={status}>
+                      {status}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {statusError && <Alert severity="error" sx={{ mt: 2 }}>{statusError}</Alert>}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseStatusDialog} disabled={updatingStatus}>
+            Отмена
+          </Button>
+          <Button
+            onClick={handleSaveStatus}
+            variant="contained"
+            disabled={updatingStatus || !newStatus}
+          >
+            {updatingStatus ? 'Сохранение...' : 'Сохранить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

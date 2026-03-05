@@ -34,22 +34,23 @@ const drawerWidth = 240;
 // Определяем структуру меню здесь
 const menuItems = [
   {
-    text: 'План закалки 2',
+    text: 'План закалки',
     icon: <CalendarTodayIcon />,
     link: '/annealing-batch-plan',
     roles: ['master', 'operator', 'developer', 'superadmin'],
   },
-  {
-    text: 'План закалки',
-    icon: <CalendarTodayIcon />,
-    link: '/annealing-schedule',
-    roles: ['master', 'operator', 'developer', 'superadmin'],
-  },
+  
   {
     text: 'Управление кассетами',
     icon: <InventoryIcon />,
     link: '/cassette-management',
     roles: ['master', 'operator', 'developer', 'superadmin'],
+  },
+  {
+    text: 'Изменение статуса входных данных',
+    icon: <TableChartIcon />,
+    link: '/sheet-status-updater',
+    roles: ['master', 'developer', 'superadmin'],
   },
   {
     text: 'Входные данные',
@@ -61,7 +62,7 @@ const menuItems = [
     text: 'Импорт данных',
     icon: <UploadFileIcon />,
     link: '/import',
-    roles: ['superadmin', 'operator'],
+    roles: ['superadmin'],
   },
   {
     text: 'Настройки',

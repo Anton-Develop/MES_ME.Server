@@ -1,4 +1,5 @@
 ﻿using MES_ME.Server.Data;
+using MES_ME.Server.DTOs;
 using MES_ME.Server.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -8,6 +9,8 @@ using MiniExcelLibs;
 using Npgsql;
 using System.Data;
 using System.Globalization;
+using System.Security.Claims;
+
 
 namespace MES_ME.Server.Controllers
 {
@@ -124,7 +127,7 @@ namespace MES_ME.Server.Controllers
 
                     // Если строка прошла проверку, готовим её для загрузки в inputdata_raw
                     var rowData = new object[54]; // 54 столбца: status + 53 поля из Excel
-                    rowData[0] = "Импортирован";
+                    rowData[0] = "Подготовлен к прокату";
                     rowData[1] = ConvertValueToString(GetValueByIndex(rowDict, 0)); // certificate_number
                     rowData[2] = ConvertValueToString(GetValueByIndex(rowDict, 1)); // short_order_number
                     rowData[3] = ConvertValueToString(GetValueByIndex(rowDict, 2)); // commercial_order_number
@@ -219,6 +222,62 @@ namespace MES_ME.Server.Controllers
                     System.IO.File.Delete(tempFilePath);
                 }
             }
+        }
+
+        // --- МЕТОД: Изменение статуса листа (для мастера/суперадмина) ---
+        // Добавим его перед закрывающей скобкой класса
+        [HttpPut("update-sheet-status/{matId}")]
+        public async Task<IActionResult> UpdateSheetStatus(string matId, [FromBody] UpdateSheetStatusRequest request)
+        {
+            // Проверка аутентификации и авторизации (только для 'master' или 'superadmin')
+            if (!User.IsInRole("master") && !User.IsInRole("superadmin") && !User.IsInRole("developer"))
+                {
+                    return Forbid(); // Forbidden
+                }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            // Проверяем, существует ли лист
+            var sheet = await _context.InputData.FindAsync(matId);
+            if (sheet == null)
+            {
+                return NotFound(new { message = $"Лист с MatId {matId} не найден." });
+            }
+
+            // Опционально: проверить, является ли новый статус допустимым
+            var validStatuses = new[]
+            {
+                "Подготовлен к прокату",
+                "Прошел закалку",
+                "Добавлен в кассету",
+                "Прошел отпуск",
+                "Недокат",
+                "Чистый выброс"
+            };
+
+            if (!validStatuses.Contains(request.NewStatus, StringComparer.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Указанный статус недопустим." });
+            }
+
+            // Обновляем статус
+            sheet.Status = request.NewStatus;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                // Логирование ошибки (ILogger)
+                Console.WriteLine($"Ошибка при обновлении статуса листа: {ex.Message}");
+                return StatusCode(500, new { message = "Произошла ошибка при обновлении статуса листа." });
+            }
+
+            return Ok(new { message = $"Статус листа {matId} успешно изменён на '{request.NewStatus}'." });
         }
     }
 }

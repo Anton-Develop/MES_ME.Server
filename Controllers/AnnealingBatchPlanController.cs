@@ -148,10 +148,12 @@ namespace MES_ME.Server.Controllers
             var totalCount = await query.CountAsync();
 
             var data = await query
-                           .OrderBy(bp => bp.CreatedAt) // Сортировка, например, по дате создания
-                           .Skip((page - 1) * pageSize)
-                           .Take(pageSize)
-                           .ToListAsync();
+               .Include(bp => bp.LinkedSheets) // Загружаем связи план->листы
+               .ThenInclude(ls => ls.Sheet)   // Загружаем листы для каждой связи
+               .OrderBy(bp => bp.CreatedAt)
+               .Skip((page - 1) * pageSize)
+               .Take(pageSize)
+               .ToListAsync();
 
             var result = new
             {
@@ -161,7 +163,7 @@ namespace MES_ME.Server.Controllers
                 PageSize = pageSize,
                 TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
             };
-
+            
             return Ok(result);
         }
 

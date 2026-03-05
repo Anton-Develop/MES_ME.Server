@@ -1,6 +1,7 @@
 
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.VisualBasic;
 
 namespace MES_ME.Server.Models // Замените на ваше пространство имён
 {
@@ -22,10 +23,10 @@ namespace MES_ME.Server.Models // Замените на ваше простра�
 
         [Column("furnace_number")]
         [MaxLength(50)]
-        public string? FurnaceNumber { get; set; } // Номер печи
+        public string? FurnaceNumber { get; set; } = "1";// Номер печи
 
         [Column("scheduled_start_time")]
-        public DateTimeOffset? ScheduledStartTime { get; set; } // Запланированное начало
+        public DateTimeOffset? ScheduledStartTime { get; set; } = DateAndTime.Now; // Запланированное начало
 
         [Column("scheduled_end_time")]
         public DateTimeOffset? ScheduledEndTime { get; set; } // Запланированное окончание

@@ -1,6 +1,7 @@
 // Models/AnnealingBatchPlanSheet.cs
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace MES_ME.Server.Models // Замените на ваше пространство имён
 {
@@ -30,6 +31,7 @@ namespace MES_ME.Server.Models // Замените на ваше простра�
         public string? ExecutionComment { get; set; } // Комментарий для листа (опционально)
 
         // Навигационное свойство для плана (многие к одному)
+        [JsonIgnore]
         public virtual AnnealingBatchPlan? BatchPlan { get; set; }
         // Навигационное свойство для листа (многие к одному)
         public virtual InputDatum? Sheet { get; set; }

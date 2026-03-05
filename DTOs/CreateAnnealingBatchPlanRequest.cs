@@ -8,7 +8,7 @@ namespace MES_ME.Server.DTOs
         [Required(ErrorMessage = "Название плана обязательно.")]
         public string PlanName { get; set; } = null!;
 
-        public string? FurnaceNumber { get; set; }
+        public string? FurnaceNumber { get; set; } 
         public DateTimeOffset? ScheduledStartTime { get; set; }
         public DateTimeOffset? ScheduledEndTime { get; set; }
         public string? Notes { get; set; }

@@ -139,5 +139,92 @@ namespace MES_ME.Server.Controllers
 
             return Ok(result);
         }
+
+
+         // --- НОВЫЙ МЕТОД: Получение листов, доступных для добавления в план закалки ---
+    [HttpGet("for-annealing-plan")]
+    public async Task<IActionResult> GetSheetsForAnnealingPlan(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? matidFilter = null,
+        [FromQuery] string? statusFilter = null, // Может быть полезно для уточнения, но основной фильтр ниже
+        [FromQuery] string? meltNumberFilter = null,
+        [FromQuery] string? batchNumberFilter = null,
+        [FromQuery] string? packNumberFilter = null,
+        [FromQuery] string? sheetNumberFilter = null,
+        [FromQuery] DateTime? rollDateFromFilter = null,
+        [FromQuery] DateTime? rollDateToFilter = null
+        // ... другие параметры фильтрации ...
+    )
+    {
+        // Проверка page и pageSize
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 25; // Ограничим максимальный размер страницы
+
+        // Начинаем строить запрос IQueryable
+        // ВАЖНО: Этот метод возвращает ТОЛЬКО листы со статусом "Подготовлен к прокату"
+        var query = _context.InputData.AsQueryable()
+                                      .Where(x => x.Status == "Подготовлен к прокату"); // <-- ДОБАВЛЕН ФИЛЬТР
+
+        // Применяем *дополнительные* фильтры поверх основного
+        if (!string.IsNullOrEmpty(matidFilter))
+        {
+            query = query.Where(x => x.MatId.Contains(matidFilter));
+        }
+        // Обратите внимание: statusFilter игнорируется или используется с оговоркой,
+        // так как основной статус уже зафиксирован
+        if (!string.IsNullOrEmpty(meltNumberFilter))
+        {
+            query = query.Where(x => x.MeltNumber.Contains(meltNumberFilter));
+        }
+        if (!string.IsNullOrEmpty(batchNumberFilter))
+        {
+            query = query.Where(x => x.BatchNumber.Contains(batchNumberFilter));
+        }
+        if (!string.IsNullOrEmpty(packNumberFilter))
+        {
+            query = query.Where(x => x.PackNumber.Contains(packNumberFilter));
+        }
+        if (!string.IsNullOrEmpty(sheetNumberFilter))
+        {
+            query = query.Where(x => x.SheetNumber.Contains(sheetNumberFilter));
+        }
+        if (rollDateFromFilter.HasValue)
+        {
+            query = query.Where(x => x.RollDate >= rollDateFromFilter.Value.Date);
+        }
+        if (rollDateToFilter.HasValue)
+        {
+            query = query.Where(x => x.RollDate <= rollDateToFilter.Value.Date.AddDays(1).AddTicks(-1));
+        }
+        // ... добавьте другие фильтры ...
+
+        // Подсчитываем общее количество записей до пагинации
+        var totalCount = await query.CountAsync();
+
+        // Определяем порядок сортировки (можно сделать параметром, если нужно)
+        // Например, по умолчанию сортируем по MatId
+        query = query.OrderBy(x => x.MatId);
+
+        // Применяем пагинацию
+        var data = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        // Возвращаем результат
+        var result = new
+        {
+            Data = data,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+        };
+
+        return Ok(result);
     }
+    }
+
+   
 }

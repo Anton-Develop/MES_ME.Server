@@ -92,7 +92,9 @@ const AnnealingBatchPlanPage = () => {
   const [planToUpdate, setPlanToUpdate] = useState(null);
   const [updateStatusData, setUpdateStatusData] = useState({
     status: '',
-    comment: '',
+    actualStartTime: '', // <-- Новое состояние для фактического начала
+    actualEndTime: '',   // <-- Новое состояние для фактического окончания
+    comment: '', // Комментарий не используется в этом API, но можно добавить поле в Notes или отдельно
   });
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -128,7 +130,7 @@ const AnnealingBatchPlanPage = () => {
 
       // Убираем пустые фильтры из параметров
       Object.keys(params).forEach(key => (params[key] === '' || params[key] === null) && delete params[key]);
-
+      
       const response = await api.get('/annealingbatchplan', { params });
       setPlans(response.data.data);
       setTotalCount(response.data.totalCount);
@@ -166,28 +168,16 @@ const AnnealingBatchPlanPage = () => {
     setLoadingAvailable(true);
     setError('');
     try {
-      // ВАЖНО: Нужен эндпоинт, который возвращает листы, НЕ входящие в активные планы закалки.
-      // Псевдокод: GET /inputdata?excludeFromActiveAnnealingPlan=true&page=page&pageSize=pageSize
-      // или GET /annealing-schedule/available-sheets (новый эндпоинт)
-      // Для примера, пусть это будет просто все листы из inputdata с фильтрацией
-      // В реальности, нужно исключить те, что уже в *активных* планах закалки
-      // или сервер должен это исключать сам.
-      const response = await api.get('/inputdata', { params: { page, pageSize: 50, ...searchParams } });
-
-      // Псевдокод: исключаем листы, уже в активных планах (на клиенте)
-      // const activePlansResponse = await api.get('/annealingbatchplan', { params: { statusFilter: 'Создан,Готов к запуску,В работе' }});
-      // const activePlanSheetMatIds = new Set();
-      // activePlansResponse.data.data.forEach(plan => {
-      //    plan.linkedSheets?.forEach(link => activePlanSheetMatIds.add(link.matId));
-      // });
-
-      // const available = response.data.data.filter(sheet => !activePlanSheetMatIds.has(sheet.matId));
-      // ПОКА ИСПОЛЬЗУЕМ ВСЕ ЛИСТЫ КАК ДОСТУПНЫЕ
+      // ИСПОЛЬЗУЕМ НОВЫЙ ЭНДПОИНТ, КОТОРЫЙ ВОЗВРАЩАЕТ ТОЛЬКО ЛИСТЫ СО СТАТУСОМ "Подготовлен к прокату"
+      // Добавляем к параметрам фильтрации статус "Подготовлен к прокату"
+      // В новом эндпоинте этот статус уже зашит, но параметры searchParams могут добавлять другие фильтры
+      const response = await api.get('/inputdata/for-annealing-plan', { params: { page, pageSize: 50, ...searchParams } });
+      // Больше не нужно фильтровать на клиенте по статусу "Подготовлен к прокату", так как API уже вернул правильный список
       const available = response.data.data;
       setAvailableSheets(available);
     } catch (err) {
-      console.error('Ошибка загрузки доступных листов:', err);
-      setError(err.response?.data?.message || err.message || 'Ошибка при загрузке доступных листов.');
+      console.error('Ошибка загрузки доступных листов для плана закалки:', err);
+      setError(err.response?.data?.message || err.message || 'Ошибка при загрузке доступных листов для плана закалки.');
       setAvailableSheets([]);
     } finally {
       setLoadingAvailable(false);
@@ -228,11 +218,15 @@ const AnnealingBatchPlanPage = () => {
 
   // Обработчик открытия диалога создания (обновлён)
   const handleOpenCreateDialog = () => {
+    const now = new Date();
+    const formattedNow = now.toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     setNewPlanData({
       planName: '',
-      furnaceNumber: '',
+      furnaceNumber: '1',
       scheduledStartTime: '',
       scheduledEndTime: '',
+      actualStartTime: '', // <-- Инициализация нового поля
+      actualEndTime: '',   // <-- Инициализация нового поля
       notes: '',
     });
     // Очищаем списки листов при открытии
@@ -331,6 +325,9 @@ const AnnealingBatchPlanPage = () => {
       alert('План закалки создан успешно.');
     } catch (err) {
       console.error('Ошибка создания плана закалки:', err);
+      console.error('Ошибка создания плана закалки:', err); // <-- Логируйте полный объект ошибки
+      console.error('Response data:', err.response?.data); // <-- Логируйте тело ответа сервера
+      console.error('Response status:', err.response?.status); // <-- Логируйте статус
       setError(err.response?.data?.message || err.message || 'Ошибка при создании плана закалки.');
     } finally {
       setIsCreating(false);
@@ -341,8 +338,11 @@ const AnnealingBatchPlanPage = () => {
 
   const handleOpenUpdateDialog = (plan) => {
     setPlanToUpdate(plan);
+    // Инициализируем значениями из плана или пустыми строками
     setUpdateStatusData({
-      status: plan.status,
+      status: plan.status || '',
+      actualStartTime: plan.actualStartTime || '', // <-- Инициализация поля
+      actualEndTime: plan.actualEndTime || '',     // <-- Инициализация поля
       comment: '', // Комментарий не используется в этом API, но можно добавить поле в Notes или отдельно
     });
     setOpenUpdateDialog(true);
@@ -351,7 +351,7 @@ const AnnealingBatchPlanPage = () => {
   const handleCloseUpdateDialog = () => {
     setOpenUpdateDialog(false);
     setPlanToUpdate(null);
-    setUpdateStatusData({ status: '', comment: '' });
+    setUpdateStatusData({ status: '', actualStartTime: '', actualEndTime: '', comment: '' }); // <-- Сброс состояния при закрытии
     setIsUpdating(false);
     setError(''); // Очистим ошибку при закрытии
   };
@@ -361,17 +361,46 @@ const AnnealingBatchPlanPage = () => {
   };
 
   const handleUpdatePlanStatus = async () => {
-    if (!planToUpdate || !updateStatusData.status) return;
+    // Проверяем, что статус выбран
+    if (!planToUpdate || !updateStatusData.status) {
+        setError('Необходимо выбрать статус.');
+        return;
+    }
+
+    // Проверяем, что время окончания не раньше времени начала (если оба установлены)
+    if (updateStatusData.actualStartTime && updateStatusData.actualEndTime) {
+        const startTime = new Date(updateStatusData.actualStartTime);
+        const endTime = new Date(updateStatusData.actualEndTime);
+        if (endTime < startTime) {
+            setError('Время окончания не может быть раньше времени начала.');
+            return;
+        }
+    }
 
     setIsUpdating(true);
     setError('');
     try {
-      await api.put(`/annealingbatchplan/${planToUpdate.planId}/status`, updateStatusData);
+      // Подготовим payload, включая новые поля, если они заполнены
+      const payload = {
+        status: updateStatusData.status,
+        comment: updateStatusData.comment, // Если API принимает комментарий
+      };
+
+      if (updateStatusData.actualStartTime) {
+        payload.actualStartTime = updateStatusData.actualStartTime;
+      }
+      if (updateStatusData.actualEndTime) {
+        payload.actualEndTime = updateStatusData.actualEndTime;
+      }
+
+      await api.put(`/annealingbatchplan/${planToUpdate.planId}/status`, payload); // или /${planToUpdate.planId} если обновление целиком
       handleCloseUpdateDialog();
       fetchPlans(); // Обновить список
       alert(`Статус плана "${planToUpdate.planName}" обновлён.`);
     } catch (err) {
       console.error('Ошибка обновления статуса плана:', err);
+      console.error('Response data:', err.response?.data); // <-- Логируйте тело ответа сервера
+      console.error('Response status:', err.response?.status); // <-- Логируйте статус
       setError(err.response?.data?.message || err.message || 'Ошибка при обновлении статуса плана.');
     } finally {
       setIsUpdating(false);
@@ -468,24 +497,7 @@ const AnnealingBatchPlanPage = () => {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <TextField
-                label="Номер печи"
-                value={filters.furnaceNumberFilter}
-                onChange={(e) => handleFilterChange('furnaceNumberFilter', e.target.value)}
-                size="small"
-                fullWidth
-                InputProps={{
-                  endAdornment: filters.furnaceNumberFilter ? (
-                    <InputAdornment position="end">
-                      <IconButton onClick={() => handleFilterChange('furnaceNumberFilter', '')} size="small">
-                        <ClearIcon />
-                      </IconButton>
-                    </InputAdornment>
-                  ) : null,
-                }}
-              />
-            </Grid>
+            
             <Grid item xs={12} sm={6} md={3}>
               <Button
                 variant="outlined"
@@ -517,8 +529,10 @@ const AnnealingBatchPlanPage = () => {
                     <TableCell>Печь</TableCell>
                     <TableCell>Запл. начало</TableCell>
                     <TableCell>Запл. окончание</TableCell>
-                    <TableCell>Факт. начало</TableCell>
-                    <TableCell>Факт. окончание</TableCell>
+                    {/* --- Добавлены новые колонки --- */}
+                   {/*  <TableCell>Факт. начало</TableCell>*/}
+                    {/*<TableCell>Факт. окончание</TableCell>*/}
+                    {/* ----------------------------- */}
                     <TableCell>Примечания</TableCell>
                     <TableCell>Листы</TableCell>
                     <TableCell>Действия</TableCell>
@@ -535,8 +549,10 @@ const AnnealingBatchPlanPage = () => {
                       <TableCell>{plan.furnaceNumber || 'N/A'}</TableCell>
                       <TableCell>{plan.scheduledStartTime ? new Date(plan.scheduledStartTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
                       <TableCell>{plan.scheduledEndTime ? new Date(plan.scheduledEndTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
-                      <TableCell>{plan.actualStartTime ? new Date(plan.actualStartTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
-                      <TableCell>{plan.actualEndTime ? new Date(plan.actualEndTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
+                      {/* --- Отображение новых полей --- */}
+                     {/* <TableCell>{plan.actualStartTime ? new Date(plan.actualStartTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
+                      <TableCell>{plan.actualEndTime ? new Date(plan.actualEndTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>*/}
+                      {/* ---------------------------------- */}
                       <TableCell>{plan.notes || 'N/A'}</TableCell>
                       <TableCell>
                         {/* Аккордеон для списка листов */}
@@ -550,7 +566,7 @@ const AnnealingBatchPlanPage = () => {
                                 plan.linkedSheets.map((link, index) => (
                                   <ListItem key={index}>
                                     <ListItemText
-                                      primary={link.matId}
+                                      primary={link.sheet?.matId || link.matId} // Показываем matId листа
                                       secondary={`${link.sheet?.status || 'N/A'} | ${link.sheet?.meltNumber || 'N/A'}-${link.sheet?.batchNumber || 'N/A'}-${link.sheet?.packNumber || 'N/A'}-${link.sheet?.sheetNumber || 'N/A'}`}
                                     />
                                   </ListItem>
@@ -665,6 +681,32 @@ const AnnealingBatchPlanPage = () => {
                 shrink: true,
               }}
             />
+            {/* --- Новые поля для фактического времени (обычно не заполняются при создании) --- */}
+            {/*<TextField
+              label="Фактическое время начала (если известно)"
+              type="datetime-local"
+              value={newPlanData.actualStartTime}
+              onChange={(e) => handleNewPlanDataChange('actualStartTime', e.target.value)}
+              size="small"
+              fullWidth
+              InputLabelProps={{
+                shrink: true,
+              }}
+              disabled // <-- Обычно поле недоступно при создании
+            />
+            <TextField
+              label="Фактическое время окончания (если известно)"
+              type="datetime-local"
+              value={newPlanData.actualEndTime}
+              onChange={(e) => handleNewPlanDataChange('actualEndTime', e.target.value)}
+              size="small"
+              fullWidth
+              InputLabelProps={{
+                shrink: true,
+              }}
+              disabled // <-- Обычно поле недоступно при создании
+            />*/}
+            {/* ------------------------------------------------------------------------------- */}
             <TextField
               label="Примечания (необязательно)"
               value={newPlanData.notes}
@@ -677,7 +719,7 @@ const AnnealingBatchPlanPage = () => {
           </Box>
 
           {/* Списки листов */}
-          <DragDropContext onDragEnd={onDragEnd}>
+        <DragDropContext onDragEnd={onDragEnd}>
             <Box display="flex" gap={2} minHeight="400px">
               {/* Список доступных листов */}
               <Card sx={{ flex: 1, minWidth: 300 }}>
@@ -701,32 +743,36 @@ const AnnealingBatchPlanPage = () => {
                         >
                           {availableSheets.map((sheet, index) => (
                             <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
-                              {(provided) => (
-                                <ListItem
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps} // Хендл для перетаскивания
-                                  secondaryAction={
-                                    <Tooltip title="Добавить в план">
-                                      <IconButton edge="end" aria-label="add" size="small" onClick={() => handleAddSheetToPlan(sheet)}>
-                                        <AddIcon />
-                                      </IconButton>
-                                    </Tooltip>
-                                  }
+                              {(provided, snapshot) => ( // <-- Функция передаётся как children
+                                <div // <-- Обязательная обёртка
+                                  ref={provided.innerRef} // <-- innerRef на обёртку
+                                  {...provided.draggableProps} // <-- draggableProps на обёртку
                                 >
-                                  <ListItemText
-                                    primary={
-                                      <Typography variant="body2">
-                                        <strong>ID:</strong> {sheet.matId} <br />
-                                        <strong>Статус:</strong> {sheet.status} <br />
-                                        <strong>Плавка:</strong> {sheet.meltNumber} <br />
-                                        <strong>Партия:</strong> {sheet.batchNumber} <br />
-                                        <strong>Пачка:</strong> {sheet.packNumber} <br />
-                                        <strong>№ Листа:</strong> {sheet.sheetNumber}
-                                      </Typography>
+                                  <ListItem
+                                    {...provided.dragHandleProps} // <-- dragHandleProps на ListItem (или на его часть)
+                                    secondaryAction={
+                                      <Tooltip title="Добавить в план">
+                                        <IconButton edge="end" aria-label="add" size="small" onClick={() => handleAddSheetToPlan(sheet)}>
+                                          <AddIcon />
+                                        </IconButton>
+                                      </Tooltip>
                                     }
-                                  />
-                                </ListItem>
+                                  >
+                                    <ListItemText
+                                      primary={
+                                        <Typography variant="body2">
+                                          <strong>ID:</strong> {sheet.matId} <br />
+                                          <strong>Статус:</strong> {sheet.status} <br />
+                                          <strong>Плавка:</strong> {sheet.meltNumber} <br />
+                                          <strong>Партия:</strong> {sheet.batchNumber} <br />
+                                          <strong>Пачка:</strong> {sheet.packNumber} <br />
+                                          <strong>№ Листа:</strong> {sheet.sheetNumber}
+                                        </Typography>
+                                      }
+                                    />
+                                  </ListItem>
+                                  {provided.placeholder} {/* <-- ВАЖНО: Добавлен placeholder */}
+                                </div>
                               )}
                             </Draggable>
                           ))}
@@ -756,46 +802,47 @@ const AnnealingBatchPlanPage = () => {
                       >
                         {selectedSheets.map((sheet, index) => (
                           <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
-                            {(provided) => (
-                              <ListItem
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps} // Хендл для перетаскивания
-                                secondaryAction={
-                                  <Tooltip title="Удалить из плана">
-                                    <IconButton edge="end" aria-label="delete" size="small" onClick={() => handleRemoveSheetFromPlan(sheet.matId)}>
-                                      <DeleteIcon />
-                                    </IconButton>
-                                  </Tooltip>
-                                }
+                            {(provided, snapshot) => ( // <-- Функция передаётся как children
+                              <div // <-- Обязательная обёртка
+                                ref={provided.innerRef} // <-- innerRef на обёртку
+                                {...provided.draggableProps} // <-- draggableProps на обёртку
                               >
-                                <ListItemText
-                                  primary={
-                                    <Typography variant="body2">
-                                      <strong>ID:</strong> {sheet.matId} <br />
-                                      <strong>Статус:</strong> {sheet.status} <br />
-                                      <strong>Плавка:</strong> {sheet.meltNumber} <br />
-                                      <strong>Партия:</strong> {sheet.batchNumber} <br />
-                                      <strong>Пачка:</strong> {sheet.packNumber} <br />
-                                      <strong>№ Листа:</strong> {sheet.sheetNumber}
-                                    </Typography>
+                                <ListItem
+                                  {...provided.dragHandleProps} // <-- dragHandleProps на ListItem
+                                  secondaryAction={
+                                    <Tooltip title="Удалить из плана">
+                                      <IconButton edge="end" aria-label="delete" size="small" onClick={() => handleRemoveSheetFromPlan(sheet.matId)}>
+                                        <DeleteIcon />
+                                      </IconButton>
+                                    </Tooltip>
                                   }
-                                />
-                              </ListItem>
+                                >
+                                  <ListItemText
+                                    primary={
+                                      <Typography variant="body2">
+                                        <strong>ID:</strong> {sheet.matId} <br />
+                                        <strong>Статус:</strong> {sheet.status} <br />
+                                        <strong>Плавка:</strong> {sheet.meltNumber} <br />
+                                        <strong>Партия:</strong> {sheet.batchNumber} <br />
+                                        <strong>Пачка:</strong> {sheet.packNumber} <br />
+                                        <strong>№ Листа:</strong> {sheet.sheetNumber}
+                                      </Typography>
+                                    }
+                                  />
+                                </ListItem>
+                                {provided.placeholder} {/* <-- ВАЖНО: Добавлен placeholder */}
+                              </div>
                             )}
-                            {provided.placeholder}
-                            </Draggable>
-                            ))}
-                          </List>
-                        )}
-                        
-                      </Droppable>
-                     
-                    </CardContent>
-                     
-                  </Card>
-                </Box>
-              </DragDropContext>
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </List>
+                    )}
+                  </Droppable>
+                </CardContent>
+              </Card>
+            </Box>
+          </DragDropContext>
 
               {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
             </DialogContent>
@@ -815,7 +862,7 @@ const AnnealingBatchPlanPage = () => {
             </DialogActions>
           </Dialog>
 
-          {/* Диалог обновления статуса плана */}
+          {/* --- Диалог обновления статуса плана (обновлён) --- */}
           <Dialog open={openUpdateDialog} onClose={handleCloseUpdateDialog} maxWidth="sm" fullWidth>
             <DialogTitle>
               Отметить статус выполнения для плана "{planToUpdate?.planName}"
@@ -844,7 +891,34 @@ const AnnealingBatchPlanPage = () => {
                         ))}
                       </Select>
                     </FormControl>
-                    {/* Комментарий пока не используется в API */}
+                    {/* --- Добавлены поля для фактического времени --- */}
+                    {updateStatusData.status === 'В работе' && (
+                      <TextField
+                        label="Фактическое время начала"
+                        type="datetime-local"
+                        value={updateStatusData.actualStartTime}
+                        onChange={(e) => handleUpdateStatusDataChange('actualStartTime', e.target.value)}
+                        size="small"
+                        fullWidth
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                      />
+                    )}
+                    {(updateStatusData.status === 'Завершён' || updateStatusData.status === 'Прерван') && (
+                      <TextField
+                        label="Фактическое время окончания"
+                        type="datetime-local"
+                        value={updateStatusData.actualEndTime}
+                        onChange={(e) => handleUpdateStatusDataChange('actualEndTime', e.target.value)}
+                        size="small"
+                        fullWidth
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                      />
+                    )}
+                    {/* ------------------------------------------------ */}
                   </Box>
                 </>
               )}
