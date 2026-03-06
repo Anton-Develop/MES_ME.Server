@@ -281,60 +281,107 @@ namespace MES_ME.Server.Controllers
             return NoContent(); // 204 No Content
         }
         [HttpGet("report")]
-public async Task<IActionResult> GetAnnealingReport(
-    [FromQuery] DateTime? dateFrom,
-    [FromQuery] DateTime? dateTo,
-    [FromQuery] string? statusFilter = null,
-    [FromQuery] string? furnaceNumberFilter = null)
+        public async Task<IActionResult> GetAnnealingReport(
+            [FromQuery] DateTime? dateFrom,
+            [FromQuery] DateTime? dateTo,
+            [FromQuery] string? statusFilter = null,
+            [FromQuery] string? furnaceNumberFilter = null)
+        {
+            var query = _context.AnnealingBatchPlans
+                .Include(bp => bp.LinkedSheets)
+                .ThenInclude(ls => ls.Sheet)
+                .AsQueryable();
+
+            // Фильтрация по датам (берем Planned Start Time как основную дату графика)
+            if (dateFrom.HasValue)
+            {
+                query = query.Where(bp => bp.ScheduledStartTime >= dateFrom.Value);
+            }
+            if (dateTo.HasValue)
+            {
+                // Добавляем 1 день, чтобы включить всю дату "до"
+                query = query.Where(bp => bp.ScheduledStartTime <= dateTo.Value.AddDays(1).AddTicks(-1));
+            }
+
+            if (!string.IsNullOrEmpty(statusFilter))
+            {
+                query = query.Where(bp => bp.Status.Contains(statusFilter));
+            }
+
+            if (!string.IsNullOrEmpty(furnaceNumberFilter))
+            {
+                query = query.Where(bp => bp.FurnaceNumber.Contains(furnaceNumberFilter));
+            }
+
+            // Сортировка по времени начала
+            query = query.OrderBy(bp => bp.ScheduledStartTime);
+
+            var data = await query.ToListAsync();
+
+            var reportData = data.Select(bp => new AnnealingReportItem
+            {
+                PlanId = bp.PlanId,
+                PlanName = bp.PlanName,
+                Status = bp.Status,
+                FurnaceNumber = bp.FurnaceNumber,
+                ScheduledStartTime = bp.ScheduledStartTime,
+                ScheduledEndTime = bp.ScheduledEndTime,
+                ActualStartTime = bp.ActualStartTime,
+                ActualEndTime = bp.ActualEndTime,
+                Notes = bp.Notes,
+                SheetsCount = bp.LinkedSheets.Count,
+            //  TotalWeightKg = bp.LinkedSheets.Sum(ls => ls.Sheet != null ? ls.Sheet.ActualNetWeightKg : 0),
+                SheetDetails = string.Join(", ", bp.LinkedSheets.Take(5).Select(ls => ls.MatId)) + (bp.LinkedSheets.Count > 5 ? "..." : "")
+            }).ToList();
+
+            return Ok(reportData);
+        }
+
+        [HttpGet("{id}/details")]
+public async Task<ActionResult<AnnealingPlanDetailsDto>> GetPlanDetails(int id)
 {
-    var query = _context.AnnealingBatchPlans
-        .Include(bp => bp.LinkedSheets)
-        .ThenInclude(ls => ls.Sheet)
-        .AsQueryable();
+    var plan = await _context.AnnealingBatchPlans
+        .Include(p => p.LinkedSheets)
+            .ThenInclude(ls => ls.Sheet) // Предполагаем, что есть связь с таблицей листов
+        .FirstOrDefaultAsync(p => p.PlanId == id);
 
-    // Фильтрация по датам (берем Planned Start Time как основную дату графика)
-    if (dateFrom.HasValue)
+    if (plan == null)
     {
-        query = query.Where(bp => bp.ScheduledStartTime >= dateFrom.Value);
-    }
-    if (dateTo.HasValue)
-    {
-        // Добавляем 1 день, чтобы включить всю дату "до"
-        query = query.Where(bp => bp.ScheduledStartTime <= dateTo.Value.AddDays(1).AddTicks(-1));
+        return NotFound();
     }
 
-    if (!string.IsNullOrEmpty(statusFilter))
+    var sheetsData = plan.LinkedSheets.Select(ls =>
     {
-        query = query.Where(bp => bp.Status.Contains(statusFilter));
-    }
-
-    if (!string.IsNullOrEmpty(furnaceNumberFilter))
-    {
-        query = query.Where(bp => bp.FurnaceNumber.Contains(furnaceNumberFilter));
-    }
-
-    // Сортировка по времени начала
-    query = query.OrderBy(bp => bp.ScheduledStartTime);
-
-    var data = await query.ToListAsync();
-
-    var reportData = data.Select(bp => new AnnealingReportItem
-    {
-        PlanId = bp.PlanId,
-        PlanName = bp.PlanName,
-        Status = bp.Status,
-        FurnaceNumber = bp.FurnaceNumber,
-        ScheduledStartTime = bp.ScheduledStartTime,
-        ScheduledEndTime = bp.ScheduledEndTime,
-        ActualStartTime = bp.ActualStartTime,
-        ActualEndTime = bp.ActualEndTime,
-        Notes = bp.Notes,
-        SheetsCount = bp.LinkedSheets.Count,
-      //  TotalWeightKg = bp.LinkedSheets.Sum(ls => ls.Sheet != null ? ls.Sheet.ActualNetWeightKg : 0),
-        SheetDetails = string.Join(", ", bp.LinkedSheets.Take(5).Select(ls => ls.MatId)) + (bp.LinkedSheets.Count > 5 ? "..." : "")
+        var sheet = ls.Sheet;
+        return new PlanSheetDetailDto
+        {
+            MatId = ls.MatId, // Или sheet.MatId
+            MeltNumber = sheet?.MeltNumber ?? "",
+            BatchNumber = sheet?.BatchNumber ?? "",
+            PackNumber = sheet?.PackNumber ?? "",
+            SteelGrade = sheet?.SteelGrade ?? "",
+            Dimensions = sheet.SheetDimensions ?? "",
+            SlabNumber = sheet?.SlabNumber ?? "",
+            SheetNumber = sheet?.SheetNumber ?? "",
+            NetWeight = sheet?.ActualNetWeightKg ?? 0,
+            QuenchingDate = plan.ActualEndTime, // Или дата из листа, если хранится отдельно
+            Status = sheet?.Status ?? "В плане"
+        };
     }).ToList();
 
-    return Ok(reportData);
+    return new AnnealingPlanDetailsDto
+    {
+        PlanId = plan.PlanId,
+        PlanName = plan.PlanName,
+        FurnaceNumber = plan.FurnaceNumber,
+        ScheduledStartTime = plan.ScheduledStartTime,
+        ScheduledEndTime = plan.ScheduledEndTime,
+        Status = plan.Status,
+        Notes = plan.Notes,
+        Sheets = sheetsData,
+        TotalSheetsCount = sheetsData.Count,
+        TotalWeight = sheetsData.Sum(s => s.NetWeight)
+    };
 }
     }
 }

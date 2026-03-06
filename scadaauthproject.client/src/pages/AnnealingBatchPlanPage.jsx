@@ -25,6 +25,7 @@ import {
   CircularProgress,
   Chip,
   IconButton,
+  
   Tooltip,
   InputAdornment,
   Autocomplete, // Для поиска листа по MatId (может быть не использован в новом DnD интерфейсе, но оставим для возможного поиска в списке)
@@ -47,12 +48,14 @@ import {
   Close as CloseIcon,
   Edit as EditIcon,
   CheckCircle as CheckCircleIcon,
+  RoomService as RoomService,
   Clear as ClearIcon,
   ExpandMore as ExpandMoreIcon,
   Delete as DeleteIcon, // Импортируем иконку удаления для кнопки в списке
 } from '@mui/icons-material';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'; // Импортируем DnD
 import api from '../api';
+import PlanDetailsDialog from './PlanDetailsDialog'; 
 
 const AnnealingBatchPlanPage = () => {
   const [plans, setPlans] = useState([]);
@@ -61,7 +64,9 @@ const AnnealingBatchPlanPage = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-
+// Новый стейт для диалога
+  const [selectedPlanId, setSelectedPlanId] = useState(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   // Состояния для фильтров
   const [filters, setFilters] = useState({
     statusFilter: '',
@@ -102,6 +107,18 @@ const AnnealingBatchPlanPage = () => {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [planToDelete, setPlanToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Обработчик клика по строке или кнопке "Отчет"
+  const handleOpenDetails = (id) => {
+    console.log("Открываем отчет для плана:", id);
+    setSelectedPlanId(id);
+    setIsDetailsOpen(true);
+  };
+
+  const handleCloseDetails = () => {
+    setIsDetailsOpen(false);
+    setSelectedPlanId(null);
+  };
 
   // Возможные статусы выполнения плана
   const possibleExecutionStatuses = [
@@ -589,6 +606,15 @@ const AnnealingBatchPlanPage = () => {
                           >
                             <CheckCircleIcon fontSize="small" />
                           </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Отчет по плану">
+                           <IconButton
+                            size="small"
+                            onClick={() => handleOpenDetails(plan.planId)}
+                            color="primary"
+                          >
+                            <RoomService fontSize="small" />
+                          </IconButton>     
                         </Tooltip>
                         <Tooltip title="Удалить план">
                           <IconButton
