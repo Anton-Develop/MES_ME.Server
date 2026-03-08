@@ -4,6 +4,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
   // ИСПРАВЛЕНО: сохраняем текущий путь, чтобы после входа вернуть пользователя обратно
