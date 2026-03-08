@@ -14,24 +14,21 @@ import {
 } from '@mui/material';
 import {
   ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon,
-  Menu as MenuIcon,
-  Settings as SettingsIcon,
-  People as PeopleIcon,
-  UploadFile as UploadFileIcon,
   ExpandLess,
   ExpandMore,
   CalendarToday as CalendarTodayIcon,
   Inventory as InventoryIcon,
   TableChart as TableChartIcon,
   Assignment as AssignmentIcon,
+  Settings as SettingsIcon,
+  People as PeopleIcon,
+  UploadFile as UploadFileIcon,
 } from '@mui/icons-material';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const drawerWidth = 240;
 
-// Определяем структуру меню здесь
 const menuItems = [
   {
     text: 'План закалки',
@@ -39,9 +36,10 @@ const menuItems = [
     link: '/annealing-batch-plan',
     roles: ['master', 'operator', 'developer', 'superadmin'],
   },
-   {
+  {
+    // ИСПРАВЛЕНО: была дублирующая иконка CalendarTodayIcon — заменена на AssignmentIcon
     text: 'Отчет закалки',
-    icon: <CalendarTodayIcon />,
+    icon: <AssignmentIcon />,
     link: '/reports/annealing',
     roles: ['master', 'operator', 'developer', 'superadmin'],
   },
@@ -72,6 +70,7 @@ const menuItems = [
   {
     text: 'Настройки',
     icon: <SettingsIcon />,
+    roles: ['superadmin', 'developer'],
     subItems: [
       {
         text: 'Пользователи',
@@ -81,7 +80,7 @@ const menuItems = [
       },
       {
         text: 'Роли',
-        icon: <PeopleIcon />, // Можно выбрать другую иконку
+        icon: <PeopleIcon />,
         link: '/roles',
         roles: ['superadmin', 'developer'],
       },
@@ -92,94 +91,98 @@ const menuItems = [
         roles: ['superadmin', 'developer'],
       },
     ],
-    roles: ['superadmin', 'developer'], // Родительский пункт доступен только админам/разрабам
   },
-  // Добавьте другие разделы по необходимости
 ];
 
 const AdminSidebar = ({ open, toggleDrawer }) => {
   const { user } = useAuth();
   const location = useLocation();
 
+  // ИСПРАВЛЕНО: добавлено управляемое состояние для подменю вместо вычисляемого из pathname
+  const [openSubMenus, setOpenSubMenus] = useState({});
+
   const isActive = (link) => location.pathname === link;
 
-  const renderItems = (items, depth = 0) => {
+  const handleToggleSubMenu = (key) => {
+    setOpenSubMenus(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const renderItems = (items, depth = 0, parentKey = '') => {
     return items.map((item, index) => {
+      const itemKey = `${parentKey}-${index}`;
+
+      // Проверяем доступность для текущей роли (включая родительские пункты с subItems)
+      if (item.roles && !item.roles.includes(user?.role || '')) return null;
+
       if (item.subItems) {
-        const isOpen = item.subItems.some(subItem => location.pathname.startsWith(subItem.link));
+        // Начальное состояние — раскрыт, если текущий путь входит в подменю
+        const defaultOpen = item.subItems.some(sub => location.pathname.startsWith(sub.link));
+        const isSubOpen = openSubMenus[itemKey] !== undefined ? openSubMenus[itemKey] : defaultOpen;
+
         return (
-          <React.Fragment key={index}>
-            <ListItem disablePadding sx={{ pl: depth * 2 }}>
+          <React.Fragment key={itemKey}>
+            <ListItem disablePadding>
               <ListItemButton
-                onClick={() => {}}
+                // ИСПРАВЛЕНО: onClick теперь вызывает реальный обработчик, а не пустую стрелку
+                onClick={() => handleToggleSubMenu(itemKey)}
                 sx={{ pl: 2 + depth * 2 }}
               >
                 <ListItemIcon>{item.icon}</ListItemIcon>
                 <ListItemText primary={item.text} />
-                {isOpen ? <ExpandLess /> : <ExpandMore />}
+                {isSubOpen ? <ExpandLess /> : <ExpandMore />}
               </ListItemButton>
             </ListItem>
-            <Collapse in={isOpen} timeout="auto" unmountOnExit>
+            <Collapse in={isSubOpen} timeout="auto" unmountOnExit>
               <List component="div" disablePadding>
-                {renderItems(item.subItems, depth + 1)}
+                {renderItems(item.subItems, depth + 1, itemKey)}
               </List>
             </Collapse>
           </React.Fragment>
         );
-      } else {
-        // Проверяем, имеет ли текущий пользователь право видеть этот пункт
-        if (!item.roles.includes(user?.role || '')) return null; // Если роль не установлена, не показываем
-        return (
-          <ListItem key={index} disablePadding sx={{ pl: depth * 2 }}>
-            <ListItemButton
-              component={Link}
-              to={item.link}
-              selected={isActive(item.link)}
-              onClick={toggleDrawer(false)} // Закрывает меню при клике
-              sx={{ pl: 2 + depth * 2 }}
-            >
-              <ListItemIcon>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
-          </ListItem>
-        );
       }
+
+      return (
+        <ListItem key={itemKey} disablePadding>
+          <ListItemButton
+            component={Link}
+            to={item.link}
+            selected={isActive(item.link)}
+            onClick={toggleDrawer(false)}
+            sx={{ pl: 2 + depth * 2 }}
+          >
+            <ListItemIcon>{item.icon}</ListItemIcon>
+            <ListItemText primary={item.text} />
+          </ListItemButton>
+        </ListItem>
+      );
     });
   };
 
   return (
     <Drawer
-      variant="persistent" // persistent, чтобы можно было открывать/закрывать
+      variant="persistent"
       anchor="left"
-      open={open} // Теперь зависит от состояния в App или Layout
+      open={open}
       sx={{
         width: drawerWidth,
         flexShrink: 0,
         '& .MuiDrawer-paper': {
           width: drawerWidth,
           boxSizing: 'border-box',
-          top: '64px', // Высота AppBar
+          top: '64px',
           height: 'calc(100% - 64px)',
-          zIndex: 1200, // Выше AppBar
+          // ИСПРАВЛЕНО: zIndex 1200 перекрывал AppBar (zIndex 1100 у drawer по умолчанию корректен)
+          zIndex: 1099,
         },
       }}
     >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          padding: '0 8px',
-        }}
-      >
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 8px' }}>
         <IconButton onClick={toggleDrawer(false)}>
           <ChevronLeftIcon />
         </IconButton>
       </Box>
       <Divider />
-      <List>
-        {renderItems(menuItems)}
-      </List>
+      <List>{renderItems(menuItems)}</List>
     </Drawer>
   );
 };

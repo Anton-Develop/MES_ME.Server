@@ -6,9 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>82bbe3fc-99eb-41fe-bfff-75bdd60915a2</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-    <SpaRoot>..\MES_ME.client</SpaRoot>
-    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
-    <SpaProxyServerUrl>https://localhost:52914</SpaProxyServerUrl>
+   
+   
     <StartupObject></StartupObject>
   </PropertyGroup>
 
@@ -31,15 +30,7 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\MES_ME.client\MES_ME.client.esproj">
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-    </ProjectReference>
-  </ItemGroup>
+ 
 
-  <ItemGroup>
-    <Folder Include="Migrations\" />
-    <Folder Include="scadaauthproject.client\src\components\Dashboards\" />
-  </ItemGroup>
-
+  
 </Project>

@@ -1,9 +1,16 @@
+// src/context/AuthContext.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../api';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
-export const useAuth = () => useContext(AuthContext);
+// ИСПРАВЛЕНО: добавлена проверка на наличие контекста — ранее useContext(AuthContext)
+// молча возвращал undefined, если компонент использовался вне AuthProvider
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>');
+  return ctx;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -14,7 +21,20 @@ export const AuthProvider = ({ children }) => {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
+          // ИСПРАВЛЕНО: проверка структуры токена (должно быть ровно 3 части)
+          const parts = token.split('.');
+          if (parts.length !== 3) throw new Error('Malformed JWT');
+
+          const payload = JSON.parse(atob(parts[1]));
+
+          // ИСПРАВЛЕНО: проверка истечения срока (exp — Unix timestamp в секундах)
+          if (payload.exp && payload.exp * 1000 < Date.now()) {
+            console.warn('Token expired, clearing.');
+            localStorage.removeItem('token');
+            setLoading(false);
+            return;
+          }
+
           setUser({
             username: payload.unique_name,
             role: payload.role,
@@ -29,6 +49,7 @@ export const AuthProvider = ({ children }) => {
       }
       setLoading(false);
     };
+
     loadUserFromToken();
   }, []);
 
@@ -40,7 +61,8 @@ export const AuthProvider = ({ children }) => {
       if (!token) return false;
 
       localStorage.setItem('token', token);
-      setUser({ username: userName, role, userId, permissions });
+      // ИСПРАВЛЕНО: permissions может прийти null с сервера — защищаем через ??
+      setUser({ username: userName, role, userId, permissions: permissions ?? [] });
       return true;
     } catch {
       return false;
@@ -52,7 +74,9 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const value = { user, login, logout, loading };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, login, logout, loading }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };

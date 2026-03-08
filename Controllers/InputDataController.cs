@@ -6,6 +6,7 @@ using System.Globalization;
 using MES_ME.Server.Data; 
 using MES_ME.Server.Models;
 using System.Linq.Expressions;
+using MES_ME.Server.DTOs;
 
 namespace MES_ME.Server.Controllers
 {
@@ -224,6 +225,47 @@ namespace MES_ME.Server.Controllers
 
         return Ok(result);
     }
+        [HttpPut("update-status")]
+        public async Task<IActionResult> UpdateStatus([FromBody] UpdateStatusRequest request)
+        {
+            if (request.MatIds == null || request.MatIds.Count == 0 || string.IsNullOrWhiteSpace(request.NewStatus))
+            {
+                return BadRequest(new { message = "Необходимо указать список MatId и новый статус." });
+            }
+
+            try
+            {
+                // Находим все записи, которые нужно обновить
+                var sheetsToUpdate = await _context.InputData
+                    .Where(s => request.MatIds.Contains(s.MatId))
+                    .ToListAsync();
+
+                if (!sheetsToUpdate.Any())
+                {
+                    return NotFound(new { message = "Ни одного листа с указанными MatId не найдено." });
+                }
+
+                // Обновляем статус у найденных записей
+                foreach (var sheet in sheetsToUpdate)
+                {
+                    // Опционально: проверить текущий статус, например, чтобы нельзя было сбросить "Прошел закалку" в "В плане..."
+                    // if (sheet.Status == "Подготовлен к прокату" || sheet.Status.StartsWith("В плане"))
+                    // {
+                    sheet.Status = request.NewStatus;
+                    // }
+                   // sheet.UpdatedAt = DateTimeOffset.UtcNow; // Обновляем время изменения
+                }
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = $"Статус успешно обновлен для {sheetsToUpdate.Count} листов.", updatedIds = sheetsToUpdate.Select(s => s.MatId).ToList() });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при обновлении статуса листов: {ex.Message}");
+                return StatusCode(500, new { message = "Произошла ошибка при обновлении статуса листов." });
+            }
+        }
     }
 
    

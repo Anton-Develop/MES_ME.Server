@@ -126,7 +126,7 @@ namespace MES_ME.Server.Controllers
             [FromQuery] int pageSize = 10,
             [FromQuery] string? statusFilter = null,
             [FromQuery] string? furnaceNumberFilter = null
-            // Добавьте другие фильтры по мере необходимости
+        // Добавьте другие фильтры по мере необходимости
         )
         {
             if (page < 1) page = 1;
@@ -163,7 +163,7 @@ namespace MES_ME.Server.Controllers
                 PageSize = pageSize,
                 TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
             };
-            
+
             return Ok(result);
         }
 
@@ -330,7 +330,7 @@ namespace MES_ME.Server.Controllers
                 ActualEndTime = bp.ActualEndTime,
                 Notes = bp.Notes,
                 SheetsCount = bp.LinkedSheets.Count,
-            //  TotalWeightKg = bp.LinkedSheets.Sum(ls => ls.Sheet != null ? ls.Sheet.ActualNetWeightKg : 0),
+                //  TotalWeightKg = bp.LinkedSheets.Sum(ls => ls.Sheet != null ? ls.Sheet.ActualNetWeightKg : 0),
                 SheetDetails = string.Join(", ", bp.LinkedSheets.Take(5).Select(ls => ls.MatId)) + (bp.LinkedSheets.Count > 5 ? "..." : "")
             }).ToList();
 
@@ -338,50 +338,233 @@ namespace MES_ME.Server.Controllers
         }
 
         [HttpGet("{id}/details")]
-public async Task<ActionResult<AnnealingPlanDetailsDto>> GetPlanDetails(int id)
-{
-    var plan = await _context.AnnealingBatchPlans
-        .Include(p => p.LinkedSheets)
-            .ThenInclude(ls => ls.Sheet) // Предполагаем, что есть связь с таблицей листов
-        .FirstOrDefaultAsync(p => p.PlanId == id);
-
-    if (plan == null)
-    {
-        return NotFound();
-    }
-
-    var sheetsData = plan.LinkedSheets.Select(ls =>
-    {
-        var sheet = ls.Sheet;
-        return new PlanSheetDetailDto
+        public async Task<ActionResult<AnnealingPlanDetailsDto>> GetPlanDetails(int id)
         {
-            MatId = ls.MatId, // Или sheet.MatId
-            MeltNumber = sheet?.MeltNumber ?? "",
-            BatchNumber = sheet?.BatchNumber ?? "",
-            PackNumber = sheet?.PackNumber ?? "",
-            SteelGrade = sheet?.SteelGrade ?? "",
-            Dimensions = sheet.SheetDimensions ?? "",
-            SlabNumber = sheet?.SlabNumber ?? "",
-            SheetNumber = sheet?.SheetNumber ?? "",
-            NetWeight = sheet?.ActualNetWeightKg ?? 0,
-            QuenchingDate = plan.ActualEndTime, // Или дата из листа, если хранится отдельно
-            Status = sheet?.Status ?? "В плане"
-        };
-    }).ToList();
+            var plan = await _context.AnnealingBatchPlans
+                .Include(p => p.LinkedSheets)
+                    .ThenInclude(ls => ls.Sheet) // Предполагаем, что есть связь с таблицей листов
+                .FirstOrDefaultAsync(p => p.PlanId == id);
 
-    return new AnnealingPlanDetailsDto
-    {
-        PlanId = plan.PlanId,
-        PlanName = plan.PlanName,
-        FurnaceNumber = plan.FurnaceNumber,
-        ScheduledStartTime = plan.ScheduledStartTime,
-        ScheduledEndTime = plan.ScheduledEndTime,
-        Status = plan.Status,
-        Notes = plan.Notes,
-        Sheets = sheetsData,
-        TotalSheetsCount = sheetsData.Count,
-        TotalWeight = sheetsData.Sum(s => s.NetWeight)
-    };
-}
+            if (plan == null)
+            {
+                return NotFound();
+            }
+
+            var sheetsData = plan.LinkedSheets.Select(ls =>
+            {
+                var sheet = ls.Sheet;
+                return new PlanSheetDetailDto
+                {
+                    MatId = ls.MatId, // Или sheet.MatId
+                    MeltNumber = sheet?.MeltNumber ?? "",
+                    BatchNumber = sheet?.BatchNumber ?? "",
+                    PackNumber = sheet?.PackNumber ?? "",
+                    SteelGrade = sheet?.SteelGrade ?? "",
+                    Dimensions = sheet.SheetDimensions ?? "",
+                    SlabNumber = sheet?.SlabNumber ?? "",
+                    SheetNumber = sheet?.SheetNumber ?? "",
+                    NetWeight = sheet?.ActualNetWeightKg ?? 0,
+                    QuenchingDate = plan.ActualEndTime, // Или дата из листа, если хранится отдельно
+                    Status = sheet?.Status ?? "В плане"
+                };
+            }).ToList();
+
+            return new AnnealingPlanDetailsDto
+            {
+                PlanId = plan.PlanId,
+                PlanName = plan.PlanName,
+                FurnaceNumber = plan.FurnaceNumber,
+                ScheduledStartTime = plan.ScheduledStartTime,
+                ScheduledEndTime = plan.ScheduledEndTime,
+                Status = plan.Status,
+                Notes = plan.Notes,
+                Sheets = sheetsData,
+                TotalSheetsCount = sheetsData.Count,
+                TotalWeight = sheetsData.Sum(s => s.NetWeight)
+            };
+
+        }
+        [HttpPut("{id}")]
+        public async Task<IActionResult> EditBatchPlan(int id, [FromBody] UpdateAnnealingBatchPlanRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var plan = await _context.AnnealingBatchPlans
+                .Include(p => p.LinkedSheets) // Подгружаем существующие связи
+                .FirstOrDefaultAsync(p => p.PlanId == id);
+
+            if (plan == null)
+            {
+                return NotFound(new { message = $"План закалки с ID {id} не найден." });
+            }
+
+            // Проверка, можно ли редактировать (например, только если статус "Создан")
+            if (plan.Status != "Создан") // Используем тот же статус, что и на фронте
+            {
+                return BadRequest(new { message = $"Невозможно редактировать план с ID {id}, так как его статус '{plan.Status}'. Редактирование возможно только для планов со статусом 'Создан'." });
+            }
+
+            // Сохраняем старое имя плана для обновления статуса листов
+            var oldPlanName = plan.PlanName;
+
+            // Обновляем основные поля плана
+            if (!string.IsNullOrEmpty(request.PlanName))
+            {
+                plan.PlanName = request.PlanName;
+            }
+            if (!string.IsNullOrEmpty(request.FurnaceNumber))
+            {
+                plan.FurnaceNumber = request.FurnaceNumber;
+            }
+            if (request.ScheduledStartTime.HasValue)
+            {
+                plan.ScheduledStartTime = request.ScheduledStartTime;
+            }
+            if (request.ScheduledEndTime.HasValue)
+            {
+                plan.ScheduledEndTime = request.ScheduledEndTime;
+            }
+            if (request.Notes != null) // Может быть пустая строка
+            {
+                plan.Notes = request.Notes;
+            }
+
+            // --- ОБНОВЛЕНИЕ СВЯЗЕЙ С ЛИСТАМИ ---
+            if (request.MatIds != null) // Если список MatIds был передан
+            {
+                var newMatIds = request.MatIds.Distinct().ToList(); // Убираем дубликаты
+
+                // 1. Найти существующие связи
+                var existingLinks = plan.LinkedSheets.ToList(); // ToList() чтобы отвязать от контекста при манипуляциях
+
+                // 2. Определить, какие листы нужно добавить и какие удалить
+                var currentMatIdsInPlan = existingLinks.Select(l => l.MatId).ToHashSet();
+                var newMatIdsSet = newMatIds.ToHashSet();
+
+                var matIdsToAdd = newMatIdsSet.Except(currentMatIdsInPlan).ToList();
+                var matIdsToRemove = currentMatIdsInPlan.Except(newMatIdsSet).ToList();
+
+                // --- НОВАЯ ЛОГИКА: Обновление статусов листов при изменении связей ---
+                // 3a. Проверить и подготовить листы для добавления
+                if (matIdsToAdd.Any())
+                {
+                    var existingMatIds = await _context.InputData
+                        .Where(s => matIdsToAdd.Contains(s.MatId))
+                        .Select(s => s.MatId)
+                        .ToListAsync();
+
+                    var missingMatIds = matIdsToAdd.Except(existingMatIds).ToList();
+                    if (missingMatIds.Any())
+                    {
+                        return NotFound(new { message = $"Листы с ID {string.Join(", ", missingMatIds)} не найдены." });
+                    }
+
+                    // 3b. Проверить, не входят ли листы, которые хотим добавить, уже в *другой* активный план
+                    var conflictingLinks = await _context.AnnealingBatchPlanSheets
+                        .Include(l => l.BatchPlan) // Подгружаем план
+                        .Where(l => matIdsToAdd.Contains(l.MatId) &&
+                                    l.BatchPlan.Status != "Завершён" &&
+                                    l.BatchPlan.Status != "Отменён" &&
+                                    l.PlanId != id) // Исключаем текущий план
+                        .Select(l => new { l.MatId, l.BatchPlan.PlanName })
+                        .ToListAsync();
+
+                    if (conflictingLinks.Any())
+                    {
+                        var conflictInfo = string.Join("; ", conflictingLinks.Select(cl => $"{cl.MatId} (в плане '{cl.PlanName}')"));
+                        return BadRequest(new { message = $"Листы {conflictInfo} уже входят в другой активный план закалки." });
+                    }
+                }
+
+                // 4. Удалить старые связи
+                if (matIdsToRemove.Any())
+                {
+                    _context.AnnealingBatchPlanSheets.RemoveRange(existingLinks.Where(l => matIdsToRemove.Contains(l.MatId)));
+                }
+
+                // 5. Добавить новые связи
+                if (matIdsToAdd.Any())
+                {
+                    var newLinks = matIdsToAdd.Select(matId => new AnnealingBatchPlanSheet
+                    {
+                        PlanId = plan.PlanId,
+                        MatId = matId
+                    }).ToList();
+                    _context.AnnealingBatchPlanSheets.AddRange(newLinks);
+                }
+
+                // 6. Обновить статусы листов в InputData
+                // a. Обновить статусы у добавленных листов
+                if (matIdsToAdd.Any())
+                {
+                    var sheetsToAdd = await _context.InputData
+                        .Where(s => matIdsToAdd.Contains(s.MatId))
+                        .ToListAsync();
+
+                    foreach (var sheet in sheetsToAdd)
+                    {
+                        sheet.Status = $"В плане закалки \"{plan.PlanName}\"";
+                       // sheet.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+
+                // b. Обновить статусы у удаленных листов (только если план был "Создан")
+                if (matIdsToRemove.Any())
+                {
+                    var sheetsToRemove = await _context.InputData
+                        .Where(s => matIdsToRemove.Contains(s.MatId))
+                        .ToListAsync();
+
+                    foreach (var sheet in sheetsToRemove)
+                    {
+                        // Сбрасываем статус на "Подготовлен к прокату", так как он был в этом состоянии до добавления в план
+                        sheet.Status = "Подготовлен к прокату";
+                      //  sheet.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+
+                // Сохраняем изменения связей и статусов
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                {
+                    Console.WriteLine($"Ошибка при обновлении связей и статусов листов в EditBatchPlan: {ex.Message}");
+                    return StatusCode(500, new { message = "Произошла ошибка при обновлении связей и статусов листов." });
+                }
+            }
+            else
+            {
+                // Если список MatIds не был передан, просто сохраняем изменения основных данных плана
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                {
+                    Console.WriteLine($"Ошибка при обновлении данных плана закалки: {ex.Message}");
+                    return StatusCode(500, new { message = "Произошла ошибка при обновлении данных плана закалки." });
+                }
+            }
+
+
+            // Возвращаем обновленный план (опционально, можно вернуть OK)
+            var updatedPlan = await _context.AnnealingBatchPlans
+                .Include(p => p.LinkedSheets)
+                    .ThenInclude(ls => ls.Sheet)
+                .FirstOrDefaultAsync(p => p.PlanId == id);
+
+            if (updatedPlan == null)
+            {
+                // Теоретически не должно произойти, но на всякий случай
+                return NotFound(new { message = $"План закалки с ID {id} не найден после обновления." });
+            }
+
+            return Ok(updatedPlan);
+        }
     }
 }
