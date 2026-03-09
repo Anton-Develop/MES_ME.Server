@@ -39,7 +39,8 @@ import {
   Grid, // Добавим Grid для фильтров
   Pagination, // Добавим компонент пагинации
   InputAdornment, // Для кнопки очистки
-  IconButton as MuiIconButton, // Переименуем, чтобы не путать с нашим IconButton
+    IconButton as MuiIconButton, // Переименуем, чтобы не путать с нашим IconButton
+
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -58,6 +59,10 @@ const CassetteManagementPage = () => {
   const [error, setError] = useState('');
   const [newCassetteNotes, setNewCassetteNotes] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
+    //Для удаления кассет
+    const [openDeleteConfirmDialog, setOpenDeleteConfirmDialog] = useState(false);
+    const [cassetteToDelete, setCassetteToDelete] = useState(null);
 
   // Состояния для изменения статуса
   const [openStatusDialog, setOpenStatusDialog] = useState(false);
@@ -102,6 +107,34 @@ const CassetteManagementPage = () => {
     'Завершена',
     'Отменена',
   ];
+
+    // --- НОВАЯ ФУНКЦИЯ: Удаление кассеты ---
+    const handleDeleteCassette = async (cassetteId) => {
+        setError('');
+        try {
+            await api.delete(`/cassette/${cassetteId}`); // Вызов нового API метода
+            // Закрываем диалог подтверждения
+            handleCloseDeleteConfirmDialog();
+            // Обновляем список кассет
+            fetchCassettes();
+            alert(`Кассета ${cassetteId} успешно удалена.`);
+        } catch (err) {
+            console.error('Ошибка удаления кассеты:', err);
+            setError(err.response?.data?.message || err.message || 'Ошибка при удалении кассеты.');
+        }
+    };
+
+    // --- Функции для диалога подтверждения ---
+    const handleOpenDeleteConfirmDialog = (cassette) => {
+        setCassetteToDelete(cassette);
+        setOpenDeleteConfirmDialog(true);
+    };
+
+    const handleCloseDeleteConfirmDialog = () => {
+        setOpenDeleteConfirmDialog(false);
+        setCassetteToDelete(null);
+    };
+
 
   // Загрузка списка кассет
   const fetchCassettes = async () => {
@@ -474,7 +507,20 @@ const CassetteManagementPage = () => {
                         >
                           <AddIcon fontSize="small" />
                         </IconButton>
-                      </Tooltip>
+                            </Tooltip>
+                            {/* --- НОВАЯ КНОПКА УДАЛЕНИЯ --- */}
+                            <Tooltip title="Удалить кассету">
+                                <span> {/* span нужен для правильной работы Tooltip с отключённой кнопкой */}
+                                    <IconButton
+                                        size="small"
+                                        onClick={() => handleOpenDeleteConfirmDialog(cassette)}
+                                        color="error" // Подсветка как опасное действие
+                                        disabled={cassette.status === 'Завершена' || cassette.status === 'Отменена'} // Пример логики на фронте (опционально)
+                                    >
+                                        <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -587,6 +633,34 @@ const CassetteManagementPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+          {/* --- НОВЫЙ Диалог подтверждения удаления --- */}
+          <Dialog open={openDeleteConfirmDialog} onClose={handleCloseDeleteConfirmDialog} maxWidth="xs" fullWidth>
+              <DialogTitle>
+                  Подтвердите удаление
+              </DialogTitle>
+              <DialogContent dividers>
+                  <Typography variant="body1">
+                      Вы уверены, что хотите удалить кассету <strong>{cassetteToDelete?.cassetteId}</strong>?<br />
+                      Это действие освободит все листы, находящиеся в кассете, и не может быть отменено.
+                  </Typography>
+              </DialogContent>
+              <DialogActions>
+                  <Button onClick={handleCloseDeleteConfirmDialog} startIcon={<CloseIcon />}>
+                      Отмена
+                  </Button>
+                  <Button
+                      onClick={() => handleDeleteCassette(cassetteToDelete?.cassetteId)}
+                      variant="contained"
+                      color="error" // Кнопка подтверждения удаления
+                      startIcon={<DeleteIcon />}
+                      autoFocus
+                  >
+                      Удалить
+                  </Button>
+              </DialogActions>
+          </Dialog>
+
 
       <Dialog open={openSheetsDialog} onClose={handleCloseSheetsDialog} maxWidth="lg" fullWidth>
         <DialogTitle>

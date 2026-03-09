@@ -467,6 +467,68 @@ namespace MES_ME.Server.Controllers
             var terminalStatuses = new[] { "Завершена", "Отменена" };
             return terminalStatuses.Contains(status, StringComparer.OrdinalIgnoreCase);
         }
+
+
+        // --- МЕТОД 10: Удаление кассеты и освобождение связанных листов ---
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteCassette(string id)
+        {
+            // Проверка аутентификации и авторизации (например, только для 'master' или 'admin')
+             var currentUser = HttpContext.User;
+             //if (!IsUserAuthorized(currentUser, ["master", "admin"])) // Пример ролей
+             //{
+             //    return Forbid();
+             // }
+
+            // 1. Проверяем, существует ли кассета
+            var cassette = await _context.Cassettes.FindAsync(id);
+            if (cassette == null)
+            {
+                return NotFound(new { message = $"Кассета с ID {id} не найдена." });
+            }
+
+            // 2. Проверяем статус кассеты. Возможно, удалять можно только кассеты в определённых статусах (например, "Создана", "Формируется").
+            // Это зависит от бизнес-логики. Пример:
+            if (cassette.Status != "Создана" && cassette.Status != "Формируется")
+             {
+                 return BadRequest(new { message = $"Невозможно удалить кассету со статусом '{cassette.Status}'." });
+             }
+
+            // 3. Находим все связи (SheetCassetteLink), относящиеся к этой кассете
+            var linksToRemove = await _context.SheetCassetteLinks
+                                              .Where(l => l.CassetteId == id)
+                                              .ToListAsync();
+
+            if (linksToRemove.Any())
+            {
+                // 4. Удаляем все найденные связи (освобождаем листы)
+                _context.SheetCassetteLinks.RemoveRange(linksToRemove);
+                Console.WriteLine($"Освобождено {linksToRemove.Count} листов из кассеты {id}."); // Логирование
+            }
+            else
+            {
+                Console.WriteLine($"Кассета {id} не содержала листов, связи для удаления отсутствуют."); // Логирование
+            }
+
+            // 5. Удаляем саму кассету
+            _context.Cassettes.Remove(cassette);
+
+            try
+            {
+                // 6. Сохраняем все изменения (и удаление связей, и удаление кассеты) в одной транзакции
+                await _context.SaveChangesAsync();
+                Console.WriteLine($"Кассета {id} успешно удалена."); // Логирование
+            }
+            catch (DbUpdateException ex)
+            {
+                // Логирование ошибки
+                Console.WriteLine($"Ошибка при удалении кассеты {id}: {ex.Message}");
+                return StatusCode(500, new { message = "Произошла ошибка при удалении кассеты." });
+            }
+
+            // 7. Возвращаем успешный ответ
+            return Ok(new { message = $"Кассета {id} и все её связи успешно удалены. Листы освобождены." });
+        }
     }
 
     
