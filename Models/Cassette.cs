@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace MES_ME.Server.Models
 {
@@ -36,6 +37,10 @@ namespace MES_ME.Server.Models
         // public virtual ICollection<CassetteStatusLog> StatusLogs { get; set; } = new List<CassetteStatusLog>();
         // Навигационное свойство для связанных листов (опционально)
         public virtual ICollection<SheetCassetteLink> LinkedSheets { get; set; } = new List<SheetCassetteLink>();
+         // --- НОВОЕ: Навигационное свойство ---
+        [JsonIgnore] // Игнорировать при сериализации в JSON (API), если не нужно возвращать сразу все связи
+        public virtual ICollection<CassettePlanLink> CassettePlanLinks { get; set; } = new List<CassettePlanLink>();
+        // --- КОНЕЦ НОВОГО ---
     }
     
 }

@@ -26,9 +26,47 @@ namespace MES_ME.Server.Data
         public DbSet<AnnealingBatchPlan> AnnealingBatchPlans { get; set; }
         public DbSet<AnnealingBatchPlanSheet> AnnealingBatchPlanSheets { get; set; } 
 
+        public DbSet<AnnealingPlan> AnnealingPlans { get; set; }
+        public DbSet<CassettePlanLink> CassettePlanLinks { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
              base.OnModelCreating(modelBuilder);
+
+               // --- НОВОЕ: Конфигурация новых сущностей ---
+            modelBuilder.Entity<AnnealingPlan>(entity =>
+            {
+                entity.HasKey(e => e.PlanId);
+                // entity.Property(e => e.PlanId).ValueGeneratedOnAdd(); // Если ID генерируется вручную, уберите это
+                entity.Property(e => e.TotalWeightKg).HasColumnType("decimal(18,2)"); // Убедитесь, что БД поддерживает этот тип
+                // Добавьте другие настройки, если нужно
+            });
+
+            modelBuilder.Entity<CassettePlanLink>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Опционально: настройка внешних ключей (требует навигационных свойств)
+                // entity.HasOne(d => d.Cassette) // Только если есть навигационное свойство
+                //     .WithMany(p => p.CassettePlanLinks)
+                //     .HasForeignKey(d => d.CassetteId)
+                //     .OnDelete(DeleteBehavior.ClientSetNull);
+
+                // entity.HasOne(d => d.AnnealingPlan) // Только если есть навигационное свойство
+                //     .WithMany(p => p.CassettePlanLinks)
+                //     .HasForeignKey(d => d.PlanId)
+                //     .OnDelete(DeleteBehavior.ClientSetNull);
+
+                // Уникальность пары (PlanId, CassetteId), если кассета может быть только в одном плане отпуска одновременно
+                entity.HasIndex(e => new { e.PlanId, e.CassetteId }).IsUnique();
+
+                // Опционально: ограничение, чтобы CassetteNumberInPlan было уникальным в рамках одного PlanId
+                // entity.HasIndex(e => new { e.PlanId, e.CassetteNumberInPlan }).IsUnique()
+                //     .HasFilter("[CassetteNumberInPlan] IS NOT NULL");
+            });
+            // --- КОНЕЦ НОВОГО ---
+
+
  // Настройка связи AnnealingBatchPlanSheet -> AnnealingBatchPlan (Many-to-One)
             modelBuilder.Entity<AnnealingBatchPlanSheet>()
                 .HasOne(s => s.BatchPlan) // У AnnealingBatchPlanSheet есть свойство BatchPlan

@@ -36,6 +36,12 @@ const menuItems = [
     link: '/annealing-batch-plan',
     roles: ['master', 'operator', 'developer', 'superadmin'],
   },
+   {
+    text: 'План кассет',
+    icon: <CalendarTodayIcon />,
+    link: '/AnnealingPlan-cassete',
+    roles: ['master', 'operator', 'developer', 'superadmin'],
+  },
   
   {
     text: 'Управление кассетами',

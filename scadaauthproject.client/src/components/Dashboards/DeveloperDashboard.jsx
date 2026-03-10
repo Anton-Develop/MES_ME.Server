@@ -14,6 +14,7 @@ import {
 
 const devActions = [
   { text: 'План закалки', icon: <AssignmentIcon />, route: '/annealing-batch-plan' },
+  { text: 'План отпуска', icon: <AssignmentIcon />, route: '/AnnealingPlan-cassete' },
   { text: 'Расписание закалки', icon: <CalendarTodayIcon />, route: '/annealing-schedule' },
   { text: 'Управление кассетами', icon: <InventoryIcon />, route: '/cassette-management' },
   { text: 'Входные данные', icon: <TableChartIcon />, route: '/input-data' },

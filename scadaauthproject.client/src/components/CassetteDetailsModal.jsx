@@ -24,7 +24,7 @@ import {
 import { Print as PrintIcon } from '@mui/icons-material';
 import api from '../api';
 
-// Константы для цветов статусов вынесены за пределы компонента
+// Константы для цветов статусов вынесены за предента
 const CASSETTE_STATUS_COLORS = {
   'Создана': 'default',
   'Формируется': 'info',
@@ -91,11 +91,11 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
     >
       <style>{`
         @media print {
-          @page { margin: 1cm; size: A4 portrait; } /* Настройка страницы для печати */
-          body { -webkit-print-color-adjust: exact; } /* Печать цветов как есть */
-          .no-print { display: none !important; } /* Скрыть элементы с классом no-print */
+          @page { margin: 1cm; size: A4 portrait; }
+          body { -webkit-print-color-adjust: exact; }
+          .no-print { display: none !important; }
           .MuiDialog-container, .MuiDialog-paper {
-            position: static !important; /* Печатать как обычный элемент */
+            position: static !important;
             box-shadow: none !important;
             margin: 0 !important;
             max-height: none !important;
@@ -110,45 +110,44 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
              padding-top: 0 !important;
              padding-bottom: 0 !important;
           }
-          table { width: 100%; font-size: 9pt; border-collapse: collapse; } /* Стили таблицы */
-          th, td { border: 1px solid #000 !important; padding: 3px !important; vertical-align: top; } /* Стили ячеек */
-          th { background-color: #f5f5f5 !important; } /* Цвет фона шапки */
+          table { width: 100%; font-size: 9pt; border-collapse: collapse; }
+          th, td { border: 1px solid #000 !important; padding: 3px !important; vertical-align: top; }
+          th { background-color: #f5f5f5 !important; }
         }
       `}</style>
 
       <DialogTitle id="cassette-details-dialog-title" ref={componentRef}>
         {/* Информация о кассете в заголовке диалога */}
-        {details ? (
-          <Box display="flex" justifyContent="space-between" alignItems="center">
-            <Box>
-              <Typography variant="h6" component="span">
-                Отчет по кассете - {details.cassette.id}
-              </Typography>
+        {/* Используем Box для группировки элементов в заголовке, избегая вложенности h6 в h2 */}
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Box>
+            {/* Теперь текст "Отчет по кассете - ID" - это содержимое h6 */}
+            <Typography variant="h6" component="span">
+              Отчет по кассете - {details ? details.cassette.id : 'Загрузка...'}
+            </Typography>
+            {/* Чип со статусом добавим рядом, не внутри h6 */}
+            {details && (
               <Chip
                 label={details.cassette.status}
                 color={CASSETTE_STATUS_COLORS[details.cassette.status] || CASSETTE_STATUS_COLORS['default']}
                 size="small"
-                sx={{ ml: 1 }} // Отступ слева
+                sx={{ ml: 1, verticalAlign: 'middle' }} // Отступ слева и выравнивание
               />
-            </Box>
-            <Box className="no-print"> {/* Кнопка "Печать" не будет печататься */}
-              <IconButton
-                onClick={handlePrint}
-                color="primary"
-                size="small"
-                aria-label="Печать"
-              >
-                <Tooltip title="Печать отчета">
-                  <PrintIcon />
-                </Tooltip>
-              </IconButton>
-            </Box>
+            )}
           </Box>
-        ) : (
-          <Typography variant="h6">
-            Отчет по кассете
-          </Typography>
-        )}
+          <Box className="no-print"> {/* Кнопка "Печать" не будет печататься */}
+            <IconButton
+              onClick={handlePrint}
+              color="primary"
+              size="small"
+              aria-label="Печать"
+            >
+              <Tooltip title="Печать отчета">
+                <PrintIcon />
+              </Tooltip>
+            </IconButton>
+          </Box>
+        </Box>
       </DialogTitle>
 
       <DialogContent dividers>
@@ -169,11 +168,39 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
               Информация о кассете
             </Typography>
             <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-              <Typography variant="body2"><strong>ID:</strong> {details.cassette.id}</Typography>
-              <Typography variant="body2"><strong>Статус:</strong> <Chip label={details.cassette.status} color={CASSETTE_STATUS_COLORS[details.cassette.status] || CASSETTE_STATUS_COLORS['default']} size="small" /></Typography>
-              <Typography variant="body2"><strong>Дата создания:</strong> {fmtDateTime(details.cassette.createdAt)}</Typography>
-              <Typography variant="body2"><strong>Создал:</strong> {details.cassette.createdBy || 'N/A'}</Typography>
-              <Typography variant="body2"><strong>Заметки:</strong> {details.cassette.notes || 'Нет'}</Typography>
+              {/* Используем div для обертки каждого элемента, чтобы избежать вложенности div (Chip) в p */}
+              <Box component="div" mb={0.5}> {/* mb - отступ снизу */}
+                <Typography variant="body2" component="span"> {/* span вместо p */}
+                  <strong>ID:</strong> {details.cassette.id}
+                </Typography>
+              </Box>
+              <Box component="div" mb={0.5}>
+                <Typography variant="body2" component="span">
+                  <strong>Статус:</strong>
+                </Typography>
+                {/* Отдельно выводим чип, не внутри span с strong */}
+                <Chip
+                  label={details.cassette.status}
+                  color={CASSETTE_STATUS_COLORS[details.cassette.status] || CASSETTE_STATUS_COLORS['default']}
+                  size="small"
+                  sx={{ ml: 1, verticalAlign: 'middle' }}
+                />
+              </Box>
+              <Box component="div" mb={0.5}>
+                <Typography variant="body2" component="span">
+                  <strong>Дата создания:</strong> {fmtDateTime(details.cassette.createdAt)}
+                </Typography>
+              </Box>
+              <Box component="div" mb={0.5}>
+                <Typography variant="body2" component="span">
+                  <strong>Создал:</strong> {details.cassette.createdBy || 'N/A'}
+                </Typography>
+              </Box>
+              <Box component="div">
+                <Typography variant="body2" component="span">
+                  <strong>Заметки:</strong> {details.cassette.notes || 'Нет'}
+                </Typography>
+              </Box>
             </Paper>
 
             {/* Список листов */}
@@ -195,7 +222,7 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
                       <TableCell>Марка стали</TableCell>
                       <TableCell>Размеры</TableCell>
                       <TableCell>Номер листа в пачке</TableCell>
-                      
+
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -208,7 +235,7 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
                         <TableCell>{sheet.steelGrade}</TableCell>
                         <TableCell>{sheet.sheetDimensions}</TableCell>
                         <TableCell>{sheet.slabNumber}</TableCell>
-                      
+
                       </TableRow>
                     ))}
                   </TableBody>

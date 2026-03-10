@@ -19,6 +19,7 @@ import InputDataView from './pages/InputDataView';
 import AnnealingBatchPlanPage from './pages/AnnealingBatchPlanPage';
 import SheetStatusUpdater from './pages/SheetStatusUpdater';
 import AnnealingReportPage from './pages/AnnealingReportPage';
+import AnnealingPlanPage from './pages/AnnealingPlanPage';
 // Импорт общего макета
 import MainLayout from './components/MainLayout'; // <-- Новый компонент макета
 
@@ -57,6 +58,7 @@ const AppContent = () => {
           <Route path="/annealing-batch-plan" element={<MainLayout><AnnealingBatchPlanPage /></MainLayout>} />
           <Route path="/sheet-status-updater" element={<MainLayout><SheetStatusUpdater /></MainLayout>} />
           <Route path="/reports/annealing" element={<AnnealingReportPage />} />
+          <Route path="/AnnealingPlan-cassete" element={<MainLayout><AnnealingPlanPage /></MainLayout>} />
           {/* Добавьте другие защищенные маршруты аналогично */}
       
         {/* Редирект на главную для любых других неопределенных маршрутов после логина */}
