@@ -618,13 +618,15 @@ namespace MES_ME.Server.Controllers
                               MatId = input.MatId,
                               MeltNumber = input.MeltNumber,
                               BatchNumber = input.BatchNumber,
+                              PackNumber = input.PackNumber,
                               SteelGrade = input.SteelGrade,
                               SheetDimensions = input.SheetDimensions,
-                              SlabNumber = input.SlabNumber,
-                              SheetNumberInPack = link.Sheet.SheetNumber, // Номер листа в пачке (из связи)
+                              SlabNumber = input.SheetNumber,
+                              
                              
                           })
                     .ToListAsync();
+
 
                 // 3. Собрать результат
                 var result = new

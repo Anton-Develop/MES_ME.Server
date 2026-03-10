@@ -195,12 +195,7 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
                       <TableCell>Марка стали</TableCell>
                       <TableCell>Размеры</TableCell>
                       <TableCell>Номер листа в пачке</TableCell>
-                      <TableCell>Номер сляба</TableCell>
-                      <TableCell>Вес</TableCell>
-                      <TableCell>Номер заказа</TableCell>
-                      <TableCell>Статус</TableCell>
-                      <TableCell>Дата нагрева</TableCell>
-                      <TableCell>Статус после нагрева ГП</TableCell>
+                      
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -209,16 +204,11 @@ const CassetteDetailsModal = ({ isOpen, cassetteId, onClose }) => {
                         <TableCell>{sheet.matId}</TableCell>
                         <TableCell>{sheet.meltNumber}</TableCell>
                         <TableCell>{sheet.batchNumber}</TableCell>
-                        <TableCell>{sheet.packNumberSystem}</TableCell>
+                        <TableCell>{sheet.packNumber}</TableCell>
                         <TableCell>{sheet.steelGrade}</TableCell>
                         <TableCell>{sheet.sheetDimensions}</TableCell>
-                        <TableCell>{sheet.sheetNumberInPack}</TableCell>
                         <TableCell>{sheet.slabNumber}</TableCell>
-                        <TableCell>{sheet.weight}</TableCell>
-                        <TableCell>{sheet.orderNumber}</TableCell>
-                        <TableCell>{sheet.status}</TableCell>
-                        <TableCell>{fmtDateTime(sheet.actualHeatDate)}</TableCell>
-                        <TableCell>{sheet.statusAfterAcceptanceGP}</TableCell>
+                      
                       </TableRow>
                     ))}
                   </TableBody>

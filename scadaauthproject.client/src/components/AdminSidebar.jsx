@@ -36,13 +36,7 @@ const menuItems = [
     link: '/annealing-batch-plan',
     roles: ['master', 'operator', 'developer', 'superadmin'],
   },
-  {
-    // ИСПРАВЛЕНО: была дублирующая иконка CalendarTodayIcon — заменена на AssignmentIcon
-    text: 'Отчет закалки',
-    icon: <AssignmentIcon />,
-    link: '/reports/annealing',
-    roles: ['master', 'operator', 'developer', 'superadmin'],
-  },
+  
   {
     text: 'Управление кассетами',
     icon: <InventoryIcon />,
