@@ -288,6 +288,9 @@ namespace MES_ME.Server.Controllers
         }
         // ... добавьте другие фильтры ...
 
+        ///сортировка по Matid    
+        query = query.OrderBy(s => s.MatId);
+
         var totalCount = await query.CountAsync();
 
         var data = await query
@@ -364,8 +367,9 @@ namespace MES_ME.Server.Controllers
             }
 
             // Проверяем, существует ли лист
-            var sheetExists = await _context.InputData.AnyAsync(s => s.MatId == request.MatId);
-            if (!sheetExists)
+           // var sheetExists = await _context.InputData.AnyAsync(s => s.MatId == request.MatId);
+            var sheetExists = await _context.InputData.FindAsync(request.MatId); 
+            if (sheetExists== null)
             {
                 return NotFound(new { message = $"Лист с ID {request.MatId} не найден." });
             }
@@ -378,7 +382,7 @@ namespace MES_ME.Server.Controllers
                 // Возвращаем ошибку, если лист уже в другой кассете
                 if (existingLink.CassetteId != cassetteId)
                 {
-                    return BadRequest(new { message = $"Лист {request.MatId} уже связан с кассетой {existingLink.CassetteId}." });
+                    return Conflict(new { message = $"Лист {request.MatId} уже связан с кассетой {existingLink.CassetteId}." });
                 }
                 // Если лист уже в *этой* кассете, возвращаем Ok (или NoContent)
                 return Ok(new { message = $"Лист {request.MatId} уже находится в кассете {cassetteId}." });
@@ -397,6 +401,13 @@ namespace MES_ME.Server.Controllers
 
             try
             {
+                  // --- НОВОЕ: Обновление статуса листа ---
+                // Установим новый статус, например, "В кассете" или "Формируется в кассете"
+                // Лучше всего использовать константу или настраиваемое значение
+                string newSheetStatus = "В кассете"; // <-- Замените на нужный вам статус или получите из конфигурации/DTO
+                sheetExists.Status = newSheetStatus; // Обновляем статус в объекте
+                // _context.InputData.Update(sheetExists); // EF может автоматически отследить изменения, но явное обновление гарантирует
+                // --- КОНЕЦ НОВОГО ---
                 await _context.SaveChangesAsync();
             }
             catch (DbUpdateException ex)
@@ -428,8 +439,8 @@ namespace MES_ME.Server.Controllers
             }
 
             // Проверяем, существует ли лист
-            var sheetExists = await _context.InputData.AnyAsync(s => s.MatId == matId);
-            if (!sheetExists)
+            var sheetExists = await _context.InputData.FindAsync(matId);
+            if (sheetExists==null)
             {
                 return NotFound(new { message = $"Лист с ID {matId} не найден." });
             }
@@ -445,6 +456,14 @@ namespace MES_ME.Server.Controllers
             }
 
             _context.SheetCassetteLinks.Remove(link);
+
+            // --- НОВОЕ: Возвращение статуса листа ---
+            // Установим статус, например, "Доступен" или "В плане закалки"
+            // Лучше всего использовать константу или настраиваемое значение
+            string resetSheetStatus = "Подготовлен к прокату"; // <-- Замените на нужный вам статус или получите из конфигурации
+            sheetExists.Status = resetSheetStatus; // Обновляем статус в объекте
+            // _context.InputData.Update(sheet); // EF может автоматически отследить изменения, но явное обновление гарантирует
+            // --- КОНЕЦ НОВОГО ---
 
             try
             {
@@ -499,6 +518,14 @@ namespace MES_ME.Server.Controllers
                                               .Where(l => l.CassetteId == id)
                                               .ToListAsync();
 
+             // --- НОВОЕ: Подготовка к возврату статусов листов ---
+            List<string> matIdsToReset = new List<string>();
+            if (linksToRemove.Any())
+            {
+                matIdsToReset = linksToRemove.Select(l => l.MatId).ToList();
+            }
+            // --- КОНЕЦ НОВОГО ---
+
             if (linksToRemove.Any())
             {
                 // 4. Удаляем все найденные связи (освобождаем листы)
@@ -512,6 +539,27 @@ namespace MES_ME.Server.Controllers
 
             // 5. Удаляем саму кассету
             _context.Cassettes.Remove(cassette);
+            
+             // --- НОВОЕ: Возврат статусов листов ---
+            if (matIdsToReset.Any())
+            {
+                 string resetSheetStatus = "Подготовлен к прокату"; // <-- Замените на нужный вам статус или получите из конфигурации
+                 // Обновляем статусы всех освобождаемых листов
+                 // Используем Bulk Update или UpdateMany, если ваш ORM поддерживает (например, EF Core Plus, Z.EntityFramework.Extensions)
+                 // В стандартном EF Core проще загрузить объекты и обновить их
+                 var sheetsToReset = await _context.InputData
+                     .Where(s => matIdsToReset.Contains(s.MatId))
+                     .ToListAsync();
+
+                 foreach (var sheet in sheetsToReset)
+                 {
+                     sheet.Status = resetSheetStatus;
+                     // _context.InputData.Update(sheet); // Не обязательно, если объекты уже отслеживаются после ToListAsync
+                 }
+
+                 Console.WriteLine($"Сброшены статусы для {sheetsToReset.Count} листов, освобождённых из кассеты {id}."); // Логирование
+            }
+            // --- КОНЕЦ НОВОГО ---
 
             try
             {
@@ -528,6 +576,71 @@ namespace MES_ME.Server.Controllers
 
             // 7. Возвращаем успешный ответ
             return Ok(new { message = $"Кассета {id} и все её связи успешно удалены. Листы освобождены." });
+        }
+
+         // --- НОВЫЙ МЕТОД: Получение детальной информации о кассете ---
+        [HttpGet("{id}/details")]
+        public async Task<IActionResult> GetCassetteDetails(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                return BadRequest(new { message = "ID кассеты не может быть пустым." });
+            }
+
+            try
+            {
+                // 1. Найти саму кассету
+                var cassette = await _context.Cassettes
+                    .Where(c => c.CassetteId == id)
+                    .Select(c => new
+                    {
+                        Id = c.CassetteId,
+                        Status = c.Status,
+                        CreatedAt = c.CreatedAt,
+                        CreatedBy = c.CreatedBy,
+                        Notes = c.Notes // Предполагается, что Notes есть в модели Cassette
+                    })
+                    .FirstOrDefaultAsync();
+
+                if (cassette == null)
+                {
+                    return NotFound(new { message = $"Кассета с ID {id} не найдена." });
+                }
+
+                // 2. Найти все листы, связанные с этой кассетой
+                var linkedSheets = await _context.SheetCassetteLinks
+                    .Where(link => link.CassetteId == id)
+                    .Join(_context.InputData, // Соединяем с input_data
+                          link => link.MatId,
+                          input => input.MatId,
+                          (link, input) => new
+                          {
+                              MatId = input.MatId,
+                              MeltNumber = input.MeltNumber,
+                              BatchNumber = input.BatchNumber,
+                              SteelGrade = input.SteelGrade,
+                              SheetDimensions = input.SheetDimensions,
+                              SlabNumber = input.SlabNumber,
+                              SheetNumberInPack = link.Sheet.SheetNumber, // Номер листа в пачке (из связи)
+                             
+                          })
+                    .ToListAsync();
+
+                // 3. Собрать результат
+                var result = new
+                {
+                    Cassette = cassette,
+                    Sheets = linkedSheets
+                };
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при получении деталей кассеты {id}: {ex.Message}");
+                // Логирование ошибки
+                return StatusCode(500, new { message = "Произошла ошибка при получении деталей кассеты." });
+            }
         }
     }
 

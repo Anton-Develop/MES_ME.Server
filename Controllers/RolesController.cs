@@ -46,7 +46,7 @@ namespace MES_ME.Server.Controllers
             return CreatedAtAction(nameof(GetRoles), new { id = role.Id }, role);
         }
 
-        [Authorize(Roles = "superadmin")]
+        [Authorize(Roles = "superadmin,developer")]
         [HttpDelete("{id}")]
         public async Task<ActionResult> DeleteRole(int id)
         {

@@ -49,9 +49,11 @@ import {
   Close as CloseIcon,
   Delete as DeleteIcon,
   Clear as ClearIcon, // Иконка для очистки
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import api from '../api';
+import CassetteDetailsModal from '../components/CassetteDetailsModal';
 
 const CassetteManagementPage = () => {
   const [cassettes, setCassettes] = useState([]);
@@ -59,6 +61,10 @@ const CassetteManagementPage = () => {
   const [error, setError] = useState('');
   const [newCassetteNotes, setNewCassetteNotes] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
+  // --- НОВЫЕ СОСТОЯНИЯ ДЛЯ ДЛЯ ОТЧЕТА КАССЕТЫ ---
+  const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
+  const [selectedCassetteForDetails, setSelectedCassetteForDetails] = useState(null);
 
     //Для удаления кассет
     const [openDeleteConfirmDialog, setOpenDeleteConfirmDialog] = useState(false);
@@ -107,7 +113,17 @@ const CassetteManagementPage = () => {
     'Завершена',
     'Отменена',
   ];
+// --- НОВЫЕ ОБРАБОТЧИКИ ДЛЯ ОТЧЕТА---
+  const handleOpenDetailsDialog = (cassette) => {
+    setSelectedCassetteForDetails(cassette);
+    setOpenDetailsDialog(true);
+  };
 
+  const handleCloseDetailsDialog = () => {
+    setOpenDetailsDialog(false);
+    setSelectedCassetteForDetails(null);
+  };
+  // ------------------------
     // --- НОВАЯ ФУНКЦИЯ: Удаление кассеты ---
     const handleDeleteCassette = async (cassetteId) => {
         setError('');
@@ -490,6 +506,15 @@ const CassetteManagementPage = () => {
                           <SaveIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Отчет по кассете">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenDetailsDialog(cassette)}
+                          color="info" // Цвет для информационной кнопки
+                        >
+                          <InfoIcon fontSize="small" /> {/* Не забудьте импортировать InfoIcon */}
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="История статусов">
                         <IconButton
                           size="small"
@@ -634,6 +659,13 @@ const CassetteManagementPage = () => {
         </DialogActions>
       </Dialog>
 
+{/* --- КОМПОНЕНТ МОДАЛЬНОГО ОКНА ДЕТАЛЕЙ --- */}
+      <CassetteDetailsModal
+        isOpen={openDetailsDialog}
+        cassetteId={selectedCassetteForDetails?.cassetteId} // Передаем ID кассеты
+        onClose={handleCloseDetailsDialog}
+      />
+      {/* ----------------------------------------- */}
           {/* --- НОВЫЙ Диалог подтверждения удаления --- */}
           <Dialog open={openDeleteConfirmDialog} onClose={handleCloseDeleteConfirmDialog} maxWidth="xs" fullWidth>
               <DialogTitle>

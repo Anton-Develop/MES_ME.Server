@@ -128,7 +128,7 @@ namespace MES_ME.Server.Controllers
             return Ok(new { Message = "User deactivated successfully." });
         }
 
-        [Authorize(Roles = "superadmin")]
+        [Authorize(Roles = "superadmin,developer")]
         [HttpDelete("{id}/hard")]
         public async Task<ActionResult> HardDeleteUser(int id)
         {
