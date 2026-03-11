@@ -19,7 +19,7 @@ namespace MES_ME.Server.Controllers
             _context = context;
         }
 
-            [HttpGet("cassette-plan-links")] // Изменим маршрут на более уникальный, чтобы не конфликтовал с другими контроллерами
+            [HttpGet("cassette-plan-links")] 
             public async Task<ActionResult<IEnumerable<CassettePlanLink>>> GetAllCassettePlanLinks()
             {
                 var links = await _context.CassettePlanLinks
