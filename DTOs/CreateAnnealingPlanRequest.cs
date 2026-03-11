@@ -13,4 +13,5 @@ public class CreateAnnealingPlanRequest
             public DateTime? ScheduledEndTime { get; set; }
             public string? FurnaceNumber { get; set; }
             public string? Notes { get; set; }
+             public List<string>? CassettesToInclude { get; set; } = new List<string>();
 }
