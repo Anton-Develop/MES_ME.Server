@@ -83,7 +83,7 @@ const AnnealingPlanPage = () => {
   // Состояния для пагинации
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10); // Фиксированный размер страницы
-  const [setTotalCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
   // Состояния для фильтров
