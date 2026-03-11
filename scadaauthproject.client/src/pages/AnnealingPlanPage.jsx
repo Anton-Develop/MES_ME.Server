@@ -26,9 +26,7 @@ import {
   Chip,
   IconButton,
   Tooltip,
-  Card,
-  CardContent,
-  CardHeader,
+  
   List,
   ListItem,
   ListItemText,
@@ -41,14 +39,13 @@ import {
 import {
   Add as AddIcon,
   History as HistoryIcon,
-  Save as SaveIcon,
-  Close as CloseIcon,
+  
   Delete as DeleteIcon,
   Clear as ClearIcon,
-  Info as InfoIcon,
+ 
   Edit as EditIcon,
   PlaylistAddCheck as PlaylistAddCheckIcon,
-  CheckCircle as CheckCircleIcon,
+  
   RemoveCircle as RemoveCircleIcon, // Иконка для удаления кассеты
 } from '@mui/icons-material';
 import api from '../api';
@@ -86,7 +83,7 @@ const AnnealingPlanPage = () => {
   // Состояния для пагинации
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10); // Фиксированный размер страницы
-  const [totalCount, setTotalCount] = useState(0);
+  const [setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
   // Состояния для фильтров
