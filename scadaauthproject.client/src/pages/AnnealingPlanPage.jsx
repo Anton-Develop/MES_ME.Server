@@ -179,7 +179,7 @@ const AnnealingPlanPage = () => {
     try {
       const response = await api.get('/cassette'); // Используем существующий эндпоинт
       // Отфильтруем кассеты, которые уже находятся в *любом* плане отпуска
-      const allPlanLinksResponse = await api.get('/cassette-plan-links'); // Получаем все связи
+      const allPlanLinksResponse = await api.get('/annealingplan/cassette-plan-links');
       const linkedCassetteIds = new Set(allPlanLinksResponse.data.map(link => link.cassetteId));
       const availableCassettes = response.data.filter(cassette => !linkedCassetteIds.has(cassette.cassetteId));
 
