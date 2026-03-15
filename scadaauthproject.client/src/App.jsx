@@ -37,7 +37,7 @@ const AppContent = () => {
       <CssBaseline />
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+              {/* <Route path="/register" element={<Register />} /> */}
         {/* Все защищенные маршруты оборачиваются в MainLayout */}
         
           <Route path="/" element={
@@ -50,6 +50,7 @@ const AppContent = () => {
           } />
           <Route path="/users" element={<MainLayout><UsersList /></MainLayout>} />
           <Route path="/roles" element={<MainLayout><RolesManager /></MainLayout>} />
+          <Route path="/register" element={<MainLayout><Register /></MainLayout>} />
           <Route path="/permissions" element={<MainLayout><RolePermissionsManager /></MainLayout>} />
           <Route path="/import" element={<MainLayout><ImportPage /></MainLayout>} />
           <Route path="/input-data" element={<MainLayout><InputDataView /></MainLayout>} />

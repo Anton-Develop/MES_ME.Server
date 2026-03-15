@@ -65,13 +65,19 @@ const menuItems = [
     text: 'Импорт данных',
     icon: <UploadFileIcon />,
     link: '/import',
-    roles: ['superadmin'],
+      roles: ['developer','superadmin'],
   },
   {
     text: 'Настройки',
     icon: <SettingsIcon />,
     roles: ['superadmin', 'developer'],
-    subItems: [
+      subItems: [
+          {
+              text: 'Регистрация пользователей',
+              icon: <PeopleIcon />,
+              link: '/register',
+              roles: ['superadmin', 'developer'],
+          },
       {
         text: 'Пользователи',
         icon: <PeopleIcon />,
