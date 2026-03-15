@@ -85,7 +85,7 @@ namespace MES_ME.Server.Controllers
                     return BadRequest("Файл не содержит данных для импорта.");
 
                 if (rowsWithHeaders.Count < 1)
-                    return BadRequest("Файл не содержит заголовков или данных.");
+                    return BadRequest("Файл содержит заголовки, но не содержит данных.");
 
                 var dataRows = rowsWithHeaders.Skip(1).ToList();
                 if (!dataRows.Any())
@@ -127,7 +127,7 @@ namespace MES_ME.Server.Controllers
 
                     // Если строка прошла проверку, готовим её для загрузки в inputdata_raw
                     var rowData = new object[54]; // 54 столбца: status + 53 поля из Excel
-                    rowData[0] = "Подготовлен к прокату";
+                    rowData[0] = "Подготовлен к прокату"; // status
                     rowData[1] = ConvertValueToString(GetValueByIndex(rowDict, 0)); // certificate_number
                     rowData[2] = ConvertValueToString(GetValueByIndex(rowDict, 1)); // short_order_number
                     rowData[3] = ConvertValueToString(GetValueByIndex(rowDict, 2)); // commercial_order_number
@@ -190,29 +190,45 @@ namespace MES_ME.Server.Controllers
                     return BadRequest("После фильтрации не осталось строк для импорта (все строки содержали пустые ключевые поля или были дубликатами).");
                 }
 
-                // --- ШАГ 3: Вставка отфильтрованных данных в inputdata_raw ---
+                // --- ШАГ 3: Вставка отфильтрованных данных в inputdata_raw и вызов процедуры ---
                 using var connection = new NpgsqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                // Используем таблицу inputdata_raw
-                using var writer = connection.BeginBinaryImport("COPY \"mes\".\"inputdata_raw\" (\"status\", \"certificate_number\", \"short_order_number\", \"commercial_order_number\", \"roll_date\", \"melt_number\", \"batch_number\", \"pack_number\", \"pack_system_number\", \"steel_grade\", \"sheet_dimensions\", \"slab_number\", \"actual_net_weight_kg\", \"certificate_net_weight_kg\", \"sheets_count\", \"sheet_weight_kg\", \"raw_material_kg\", \"sheet_number\", \"quenching_date\", \"quenching_status\", \"marking\", \"repeated_to_date\", \"gp_acceptance_status_weight\", \"np_acceptance_status_weight\", \"scrap_acceptance_status_weight\", \"actual_weight\", \"non_return_scrap\", \"trimming\", \"flatness_mm\", \"defect\", \"note\", \"np_act\", \"mmk_claim_reason\", \"np_decision\", \"sample_cards_selection\", \"sample_number_vk\", \"ballistics_sample_send_date_1\", \"ballistics_sample_send_date_2\", \"ballistics_sample_send_date_3\", \"metallography_sample_send_date_1\", \"metallography_sample_send_date_2\", \"hardness_sample_send_date_1\", \"hardness_sample_send_date_2\", \"hardness_sample_send_date_3\", \"order_link\", \"igk_link\", \"testing_status\", \"gp_vp_presentation_date\", \"shipment_date\", \"order_number\", \"certificate_number_2\", \"shipped_sheets_weight_kg\", \"sheet_weight_after_to_storage_kg\", \"post_ship_diff\") FROM STDIN (FORMAT BINARY)");
+                using var transaction = await connection.BeginTransactionAsync(); // Открываем транзакцию
 
-                foreach (var record in validDataForCopy)
+                try
                 {
-                    writer.WriteRow(record);
+                    // Используем таблицу inputdata_raw
+                    using (var writer = connection.BeginBinaryImport("COPY \"mes\".\"inputdata_raw\" (\"status\", \"certificate_number\", \"short_order_number\", \"commercial_order_number\", \"roll_date\", \"melt_number\", \"batch_number\", \"pack_number\", \"pack_system_number\", \"steel_grade\", \"sheet_dimensions\", \"slab_number\", \"actual_net_weight_kg\", \"certificate_net_weight_kg\", \"sheets_count\", \"sheet_weight_kg\", \"raw_material_kg\", \"sheet_number\", \"quenching_date\", \"quenching_status\", \"marking\", \"repeated_to_date\", \"gp_acceptance_status_weight\", \"np_acceptance_status_weight\", \"scrap_acceptance_status_weight\", \"actual_weight\", \"non_return_scrap\", \"trimming\", \"flatness_mm\", \"defect\", \"note\", \"np_act\", \"mmk_claim_reason\", \"np_decision\", \"sample_cards_selection\", \"sample_number_vk\", \"ballistics_sample_send_date_1\", \"ballistics_sample_send_date_2\", \"ballistics_sample_send_date_3\", \"metallography_sample_send_date_1\", \"metallography_sample_send_date_2\", \"hardness_sample_send_date_1\", \"hardness_sample_send_date_2\", \"hardness_sample_send_date_3\", \"order_link\", \"igk_link\", \"testing_status\", \"gp_vp_presentation_date\", \"shipment_date\", \"order_number\", \"certificate_number_2\", \"shipped_sheets_weight_kg\", \"sheet_weight_after_to_storage_kg\", \"post_ship_diff\") FROM STDIN (FORMAT BINARY)"))
+                    {
+                        foreach (var record in validDataForCopy)
+                        {
+                            writer.WriteRow(record);
+                        }
+                        await writer.CompleteAsync();
+                    }
+
+                    // --- ШАГ 4: Вызов процедуры преобразования ---
+                    using (var cmd = new NpgsqlCommand("CALL mes.migrate_raw_to_main();", connection, transaction))
+                    {
+                        cmd.CommandTimeout = 300; // Увеличиваем таймаут на 5 минут, если данных много
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+
+                    await transaction.CommitAsync(); // Коммитим транзакцию только если всё успешно
+
+                    return Ok(new { message = $"Успешно загружено {validDataForCopy.Count} строк в сыром виде. Преобразование в целевую таблицу выполнено успешно." });
                 }
-
-                await writer.CompleteAsync();
-
-                // --- ШАГ 4: Вызов функции преобразования (опционально, см. шаг 4) ---
-                // await TransformAndMoveData(connection); // Если вызывать здесь, а не через триггер
-
-                return Ok(new { message = $"Успешно подготовлено и загружено {validDataForCopy.Count} строк для импорта в сыром виде. Преобразование в целевую таблицу запущено." });
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync(); // Откатываем, если произошла ошибка
+                    Console.WriteLine($"Ошибка при загрузке/преобразовании данных: {ex.Message}");
+                    return StatusCode(500, new { message = "Произошла ошибка при загрузке или преобразовании данных.", error = ex.Message });
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка импорта: {ex.Message}");
-                // Лучше использовать ILogger
                 return StatusCode(500, new { message = "Произошла ошибка при импорте данных.", error = ex.Message });
             }
             finally
