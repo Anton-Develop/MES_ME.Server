@@ -132,9 +132,13 @@ namespace MES_ME.Server.Controllers
         [HttpDelete("{id}/hard")]
         public async Task<ActionResult> HardDeleteUser(int id)
         {
+            
+            // Удаляем сначала связанные LoginLogs
+            var loginLogs = await _context.LoginLogs.Where(ll => ll.UserId == id).ToListAsync();
+            _context.LoginLogs.RemoveRange(loginLogs);
+            // Затем удаляем пользователя
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
-
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
 
