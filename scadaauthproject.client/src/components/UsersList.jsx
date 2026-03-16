@@ -83,7 +83,7 @@ const UsersList = () => {
   const handleDeleteConfirmed = async () => {
     setError('');
     try {
-      await api.delete(`/users/${userToDelete}`);
+      await api.delete(`/users/${userToDelete}/hard`);
       setUsers(prev => prev.filter(u => u.id !== userToDelete));
     } catch (err) {
       setError('Ошибка: ' + (err.response?.data?.Message || err.response?.data?.message || 'Неизвестная ошибка'));

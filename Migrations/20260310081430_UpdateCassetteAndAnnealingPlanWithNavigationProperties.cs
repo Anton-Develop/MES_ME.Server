@@ -55,7 +55,7 @@ namespace MES_ME.Server.Migrations
                 oldClrType: typeof(DateTime),
                 oldType: "timestamp with time zone");
 
-            migrationBuilder.CreateTable(
+          /*  migrationBuilder.CreateTable(
                 name: "annealing_batch_plans",
                 schema: "mes",
                 columns: table => new
@@ -328,7 +328,7 @@ namespace MES_ME.Server.Migrations
                         principalColumn: "matid",
                         onDelete: ReferentialAction.Cascade);
                 });
-
+*/
             migrationBuilder.CreateIndex(
                 name: "IX_annealing_batch_plan_sheets_matid",
                 schema: "mes",
@@ -385,6 +385,7 @@ namespace MES_ME.Server.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            /*
             migrationBuilder.DropTable(
                 name: "annealing_batch_plan_sheets",
                 schema: "mes");
@@ -419,7 +420,7 @@ namespace MES_ME.Server.Migrations
             migrationBuilder.DropTable(
                 name: "inputdata",
                 schema: "mes");
-
+*/
             migrationBuilder.AlterColumn<DateTime>(
                 name: "UpdatedAt",
                 table: "Users",

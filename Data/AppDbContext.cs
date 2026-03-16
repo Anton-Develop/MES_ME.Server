@@ -108,9 +108,19 @@ namespace MES_ME.Server.Data
                 .IsUnique();
 
 
-            modelBuilder.Entity<User>()
-                .HasIndex(u => u.Username)
-                .IsUnique();
+            modelBuilder.Entity<LoginLog>()
+                .HasOne(l => l.User)
+                .WithMany() // или .WithMany(u => u.LoginLogs) если навигационное свойство определено
+                .HasForeignKey(l => l.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+          // --- Добавьте этот блок ---
+            modelBuilder.Entity<AuditLog>()
+                .HasOne(a => a.User) // Предполагается, что у AuditLog есть свойство User
+                .WithMany() // или .WithMany(u => u.AuditLogs) если навигационное свойство определено
+                .HasForeignKey(a => a.UserId) // Предполагается, что внешний ключ называется UserId
+                .OnDelete(DeleteBehavior.Cascade); // Каскадное удаление для AuditLog
+
 
             modelBuilder.Entity<Role>()
                 .HasIndex(r => r.Name)
