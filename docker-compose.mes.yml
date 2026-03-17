@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  mesmeserver: # Имя сервиса (и контейнера)
+    image: mesmeserver # Имя для собранного образа
+    build:
+      context: . # Контекст сборки (обычно директория с compose файлом)
+      dockerfile: ./Dockerfile # Путь к Dockerfile
+    environment:
+      # Переменная окружения переопределит значение из appsettings.json
+      - ConnectionStrings__DefaultConnection=Host=postgresql;Database=mesdb;Username=admin;Password=secretpassword;
+      # Убедитесь, что URLs в приложении слушает на 0.0.0.0:80 (или 5000), а не на localhost
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      # Публикуем порт хоста (например, 5000) на порт 80 контейнера бэкенда
+      - "5000:80"
+    restart: unless-stopped
+    networks:
+      - mes_app_network # <-- ЗАМЕНИТЕ 'existing_db_network' на имя СЕТИ, в которой работает контейнер 'postgresql'
+
+# Объявляем сеть как внешнюю (external), потому что она уже существует
+networks:
+  mes_app_network: # <-- ЗАМЕНИТЕ 'existing_db_network' на реальное имя сети
+    external: true

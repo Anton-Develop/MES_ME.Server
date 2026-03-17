@@ -1,7 +1,0 @@
-
-services:
-  mesmeserver:
-    image: mesmeserver
-    build:
-      context: .
-      dockerfile: ./Dockerfile
