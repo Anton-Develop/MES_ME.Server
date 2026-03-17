@@ -13,7 +13,7 @@ services:
       - ASPNETCORE_URLS=http://+:80
     ports:
       # Публикуем порт хоста (например, 5000) на порт 80 контейнера бэкенда
-      - "5000:80"
+      - "5000:5000"
     restart: unless-stopped
     networks:
       - mes_app_network # <-- ЗАМЕНИТЕ 'existing_db_network' на имя СЕТИ, в которой работает контейнер 'postgresql'

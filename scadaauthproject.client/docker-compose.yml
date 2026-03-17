@@ -1,0 +1,18 @@
+version: '3.8' # Можно убрать, как в предыдущем файле
+
+services:
+  frontend-react: # Имя сервиса для фронтенда
+    build:
+      context: . # Путь к директории с Dockerfile и nginx.conf
+      dockerfile: ./Dockerfile # Имя Dockerfile
+    image: mes-frontend:latest # Имя для собранного образа
+    ports:
+      - "3000:3000" # Публикуем порт 3000 хоста на порт 80 контейнера nginx
+    restart: unless-stopped
+    # Подключаем к той же сети, где находится бэкенд
+    networks:
+      - mes_app_network # Та же сеть, что и у бэкенда
+
+networks:
+  mes_app_network: # Объявляем сеть как внешнюю
+    external: true # Так как она создана в другом месте (docker-compose.mes.yml или вручную)

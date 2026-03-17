@@ -1,0 +1,18 @@
+# --- Stage 1: Build ---
+FROM node:alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+# Обычно, вы собираете для production
+RUN npm run build # Предполагается, что у вас настроена сборка (например, через cra-build-watch для разработки или обычную build для продакшена)
+
+# --- Stage 2: Runtime (Nginx) ---
+FROM nginx:alpine
+# Копируем нашу конфигурацию nginx
+COPY nginx.conf /etc/nginx/nginx.conf
+# Копируем собранные статические файлы из стадии build в директорию html nginx
+COPY --from=build /app/build /usr/share/nginx/html
+EXPOSE 80
+# Команда запуска (обычно не нужна для nginx)
+#CMD ["nginx", "-g", "daemon off;"]
