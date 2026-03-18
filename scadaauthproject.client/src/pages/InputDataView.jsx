@@ -24,7 +24,7 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { DataGrid } from '@mui/x-data-grid';
+import { DataGrid, GridToolbar, gridClasses } from '@mui/x-data-grid';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import EditIcon from '@mui/icons-material/Edit';
@@ -36,15 +36,16 @@ const InputDataView = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [totalCount, setTotalCount] = useState(0);
-  
+
   // ИСПРАВЛЕНИЕ 1: Используем единый объект модели пагинации
   const [paginationModel, setPaginationModel] = useState({
     page: 0, // DataGrid использует 0-based индексацию (0, 1, 2...)
     pageSize: 10,
   });
 
-  const [sortModel, setSortModel] = useState([{ field: 'matid', sort: 'asc' }]);
-  
+  // ИСПРАВЛЕНИЕ 2: Используем 'matId' (с заглавной I) для сортировки
+  const [sortModel, setSortModel] = useState([{ field: 'matId', sort: 'asc' }]);
+
   const [filterModel, setFilterModel] = useState({
     matid: '',
     status: '',
@@ -62,8 +63,20 @@ const InputDataView = () => {
   const [newStatus, setNewStatus] = useState('');
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusError, setStatusError] = useState('');
+  // -- Для изменения статуса оптом
+  const [selectedIds, setSelectedIds] = useState([]); // Хранит массив MatId (string) выбранных строк
+  const [selectedNewStatus, setSelectedNewStatus] = useState(''); // Хранит выбранный статус
+  const [massUpdateLoading, setMassUpdateLoading] = useState(false); // Для индикации процесса обновления
+  const [massUpdateError, setMassUpdateError] = useState(''); // Для сообщений об ошибке
 
-  // Возможные статусы
+
+  window.selectedIdsFromComponent = selectedIds; // Экспонируем в глобальный объект window
+  window.massUpdateLoadingFromComponent = massUpdateLoading; 
+  window.dataForDebugging = data;
+  //const allMatIds = window.InputDataViewRef.current.data.map(row => row.matId);
+  //const uniqueMatIds = new Set(allMatIds);
+
+  // Возможные статусы - расширим список на основе данных
   const possibleStatuses = [
     'Подготовлен к прокату',
     'Прошел закалку',
@@ -71,14 +84,23 @@ const InputDataView = () => {
     'Прошел отпуск',
     'Недокат',
     'Чистый выброс',
+    'годный', // Добавлено из данных
+    'перевести в брак', // Добавлено из данных
+    'Годный', // Добавлено из данных (если различается регистром)
+    'Брак', // Добавлено как возможный вариант
+    'Недокат', // Уже было
+    'Заказ закрыт', // Добавлено как возможный вариант
+    // Добавьте другие статусы, если они требуются
   ];
 
   // Преобразование sortModel в параметры для API
   const [sortField, sortOrder] = useMemo(() => {
     if (sortModel.length > 0) {
+      // Используем 'matId' для сортировки
       return [sortModel[0].field, sortModel[0].sort];
     }
-    return ['matid', 'asc'];
+    // Используем 'matId' по умолчанию
+    return ['matId', 'asc'];
   }, [sortModel]);
 
   // Загрузка данных
@@ -87,12 +109,12 @@ const InputDataView = () => {
     setError('');
     try {
       // Преобразуем 0-based page из DataGrid в 1-based page для вашего API
-      const apiPage = paginationModel.page + 1; 
+      const apiPage = paginationModel.page + 1;
       const apiPageSize = paginationModel.pageSize;
 
-      const [sortField, sortOrder] = sortModel.length > 0 
-        ? [sortModel[0].field, sortModel[0].sort] 
-        : ['matid', 'asc'];
+      const [sortField, sortOrder] = sortModel.length > 0
+        ? [sortModel[0].field, sortModel[0].sort]
+        : ['matId', 'asc']; // Используем 'matId'
 
       const params = {
         page: apiPage,
@@ -110,7 +132,9 @@ const InputDataView = () => {
       };
 
       const response = await api.get('/inputdata', { params });
-      
+
+      // --- ИСПРАВЛЕНИЕ: Присваиваем response.data.data напрямую ---
+      // Потому что response.data.data уже является массивом объектов вида { matId: "...", status: "...", ... }
       setData(response.data.data || []);
       setTotalCount(response.data.totalCount || 0);
     } catch (err) {
@@ -124,13 +148,13 @@ const InputDataView = () => {
   useEffect(() => {
     fetchData();
     // Теперь данные будут грузиться при изменении страницы, размера страницы, сортировки ИЛИ фильтров
-  }, [paginationModel, sortModel, filterModel]); 
+  }, [paginationModel, sortModel, filterModel]);
 
   // Обработчики фильтров
   const handleFilterChange = (field, value) => {
     setFilterModel(prev => ({ ...prev, [field]: value }));
     // Примечание: Сброс страницы на 0 произойдет автоматически в handleSearch или можно сделать здесь,
-    // но лучше явно сбрасывать при нажатии "Найти", чтобы избежать лишних запросов при вводе текста.
+    // но лучше явно срабатывать при нажатии "Найти", чтобы избежать лишних запросов при вводе текста.
   };
 
   const handleClearFilters = () => {
@@ -169,7 +193,6 @@ const InputDataView = () => {
   };
 
   // --- НОВЫЕ ОБРАБОТЧИКИ ДЛЯ ДИАЛОГА ИЗМЕНЕНИЯ СТАТУСА ---
-
   const handleOpenStatusDialog = (sheetData) => {
     setSelectedSheetForStatusChange(sheetData);
     setNewStatus(sheetData.status || ''); // Устанавливаем текущий статус по умолчанию
@@ -190,17 +213,17 @@ const InputDataView = () => {
   };
 
   const handleSaveStatus = async () => {
-    if (!selectedSheetForStatusChange || !newStatus) return;
+    if (!selectedSheetForStatusChange) return;
 
     setUpdatingStatus(true);
     setStatusError('');
 
     try {
-      await api.put(`/import/update-sheet-status/${selectedSheetForStatusChange.matId}`, { newStatus });
+      await api.put(`/import/update-sheet-status/${selectedSheetForStatusChange.matId}`, { newStatus }); // matId на верхнем уровне
       // Успешно обновлено. Обновим локальное состояние данных.
       setData(prevData =>
         prevData.map(sheet =>
-          sheet.matId === selectedSheetForStatusChange.matId
+          sheet.matId === selectedSheetForStatusChange.matId // matId на верхнем уровне
             ? { ...sheet, status: newStatus }
             : sheet
         )
@@ -215,13 +238,71 @@ const InputDataView = () => {
       setUpdatingStatus(false);
     }
   };
+
+  // --- ОБРАБОТЧИК ДЛЯ МАССОВОГО ИЗМЕНЕНИЯ СТАТУСА ---
+  const handleMassStatusUpdate = async () => {
+    if (!selectedNewStatus || selectedIds.length === 0) {
+      console.warn("Не выбран статус или нет выделенных строк.");
+      return; // Ничего не делаем, если условия не соблюдены
+    }
+
+    setMassUpdateLoading(true);
+    setMassUpdateError('');
+
+    try {
+        // selectedIds теперь содержит строки matId
+        // Просто отправляем их как есть
+        const response = await api.post('/import/update-sheets-status-bulk', {
+            matIds: selectedIds, // selectedIds уже массив строк matId
+            newStatus: selectedNewStatus,
+        });
+
+        console.log(response.data.message); // Например: "Статус успешно обновлен для X листов."
+
+        // После успешного обновления:
+        // 1. Обновляем локальное состояние данных
+        setData(prevData =>
+            prevData.map(sheet =>
+                selectedIds.includes(sheet.matId) // Проверяем, был ли лист в списке обновленных
+                    ? { ...sheet, status: selectedNewStatus } // Применяем новый статус
+                    : sheet // Оставляем без изменений
+            )
+        );
+        // 2. Снимаем выделение
+        setSelectedIds([]);
+        // 3. Сбрасываем выбранный статус
+        setSelectedNewStatus('');
+        // 4. Показать уведомление об успехе (опционально)
+        // toast.success(response.data.message);
+
+    } catch (err) {
+        console.error('Ошибка при массовом обновлении статуса:', err);
+        let errorMessage = 'Ошибка при обновлении статусов.';
+        if (err.response) {
+            // Сервер вернул ошибку
+            errorMessage = err.response.data?.message || `Ошибка ${err.response.status}: ${err.response.statusText}`;
+        } else if (err.request) {
+            // Не удалось выполнить запрос
+            errorMessage = 'Не удалось подключиться к серверу.';
+        } else {
+            // Ошибка при создании запроса
+            errorMessage = err.message;
+        }
+        setMassUpdateError(errorMessage);
+        // 5. Показать уведомление об ошибке (опционально)
+        // toast.error(errorMessage);
+    } finally {
+        setMassUpdateLoading(false);
+    }
+  };
+
   // Определение колонок для DataGrid
   const columns = [
     {
-      field: 'actions',headerName: 'Действия',width: 120, sortable: false,renderCell: (params) => (
+      field: 'actions', headerName: 'Действия', width: 120, sortable: false, renderCell: (params) => (
         <IconButton
           size="small"
-          onClick={() => handleOpenStatusDialog(params.row)} // Передаём всю строку
+          onClick={() => handleOpenStatusDialog(params.row)} // Передаём всю строку (inputData)
           color="primary"
           title="Изменить статус"
         >
@@ -229,6 +310,7 @@ const InputDataView = () => {
         </IconButton>
       ),
     },
+    // --- ИСПРАВЛЕНИЕ: Все поля теперь указывают на свойства объекта inputData ---
     { field: 'matId', headerName: 'MatID', width: 120, sortable: true },
     { field: 'status', headerName: 'Статус', width: 150, sortable: true },
     { field: 'certificateNumber', headerName: 'Сертификат', width: 150, sortable: true },
@@ -280,7 +362,7 @@ const InputDataView = () => {
     { field: 'sheetNumber', headerName: '№ листа', width: 120, sortable: true },
     {
       field: 'quenchingDate',
-      headerName: 'Дата закалки',
+      headerName: 'Дата',
       width: 120,
       sortable: true,
       valueFormatter: (params) => formatDate(params?.value),
@@ -428,6 +510,7 @@ const InputDataView = () => {
       sortable: true,
       valueFormatter: (params) => formatNumber(params?.value),
     },
+    // --- /Все поля теперь указывают на свойства объекта inputData ---
   ];
 
   return (
@@ -436,6 +519,40 @@ const InputDataView = () => {
         <Typography variant="h5" gutterBottom align="center">
           Просмотр данных листов
         </Typography>
+
+        {/* Контейнер для элементов управления массовым действием */}
+        <Box p={2} display="flex" alignItems="center" gap={2}>
+          <FormControl sx={{ minWidth: 200 }} size="small">
+            <InputLabel id="select-new-status-label">Новый статус</InputLabel>
+            <Select
+              labelId="select-new-status-label"
+              value={selectedNewStatus}
+              label="Новый статус"
+              onChange={(e) => setSelectedNewStatus(e.target.value)} // ИСПРАВЛЕНИЕ: правильный обработчик
+              disabled={massUpdateLoading || selectedIds.length === 0} // Блокируем, если ничего не выбрано или идет обновление
+            >
+              {possibleStatuses.map((status) => (
+                <MenuItem key={status} value={status}>
+                  {status}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="contained"
+            onClick={handleMassStatusUpdate} // ИСПРАВЛЕНИЕ: правильный обработчик
+            disabled={
+              massUpdateLoading ||
+              !selectedNewStatus || // Блокируем, если статус не выбран
+              selectedIds.length === 0 // Блокируем, если строки не выбраны
+            }
+          >
+            {massUpdateLoading ? 'Применение...' : `Применить к ${selectedIds.length} листам`}
+          </Button>
+        </Box>
+
+        {massUpdateError && <Alert severity="error">{massUpdateError}</Alert>}
 
         {/* Фильтры */}
         <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
@@ -604,28 +721,49 @@ const InputDataView = () => {
             <DataGrid
               rows={data}
               columns={columns}
+              // --- Новые пропсы ---
+              checkboxSelection // <- Добавляем чекбоксы
+              disableSelectionOnClick // <- Отключаем выделение при клике на строку
+              //onSelectionModelChange={(newSelectionModel) => {
+                // Обработчик изменения выделения строк
+                // newSelectionModel теперь будет содержать значения, возвращаемые getRowId
+                //setSelectedIds(newSelectionModel); // ИСПРАВЛЕНИЕ: правильный вызов setState
+                onSelectionModelChange={(newSelectionModel) => {
+  console.log("onSelectionModelChange вызван. Новый Selection Model:", newSelectionModel);
+  setSelectedIds(newSelectionModel);
+              }}
+              selectionModel={selectedIds} // <- Привязываем состояние к выделению
+              
               getRowId={(row) => {
-  // Если matid существует и не пустой, используем его
-  if (row.matid && row.matid.trim() !== '') {
-    return row.matid;
-  }
-  // Иначе создаём составной ключ из доступных полей
-  return `row-${row.sheetNumber || ''}-${row.batchNumber || ''}-${Math.random()}`;
-}}
+                 // ИСПРАВЛЕНИЕ: корректно берёт matId из inputData
+                 // Добавим проверку на случай, если row или row.matId undefined
+                 if (!row || typeof row.matId !== 'string' || row.matId.trim() === '') {
+                     console.error("getRowId: получена строка без или с пустым matId:", row);
+                     // Возвращаем запасной ключ, если matId нет
+                     return `invalid-row-${Math.random()}`;
+                    
+                 }
+                 return row.matId;
+                  
+              }}
+              
+              // --- /Новые пропсы ----
               rowCount={totalCount}
               paginationMode="server"
               sortingMode="server"
-              
+
               // Передаем модель и обработчик изменения
               paginationModel={paginationModel}
               onPaginationModelChange={setPaginationModel}
-              
+
               sortModel={sortModel}
               onSortModelChange={setSortModel}
-              
+
               loading={loading}
               pageSizeOptions={[10, 25, 50, 100]} // Новое имя пропа вместо rowsPerPageOptions
-              disableSelectionOnClick
+              components={{
+                Toolbar: GridToolbar, // Добавляем стандартный тулбар (не обязательно)
+            }}
               localeText={{
                 noRowsLabel: 'Нет данных',
                 footerRowSelected: (count) => `${count} строк выбрано`,

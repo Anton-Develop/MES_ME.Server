@@ -266,6 +266,63 @@ namespace MES_ME.Server.Controllers
                 return StatusCode(500, new { message = "Произошла ошибка при обновлении статуса листов." });
             }
         }
+        [HttpPost("update-sheets-status-bulk")] 
+        public async Task<IActionResult> UpdateSheetsStatusBulk([FromBody] BulkStatusUpdateRequest request)
+        {
+            if (request?.MatIds == null || request.MatIds.Count == 0 || string.IsNullOrEmpty(request.NewStatus))
+            {
+                return BadRequest(new { message = "Необходимо указать список MatId и новый статус." });
+            }
+
+            try
+            {
+                // 1. Найти все записи по списку MatId
+                var sheetsToUpdate = await _context.InputData
+                    .Where(x => request.MatIds.Contains(x.MatId)) // <-- Используем Contains для списка
+                    .ToListAsync();
+
+                if (!sheetsToUpdate.Any())
+                {
+                    return NotFound(new { message = "Ни одного листа с указанными MatId не найдено." });
+                }
+
+                // 2. Опционально: проверить текущий статус или права доступа
+                // foreach (var sheet in sheetsToUpdate)
+                // {
+                //     if (!CanUserModifyStatus(user, sheet.CurrentStatus, request.NewStatus))
+                //     {
+                //         return Forbid($"Недостаточно прав для изменения статуса листа {sheet.MatId}");
+                //     }
+                // }
+
+                // 3. Обновить статус у найденных записей
+                int updatedCount = 0;
+                foreach (var sheet in sheetsToUpdate)
+                {
+                    // Опционально: логика проверки смены статуса
+                    // if (IsStatusTransitionValid(sheet.Status, request.NewStatus))
+                    // {
+                        sheet.Status = request.NewStatus;
+                        updatedCount++;
+                    // }
+                }
+
+                // 4. Сохранить изменения в базе данных
+                await _context.SaveChangesAsync();
+
+                return Ok(new {
+                    message = $"Статус успешно обновлен для {updatedCount} листов.",
+                    updatedIds = sheetsToUpdate.Select(s => s.MatId).ToList()
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при массовом обновлении статуса листов: {ex.Message}");
+                // Логирование ошибки с использованием ILogger рекомендуется
+                // _logger.LogError(ex, "Ошибка при массовом обновлении статуса");
+                return StatusCode(500, new { message = "Произошла внутренняя ошибка сервера." });
+            }
+        }
     }
 
    
