@@ -7,7 +7,7 @@ services:
       dockerfile: ./Dockerfile # Имя Dockerfile
     image: mes-frontend:latest # Имя для собранного образа
     ports:
-      - "3000:3000" # Публикуем порт 3000 хоста на порт 80 контейнера nginx
+      - "3000:80" # Публикуем порт 3000 хоста на порт 80 контейнера nginx
     restart: unless-stopped
     # Подключаем к той же сети, где находится бэкенд
     networks:
