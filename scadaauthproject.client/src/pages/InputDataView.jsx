@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo,useRef } from 'react';
 import {
   Container,
   Paper,
@@ -70,10 +70,10 @@ const InputDataView = () => {
   const [massUpdateError, setMassUpdateError] = useState(''); // Для сообщений об ошибке
   const [selectionModel, setSelectionModel] = useState({ type: 'include', ids: new Set() });
 
-
-  window.selectedIdsFromComponent = selectedIds; // Экспонируем в глобальный объект window
-  window.massUpdateLoadingFromComponent = massUpdateLoading; 
-  window.dataForDebugging = data;
+  const currentPageIdsRef = useRef(new Set());
+  //window.selectedIdsFromComponent = selectedIds; // Экспонируем в глобальный объект window
+  //window.massUpdateLoadingFromComponent = massUpdateLoading; 
+  //window.dataForDebugging = data;
   //const allMatIds = window.InputDataViewRef.current.data.map(row => row.matId);
   //const uniqueMatIds = new Set(allMatIds);
 
@@ -85,10 +85,8 @@ const InputDataView = () => {
     'Прошел отпуск',
     'Недокат',
     'Чистый выброс',
-    'перевести в брак', 
     'Годный', 
-    'Брак', 
-    'Недокат', 
+    'Брак',
     ];
 
   // Преобразование sortModel в параметры для API
@@ -133,7 +131,12 @@ const InputDataView = () => {
 
       // --- ИСПРАВЛЕНИЕ: Присваиваем response.data.data напрямую ---
       // Потому что response.data.data уже является массивом объектов вида { matId: "...", status: "...", ... }
-      setData(response.data.data || []);
+      const fetchedData = response.data.data || [];
+      setData(fetchedData);
+      // Сохраняем ID всех полученных строк на текущей странице
+      const ids = fetchedData.map(row => row.matId);
+      currentPageIdsRef.current = new Set(ids); // Обновляем ref
+      //setData(response.data.data || []);
       setTotalCount(response.data.totalCount || 0);
     } catch (err) {
       console.error('Ошибка загрузки данных:', err);
@@ -235,6 +238,37 @@ const InputDataView = () => {
     } finally {
       setUpdatingStatus(false);
     }
+  };
+const handleRowSelectionModelChange = (model) => {
+    let newSelectedIdsArray;
+
+    if (model.type === 'include') {
+      // Выделены конкретные ID (например, выбор отдельных строк, снятие "всех")
+      newSelectedIdsArray = Array.from(model.ids);
+    } else if (model.type === 'exclude') {
+      // Исключены конкретные ID из выделения. Это означает, что все остальные (на текущей странице) выделены.
+      // Получаем ID, которые НЕ должны быть выделены
+      const excludedIds = model.ids; // Это Set
+      // Вычисляем ID, которые должны быть выделены: все ID текущей страницы MINUS исключенные
+      // (Это работает, если DataGrid исключает ID только с текущей страницы)
+      // ВАЖНО: Это работает корректно, только если DataGrid управляет выделением только на текущей странице
+      // и "exclude" означает "все на странице, кроме этих".
+      // Это может не сработать, если exclude подразумевает "все в таблице, кроме этих".
+      // Для полного "выделить все" по всей таблице, нужно знать все ID.
+      const currentPageIds = currentPageIdsRef.current; // Получаем ID с ref
+      const includedIdsSet = new Set(currentPageIds);
+      for (const id of excludedIds) {
+          includedIdsSet.delete(id);
+      }
+      newSelectedIdsArray = Array.from(includedIdsSet);
+    } else {
+      // Неизвестный тип модели, просто игнорируем или сбрасываем
+      console.warn("Неизвестный тип модели выделения:", model.type);
+      newSelectedIdsArray = [];
+    }
+
+    //console.log("Обновление selectedIds. Новый массив:", newSelectedIdsArray);
+    setSelectedIds(newSelectedIdsArray);
   };
 
   // --- ОБРАБОТЧИК ДЛЯ МАССОВОГО ИЗМЕНЕНИЯ СТАТУСА ---
@@ -723,13 +757,13 @@ const InputDataView = () => {
               checkboxSelection // <- Добавляем чекбоксы
               disableSelectionOnClick // <- Отключаем выделение при клике на строку
               
-              rowSelectionModel={{ type: 'include', ids: new Set(selectedIds) }}
-              onRowSelectionModelChange={(model) => {
+              //rowSelectionModel={{ type: 'include', ids: new Set(selectedIds) }}
+              //onRowSelectionModelChange={(model) => {
                 // Вытаскиваем массив из Set для вашего стейта
-                setSelectedIds(Array.from(model.ids));
-              }}
+              //  setSelectedIds(Array.from(model.ids));
+             // }}
              // rowSelectionModel={selectedIds} // <- Привязываем состояние к выделению
-              
+              onRowSelectionModelChange={handleRowSelectionModelChange}
               getRowId={(row) => {
                  // ИСПРАВЛЕНИЕ: корректно берёт matId из inputData
                  // Добавим проверку на случай, если row или row.matId undefined
