@@ -68,6 +68,7 @@ const InputDataView = () => {
   const [selectedNewStatus, setSelectedNewStatus] = useState(''); // Хранит выбранный статус
   const [massUpdateLoading, setMassUpdateLoading] = useState(false); // Для индикации процесса обновления
   const [massUpdateError, setMassUpdateError] = useState(''); // Для сообщений об ошибке
+  const [selectionModel, setSelectionModel] = useState({ type: 'include', ids: new Set() });
 
 
   window.selectedIdsFromComponent = selectedIds; // Экспонируем в глобальный объект window
@@ -84,14 +85,11 @@ const InputDataView = () => {
     'Прошел отпуск',
     'Недокат',
     'Чистый выброс',
-    'годный', // Добавлено из данных
-    'перевести в брак', // Добавлено из данных
-    'Годный', // Добавлено из данных (если различается регистром)
-    'Брак', // Добавлено как возможный вариант
-    'Недокат', // Уже было
-    'Заказ закрыт', // Добавлено как возможный вариант
-    // Добавьте другие статусы, если они требуются
-  ];
+    'перевести в брак', 
+    'Годный', 
+    'Брак', 
+    'Недокат', 
+    ];
 
   // Преобразование sortModel в параметры для API
   const [sortField, sortOrder] = useMemo(() => {
@@ -252,7 +250,7 @@ const InputDataView = () => {
     try {
         // selectedIds теперь содержит строки matId
         // Просто отправляем их как есть
-        const response = await api.post('/import/update-sheets-status-bulk', {
+        const response = await api.post('/inputdata/update-sheets-status-bulk', {
             matIds: selectedIds, // selectedIds уже массив строк matId
             newStatus: selectedNewStatus,
         });
@@ -724,15 +722,13 @@ const InputDataView = () => {
               // --- Новые пропсы ---
               checkboxSelection // <- Добавляем чекбоксы
               disableSelectionOnClick // <- Отключаем выделение при клике на строку
-              //onSelectionModelChange={(newSelectionModel) => {
-                // Обработчик изменения выделения строк
-                // newSelectionModel теперь будет содержать значения, возвращаемые getRowId
-                //setSelectedIds(newSelectionModel); // ИСПРАВЛЕНИЕ: правильный вызов setState
-                onSelectionModelChange={(newSelectionModel) => {
-  console.log("onSelectionModelChange вызван. Новый Selection Model:", newSelectionModel);
-  setSelectedIds(newSelectionModel);
+              
+              rowSelectionModel={{ type: 'include', ids: new Set(selectedIds) }}
+              onRowSelectionModelChange={(model) => {
+                // Вытаскиваем массив из Set для вашего стейта
+                setSelectedIds(Array.from(model.ids));
               }}
-              selectionModel={selectedIds} // <- Привязываем состояние к выделению
+             // rowSelectionModel={selectedIds} // <- Привязываем состояние к выделению
               
               getRowId={(row) => {
                  // ИСПРАВЛЕНИЕ: корректно берёт matId из inputData
