@@ -17,10 +17,7 @@ namespace MES_ME.Server
             var builder = WebApplication.CreateBuilder(args);
 
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
-            // Установка лицензии для некоммерческого использования
-            // ВНИМАНИЕ: Это изменяет поведение EPPlus и может добавлять теги в файлы.
-            //    ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-
+           
 
             // Add services to the container.
             builder.Services.AddDbContext<AppDbContext>(options =>
@@ -43,13 +40,16 @@ namespace MES_ME.Server
                     };
                 });
 
-
+            builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
+{
+            options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+              });
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowSpecificOrigin",
                     policy =>
                     {
-                        policy.WithOrigins("http://localhost:3000") // Твой фронт
+                        policy.WithOrigins("http://localhost:3000") 
                               .AllowAnyHeader()
                               .AllowAnyMethod();
                     });
