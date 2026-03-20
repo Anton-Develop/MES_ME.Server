@@ -5,9 +5,10 @@ using Microsoft.EntityFrameworkCore;
 using MES_ME.Server.Data;
 using MES_ME.Server.Models;
 
+
 namespace MES_ME.Server.Controllers
 {
-    [Authorize(Roles = "superadmin,developer")]
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class PermissionsController : ControllerBase
@@ -20,6 +21,7 @@ namespace MES_ME.Server.Controllers
         }
 
         [HttpGet]
+        [Authorize(Policy = "view_permissions")] 
         public async Task<ActionResult<IEnumerable<Permission>>> GetPermissions()
         {
             var permissions = await _context.Permissions.ToListAsync();

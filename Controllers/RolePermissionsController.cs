@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace MES_ME.Server.Controllers
 {
-    [Authorize(Roles = "superadmin,developer")]
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class RolePermissionsController : ControllerBase
@@ -21,6 +21,7 @@ namespace MES_ME.Server.Controllers
 
         // Получить все права у роли
         [HttpGet("role/{roleId}")]
+        [Authorize(Policy = "manage_role_permissions")]
         public async Task<ActionResult<IEnumerable<Permission>>> GetPermissionsByRole(int roleId)
         {
             try
@@ -47,6 +48,7 @@ namespace MES_ME.Server.Controllers
 
         // Назначить право роли
         [HttpPost]
+        [Authorize(Policy = "manage_role_permissions")] 
         public async Task<ActionResult> AssignPermissionToRole(AssignPermissionRequest request)
         {
             var role = await _context.Roles.FindAsync(request.RoleId);
@@ -63,7 +65,7 @@ namespace MES_ME.Server.Controllers
 
             if (existingAssignment)
             {
-                 return BadRequest("Разрешение уже назначено для данной роли.");
+                return BadRequest("Разрешение уже назначено для данной роли.");
             }
 
             var rolePermission = new RolePermission
@@ -75,16 +77,13 @@ namespace MES_ME.Server.Controllers
             _context.RolePermissions.Add(rolePermission);
             await _context.SaveChangesAsync();
 
-            // Возвращаем успешный ответ без тела или с минимальным сообщением
-            // Это также помогает избежать циклов при сериализации ответа.
             return Ok(new { Message = "Permission assigned successfully." });
         }
-
         // Отозвать право у роли
         [HttpDelete]
+        [Authorize(Policy = "manage_role_permissions")] 
         public async Task<ActionResult> RemovePermissionFromRole([FromBody] AssignPermissionRequest request)
         {
-            // Используем [FromBody], чтобы получать объект из тела DELETE-запроса
             var rolePermission = await _context.RolePermissions
                 .FirstOrDefaultAsync(rp => rp.RoleId == request.RoleId && rp.PermissionId == request.PermissionId);
 

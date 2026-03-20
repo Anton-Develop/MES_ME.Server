@@ -1,195 +1,89 @@
 // src/components/AdminSidebar.jsx
-import React, { useState } from 'react';
-import {
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  IconButton,
-  Collapse,
-  Box,
-} from '@mui/material';
-import {
-  ChevronLeft as ChevronLeftIcon,
-  ExpandLess,
-  ExpandMore,
-  CalendarToday as CalendarTodayIcon,
-  Inventory as InventoryIcon,
-  TableChart as TableChartIcon,
-  Assignment as AssignmentIcon,
-  Settings as SettingsIcon,
-  People as PeopleIcon,
-  UploadFile as UploadFileIcon,
-} from '@mui/icons-material';
-import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import React from 'react';
+import { Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, Box, useTheme, useMediaQuery } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import ExitToAppIcon from '@mui/icons-material/ExitToApp';
 
 const drawerWidth = 240;
 
-const menuItems = [
-  {
-    text: 'План закалки',
-    icon: <CalendarTodayIcon />,
-    link: '/annealing-batch-plan',
-    roles: ['master', 'operator', 'developer', 'superadmin'],
-  },
-   {
-    text: 'План кассет',
-    icon: <CalendarTodayIcon />,
-    link: '/AnnealingPlan-cassete',
-    roles: ['master', 'operator', 'developer', 'superadmin'],
-  },
-  
-  {
-    text: 'Управление кассетами',
-    icon: <InventoryIcon />,
-    link: '/cassette-management',
-    roles: ['master', 'operator', 'developer', 'superadmin'],
-  },
-  {
-    text: 'Изменение статуса входных данных',
-    icon: <TableChartIcon />,
-    link: '/sheet-status-updater',
-    roles: ['master', 'developer', 'superadmin'],
-  },
-  {
-    text: 'Входные данные',
-    icon: <TableChartIcon />,
-    link: '/input-data',
-    roles: ['master', 'operator', 'developer', 'superadmin'],
-  },
-  {
-    text: 'Импорт данных',
-    icon: <UploadFileIcon />,
-    link: '/import',
-      roles: ['developer','superadmin'],
-  },
-  {
-    text: 'Настройки',
-    icon: <SettingsIcon />,
-    roles: ['superadmin', 'developer'],
-      subItems: [
-          {
-              text: 'Регистрация пользователей',
-              icon: <PeopleIcon />,
-              link: '/register',
-              roles: ['superadmin', 'developer'],
-          },
-      {
-        text: 'Пользователи',
-        icon: <PeopleIcon />,
-        link: '/users',
-        roles: ['superadmin', 'developer'],
-      },
-      {
-        text: 'Роли',
-        icon: <PeopleIcon />,
-        link: '/roles',
-        roles: ['superadmin', 'developer'],
-      },
-      {
-        text: 'Права ролей',
-        icon: <AssignmentIcon />,
-        link: '/permissions',
-        roles: ['superadmin', 'developer'],
-      },
-    ],
-  },
-];
+const AdminSidebar = ({ open, toggleDrawer, menuItems }) => { // Принимаем menuItems
+  const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-const AdminSidebar = ({ open, toggleDrawer }) => {
-  const { user } = useAuth();
-  const location = useLocation();
-
-  // ИСПРАВЛЕНО: добавлено управляемое состояние для подменю вместо вычисляемого из pathname
-  const [openSubMenus, setOpenSubMenus] = useState({});
-
-  const isActive = (link) => location.pathname === link;
-
-  const handleToggleSubMenu = (key) => {
-    setOpenSubMenus(prev => ({ ...prev, [key]: !prev[key] }));
+  const handleItemClick = (link) => {
+    navigate(link);
+    if (isMobile) { // Закрываем sidebar на мобильных после клика
+      toggleDrawer(false)();
+    }
   };
 
-  const renderItems = (items, depth = 0, parentKey = '') => {
-    return items.map((item, index) => {
-      const itemKey = `${parentKey}-${index}`;
-
-      // Проверяем доступность для текущей роли (включая родительские пункты с subItems)
-      if (item.roles && !item.roles.includes(user?.role || '')) return null;
-
-      if (item.subItems) {
-        // Начальное состояние — раскрыт, если текущий путь входит в подменю
-        const defaultOpen = item.subItems.some(sub => location.pathname.startsWith(sub.link));
-        const isSubOpen = openSubMenus[itemKey] !== undefined ? openSubMenus[itemKey] : defaultOpen;
-
-        return (
-          <React.Fragment key={itemKey}>
-            <ListItem disablePadding>
-              <ListItemButton
-                // ИСПРАВЛЕНО: onClick теперь вызывает реальный обработчик, а не пустую стрелку
-                onClick={() => handleToggleSubMenu(itemKey)}
-                sx={{ pl: 2 + depth * 2 }}
-              >
-                <ListItemIcon>{item.icon}</ListItemIcon>
+  const drawerContent = (
+    <div>
+      <Divider />
+      <List>
+        {menuItems && menuItems.length > 0 ? (
+          menuItems.map((item, index) => (
+            <ListItem key={item.text || index} disablePadding> {/* Используем item.text или index как ключ */}
+              <ListItemButton onClick={() => handleItemClick(item.link)}>
+                <ListItemIcon>
+                  {item.icon}
+                </ListItemIcon>
                 <ListItemText primary={item.text} />
-                {isSubOpen ? <ExpandLess /> : <ExpandMore />}
               </ListItemButton>
             </ListItem>
-            <Collapse in={isSubOpen} timeout="auto" unmountOnExit>
-              <List component="div" disablePadding>
-                {renderItems(item.subItems, depth + 1, itemKey)}
-              </List>
-            </Collapse>
-          </React.Fragment>
-        );
-      }
-
-      return (
-        <ListItem key={itemKey} disablePadding>
-          <ListItemButton
-            component={Link}
-            to={item.link}
-            selected={isActive(item.link)}
-            onClick={toggleDrawer(false)}
-            sx={{ pl: 2 + depth * 2 }}
-          >
-            <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.text} />
+          ))
+        ) : (
+          <ListItem>
+            <ListItemText primary="Нет доступных разделов" />
+          </ListItem>
+        )}
+      </List>
+      <Divider />
+      <List>
+        {/* Элемент "Выйти" остаётся, но может быть оформлен как отдельный компонент или с иконкой */}
+        <ListItem disablePadding>
+          <ListItemButton onClick={() => {}}> {/* Логика выхода будет в Navbar или MainLayout */}
+            <ListItemIcon>
+              <ExitToAppIcon />
+            </ListItemIcon>
+            <ListItemText primary="Выйти" />
           </ListItemButton>
         </ListItem>
-      );
-    });
-  };
+      </List>
+    </div>
+  );
 
   return (
-    <Drawer
-      variant="persistent"
-      anchor="left"
-      open={open}
-      sx={{
-        width: drawerWidth,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          width: drawerWidth,
-          boxSizing: 'border-box',
-          top: '64px',
-          height: 'calc(100% - 64px)',
-          // ИСПРАВЛЕНО: zIndex 1200 перекрывал AppBar (zIndex 1100 у drawer по умолчанию корректен)
-          zIndex: 1099,
-        },
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 8px' }}>
-        <IconButton onClick={toggleDrawer(false)}>
-          <ChevronLeftIcon />
-        </IconButton>
-      </Box>
-      <Divider />
-      <List>{renderItems(menuItems)}</List>
-    </Drawer>
+    <>
+      {/* Temporary drawer for mobile */}
+      <Drawer
+        variant="temporary"
+        anchor="left"
+        open={open}
+        onClose={toggleDrawer(false)}
+        ModalProps={{
+          keepMounted: true, // Better open performance on mobile.
+        }}
+        sx={{
+          display: { xs: 'block', sm: 'none' },
+          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+      {/* Permanent drawer for desktop */}
+      <Drawer
+        variant="permanent"
+        sx={{
+          display: { xs: 'none', sm: 'block' },
+          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+        }}
+        open
+      >
+        {drawerContent}
+      </Drawer>
+    </>
   );
 };
 

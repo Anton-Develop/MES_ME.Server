@@ -39,7 +39,27 @@ namespace MES_ME.Server
                         )
                     };
                 });
+                  // Добавляем Authorization с политиками
+                builder.Services.AddAuthorization(async options =>
+                {
+                    using var scope = builder.Services.BuildServiceProvider().CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+                    // Загружаем все права из БД при запуске приложения
+                    var allPermissions = await context.Permissions.Select(p => p.Name).ToListAsync();
+
+                    foreach (var permission in allPermissions)
+                    {
+                        options.AddPolicy(permission, policy =>
+                            policy.RequireAssertion(context =>
+                            {
+                                // Получаем список прав из Claims токена пользователя
+                                var userPermissions = context.User.FindAll("permission").Select(c => c.Value);
+                                // Проверяем, содержит ли список прав пользователя требуемое право
+                                return userPermissions.Contains(permission);
+                            }));
+                    }
+                });
             builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
 {
             options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
