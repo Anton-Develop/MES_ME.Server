@@ -21,7 +21,7 @@ namespace MES_ME.Server.Controllers
 
         // Получить все права у роли
         [HttpGet("role/{roleId}")]
-        [Authorize(Policy = "manage_role_permissions")]
+        [Authorize]
         public async Task<ActionResult<IEnumerable<Permission>>> GetPermissionsByRole(int roleId)
         {
             try
@@ -48,7 +48,7 @@ namespace MES_ME.Server.Controllers
 
         // Назначить право роли
         [HttpPost]
-        [Authorize(Policy = "manage_role_permissions")] 
+        [Authorize]
         public async Task<ActionResult> AssignPermissionToRole(AssignPermissionRequest request)
         {
             var role = await _context.Roles.FindAsync(request.RoleId);
@@ -81,7 +81,7 @@ namespace MES_ME.Server.Controllers
         }
         // Отозвать право у роли
         [HttpDelete]
-        [Authorize(Policy = "manage_role_permissions")] 
+        [Authorize]
         public async Task<ActionResult> RemovePermissionFromRole([FromBody] AssignPermissionRequest request)
         {
             var rolePermission = await _context.RolePermissions

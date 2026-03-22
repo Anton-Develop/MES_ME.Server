@@ -21,7 +21,7 @@ namespace MES_ME.Server.Controllers
         }
 
         [HttpGet]
-        [Authorize(Policy = "view_permissions")] 
+        [Authorize]
         public async Task<ActionResult<IEnumerable<Permission>>> GetPermissions()
         {
             var permissions = await _context.Permissions.ToListAsync();
