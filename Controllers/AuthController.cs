@@ -54,67 +54,76 @@ namespace MES_ME.Server.Controllers
         [HttpPost("login")]
         public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest model)
         {
-            var user = await _context.Users
-                .Include(u => u.Role)
-                .ThenInclude(r => r.RolePermissions)
-                .ThenInclude(rp => rp.Permission)
-                .FirstOrDefaultAsync(u => u.Username == model.Username);
-
-            if (user == null || !BCryptNet.Verify(model.Password, user.PasswordHash))
+            try
             {
-                return Unauthorized("Invalid credentials.");
-            }
 
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_configuration["Jwt:Key"]!);
+                var user = await _context.Users
+                    .Include(u => u.Role)
+                    .ThenInclude(r => r.RolePermissions)
+                    .ThenInclude(rp => rp.Permission)
+                    .FirstOrDefaultAsync(u => u.Username == model.Username);
 
-            var claims = new List<Claim>
+                if (user == null || !BCryptNet.Verify(model.Password, user.PasswordHash))
+                {
+                    return Unauthorized("Invalid credentials.");
+                }
+
+                var tokenHandler = new JwtSecurityTokenHandler();
+                var key = Encoding.ASCII.GetBytes(_configuration["Jwt:Key"]!);
+
+                var claims = new List<Claim>
         {
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, user.Role.Name),
             new Claim("UserId", user.Id.ToString())
         };
 
-            if (user.Role.RolePermissions != null)
-            {
-                foreach (var rp in user.Role.RolePermissions)
+                if (user.Role.RolePermissions != null)
                 {
-                    claims.Add(new Claim("permission", rp.Permission.Name));
+                    foreach (var rp in user.Role.RolePermissions)
+                    {
+                        claims.Add(new Claim("permission", rp.Permission.Name));
+                    }
                 }
+
+                var tokenDescriptor = new SecurityTokenDescriptor
+                {
+                    Subject = new ClaimsIdentity(claims),
+                    Expires = DateTime.UtcNow.AddMinutes(int.Parse(_configuration["Jwt:ExpireMinutes"]!)),
+                    Issuer = _configuration["Jwt:Issuer"],
+                    Audience = _configuration["Jwt:Audience"],
+                    SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+                };
+
+                var token = tokenHandler.CreateToken(tokenDescriptor);
+                var tokenString = tokenHandler.WriteToken(token);
+
+                var permissions = user.Role.RolePermissions?.Select(rp => rp.Permission.Name).ToList() ?? new List<string>();
+
+                // Логируем успешный вход
+                var loginLog = new LoginLog
+                {
+                    UserId = user.Id,
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                };
+                _context.LoginLogs.Add(loginLog);
+                await _context.SaveChangesAsync();
+
+                return Ok(new LoginResponse
+                {
+                    Token = tokenString,
+                    UserId = user.Id,
+                    Username = user.Username,
+                    Role = user.Role.Name,
+                    Permissions = permissions
+                });
             }
-
-            var tokenDescriptor = new SecurityTokenDescriptor
+            catch (Exception ex)
             {
-                Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddMinutes(int.Parse(_configuration["Jwt:ExpireMinutes"]!)),
-                Issuer = _configuration["Jwt:Issuer"],
-                Audience = _configuration["Jwt:Audience"],
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-            };
 
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            var tokenString = tokenHandler.WriteToken(token);
-
-            var permissions = user.Role.RolePermissions?.Select(rp => rp.Permission.Name).ToList() ?? new List<string>();
-
-            // Логируем успешный вход
-            var loginLog = new LoginLog
-            {
-                UserId = user.Id,
-                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                UserAgent = Request.Headers["User-Agent"].ToString()
-            };
-            _context.LoginLogs.Add(loginLog);
-            await _context.SaveChangesAsync();
-
-            return Ok(new LoginResponse
-            {
-                Token = tokenString,
-                UserId = user.Id,
-                Username = user.Username,
-                Role = user.Role.Name,
-                Permissions = permissions
-            });
+                return Unauthorized();
+            }
         }
     }
 

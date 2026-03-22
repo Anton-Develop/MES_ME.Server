@@ -15,7 +15,9 @@ namespace MES_ME.Server.Data
         public DbSet<LoginLog> LoginLogs => Set<LoginLog>();
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
-       // public DbSet<Sheet> Sheets { get; set; }
+        public DbSet<RoutePermission> RoutePermissions { get; set; }
+
+        // public DbSet<Sheet> Sheets { get; set; }
 
         public DbSet<InputDatum> InputData { get; set; }
 
@@ -33,7 +35,18 @@ namespace MES_ME.Server.Data
         {
              base.OnModelCreating(modelBuilder);
 
-               // --- НОВОЕ: Конфигурация новых сущностей ---
+
+            modelBuilder.Entity<RoutePermission>(entity =>
+                 {
+                     entity.HasKey(e => e.Id);
+                     entity.HasIndex(e => e.Path).IsUnique();
+                     entity.Property(e => e.Path).IsRequired().HasMaxLength(200);
+                     entity.Property(e => e.Label).IsRequired().HasMaxLength(100);
+                     entity.Property(e => e.IconName).HasMaxLength(50).HasDefaultValue("Dashboard");
+                     entity.Property(e => e.RequiredPermission).IsRequired().HasMaxLength(100);
+                 });
+
+            // --- НОВОЕ: Конфигурация новых сущностей ---
             modelBuilder.Entity<AnnealingPlan>(entity =>
             {
                 entity.HasKey(e => e.PlanId);

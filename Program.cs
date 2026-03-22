@@ -93,6 +93,11 @@ namespace MES_ME.Server
 
             app.MapControllers();
 
+            //using (var scope = app.Services.CreateScope())
+            //{
+            //    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            //     RoutePermissionSeeder.SeedAsync(db);
+            //}
             app.Run();
         }
   }
