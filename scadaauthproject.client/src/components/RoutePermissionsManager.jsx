@@ -34,7 +34,7 @@ import {
 } from '@mui/material';
 import { Delete as DeleteIcon, Edit as EditIcon, Add as AddIcon } from '@mui/icons-material';
 import api from '../api';
-import { useRoutePermissions } from '../components/RoutePermissionsContext';
+import { useRoutePermissions } from './RoutePermissionsContext';
 
 const ICON_OPTIONS = [
   'Dashboard', 'Assignment', 'People', 'Settings', 'Build',

@@ -7,11 +7,13 @@ using MES_ME.Server.Data;
 using MES_ME.Server.Models;
 using System.Linq.Expressions;
 using MES_ME.Server.DTOs;
+using Microsoft.AspNetCore.Authorization;
 
 namespace MES_ME.Server.Controllers
 {
+    [Authorize]
     [ApiController]
-    [Route("api/[controller]")] // Изменим маршрут для логичности
+    [Route("api/[controller]")] 
     public class InputDataController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -22,6 +24,7 @@ namespace MES_ME.Server.Controllers
         }
 
         [HttpGet]
+        [Authorize(Roles = "superadmin,developer")]
         public async Task<IActionResult> GetData(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10,

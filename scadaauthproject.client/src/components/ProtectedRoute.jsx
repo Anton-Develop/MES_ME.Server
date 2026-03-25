@@ -34,10 +34,12 @@ const ProtectedRoute = ({ children, allowedRoles, requireRouteAccess = true }) =
         '/unauthorized',
         '/route-permissions',
         '/register',
+        '/permissions'
     ].includes(location.pathname);
 
     // Если маршруты ещё не загрузились — не блокируем
     if (requireRouteAccess && !skipRouteCheck && allowedRoutes.length > 0 && !hasRoute(location.pathname)) {
+        console.log('Не загрузились маршруты')
         return <Navigate to="/unauthorized" replace />;
     }
 

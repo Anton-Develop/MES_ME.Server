@@ -13,7 +13,7 @@ namespace MES_ME.Server.Controllers
 {
     [Authorize]
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/[controller]")] 
     public class RoutePermissionsController : ControllerBase
     {
         private readonly AppDbContext _context;
