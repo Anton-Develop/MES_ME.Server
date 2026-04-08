@@ -33,7 +33,7 @@ const theme = createTheme({
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          backgroundColor: '#37474f', // Темно-серый боковой бар
+          backgroundColor: '#c6d0d4', // Темно-серый боковой бар
           color: '#ffffff',
         },
       },

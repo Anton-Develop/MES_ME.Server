@@ -1,36 +1,10 @@
 // src/components/RoutePermissionsManager.jsx
-// UI для управления маршрутами: создание, редактирование, удаление, переключение активности.
-// Доступен только пользователям с правом manage_route_permissions (superadmin, developer).
-
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Paper,
-  Typography,
-  Button,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Divider,
-  TextField,
-  Box,
-  IconButton,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  Alert,
-  Switch,
-  FormControlLabel,
-  Grid,
-  MenuItem,
-  Select,
-  InputLabel,
-  FormControl,
-  Chip,
-  Tooltip,
+  Container, Paper, Typography, Button, List, ListItem, ListItemText,
+  Divider, TextField, Box, IconButton, Dialog, DialogActions,
+  DialogContent, DialogContentText, DialogTitle, Alert, Switch,
+  Grid, MenuItem, Select, InputLabel, FormControl, Chip, Tooltip,
 } from '@mui/material';
 import { Delete as DeleteIcon, Edit as EditIcon, Add as AddIcon } from '@mui/icons-material';
 import api from '../api';
@@ -60,7 +34,6 @@ const RoutePermissionsManager = () => {
   const [success, setSuccess] = useState('');
   const [formOpen, setFormOpen] = useState(false);
 
-  // После сохранения обновляем и сайдбар через контекст
   const { refetch: refetchSidebar } = useRoutePermissions();
 
   const fetchRoutes = async () => {
@@ -86,9 +59,8 @@ const RoutePermissionsManager = () => {
     fetchPermissions();
   }, []);
 
-  const handleFormChange = (field) => (e) => {
+  const handleFormChange = (field) => (e) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
-  };
 
   const handleSubmit = async () => {
     setError('');
@@ -113,7 +85,7 @@ const RoutePermissionsManager = () => {
       setEditingId(null);
       setFormOpen(false);
       await fetchRoutes();
-      await refetchSidebar(); // обновляем сайдбар сразу
+      await refetchSidebar();
     } catch (err) {
       setError(err.response?.data || 'Ошибка сохранения маршрута.');
     }
@@ -171,9 +143,10 @@ const RoutePermissionsManager = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
+    // ИСПРАВЛЕНО: pb={8} даёт отступ снизу, чтобы контент не обрезался
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 6 }}>
       <Paper sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography variant="h5">Управление маршрутами</Typography>
           <Button
             variant="contained"
@@ -186,7 +159,7 @@ const RoutePermissionsManager = () => {
 
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Здесь вы определяете, какие страницы существуют в системе и какое право необходимо для доступа к ним.
-          После изменений сайдбар обновляется автоматически для всех пользователей при следующем входе.
+          После изменений сайдбар обновляется автоматически.
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
@@ -206,7 +179,7 @@ const RoutePermissionsManager = () => {
                   value={form.path}
                   onChange={handleFormChange('path')}
                   required
-                  disabled={!!editingId} // путь не меняем при редактировании — это ID маршрута
+                  disabled={!!editingId}
                   helperText={editingId ? 'Путь нельзя изменить — удалите и создайте заново' : ''}
                 />
               </Grid>
@@ -229,8 +202,7 @@ const RoutePermissionsManager = () => {
                   >
                     {permissions.map((p) => (
                       <MenuItem key={p.id} value={p.name}>
-                        {p.name}
-                        {p.description ? ` — ${p.description}` : ''}
+                        {p.name}{p.description ? ` — ${p.description}` : ''}
                       </MenuItem>
                     ))}
                   </Select>
@@ -239,11 +211,7 @@ const RoutePermissionsManager = () => {
               <Grid item xs={12} sm={3}>
                 <FormControl fullWidth>
                   <InputLabel>Иконка</InputLabel>
-                  <Select
-                    value={form.iconName}
-                    onChange={handleFormChange('iconName')}
-                    label="Иконка"
-                  >
+                  <Select value={form.iconName} onChange={handleFormChange('iconName')} label="Иконка">
                     {ICON_OPTIONS.map((name) => (
                       <MenuItem key={name} value={name}>{name}</MenuItem>
                     ))}
@@ -252,11 +220,8 @@ const RoutePermissionsManager = () => {
               </Grid>
               <Grid item xs={12} sm={3}>
                 <TextField
-                  fullWidth
-                  label="Порядок в меню"
-                  type="number"
-                  value={form.sortOrder}
-                  onChange={handleFormChange('sortOrder')}
+                  fullWidth label="Порядок в меню" type="number"
+                  value={form.sortOrder} onChange={handleFormChange('sortOrder')}
                   inputProps={{ min: 0, step: 10 }}
                 />
               </Grid>
@@ -273,51 +238,75 @@ const RoutePermissionsManager = () => {
         <Divider sx={{ my: 2 }} />
         <Typography variant="h6" gutterBottom>Существующие маршруты</Typography>
 
-        <List>
+        {/* ИСПРАВЛЕНО: убран ListItemSecondaryAction (абсолютное позиционирование обрезало контент).
+            Используем flex-строку с явным alignItems: flex-start */}
+        <List disablePadding>
           {routes.length === 0 && (
-            <ListItem><ListItemText primary="Маршруты не найдены" /></ListItem>
+            <ListItem>
+              <ListItemText primary="Маршруты не найдены" />
+            </ListItem>
           )}
           {routes.map((route) => (
-            <ListItem
-              key={route.id}
-              sx={{ opacity: route.isActive ? 1 : 0.5, alignItems: 'flex-start', py: 1.5 }}
-            >
-              <ListItemText
-                primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Typography variant="body1" fontWeight={500}>{route.label}</Typography>
-                    <Chip label={route.path} size="small" variant="outlined" sx={{ fontFamily: 'monospace' }} />
-                    {!route.isActive && <Chip label="Отключён" size="small" color="warning" />}
+            <React.Fragment key={route.id}>
+              <ListItem
+                disablePadding
+                sx={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1,
+                  py: 1.5,
+                  px: 1,
+                  opacity: route.isActive ? 1 : 0.55,
+                  borderRadius: 1,
+                  '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                {/* Текстовая часть занимает всё свободное место */}
+                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+                    <Typography variant="body1" fontWeight={500}>
+                      {route.label}
+                    </Typography>
+                    <Chip
+                      label={route.path}
+                      size="small"
+                      variant="outlined"
+                      sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                    />
+                    {!route.isActive && (
+                      <Chip label="Отключён" size="small" color="warning" />
+                    )}
                   </Box>
-                }
-                secondary={
-                  <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Chip label={`Право: ${route.requiredPermission}`} size="small" color="primary" variant="outlined" />
                     <Chip label={`Иконка: ${route.iconName}`} size="small" variant="outlined" />
                     <Chip label={`Порядок: ${route.sortOrder}`} size="small" variant="outlined" />
                   </Box>
-                }
-              />
-              <ListItemSecondaryAction sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Tooltip title={route.isActive ? 'Отключить' : 'Включить'}>
-                  <Switch
-                    checked={route.isActive}
-                    onChange={() => handleToggleActive(route)}
-                    size="small"
-                  />
-                </Tooltip>
-                <Tooltip title="Редактировать">
-                  <IconButton onClick={() => handleEdit(route)} size="small">
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Удалить">
-                  <IconButton onClick={() => handleDeleteConfirm(route)} size="small" color="error">
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </ListItemSecondaryAction>
-            </ListItem>
+                </Box>
+
+                {/* Кнопки управления — фиксированная ширина, не сдвигаются */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0, pt: 0.25 }}>
+                  <Tooltip title={route.isActive ? 'Отключить' : 'Включить'}>
+                    <Switch
+                      checked={route.isActive}
+                      onChange={() => handleToggleActive(route)}
+                      size="small"
+                    />
+                  </Tooltip>
+                  <Tooltip title="Редактировать">
+                    <IconButton onClick={() => handleEdit(route)} size="small">
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Удалить">
+                    <IconButton onClick={() => handleDeleteConfirm(route)} size="small" color="error">
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              </ListItem>
+              <Divider component="li" />
+            </React.Fragment>
           ))}
         </List>
       </Paper>
