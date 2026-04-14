@@ -10,19 +10,22 @@ import {
   TableChart as TableChartIcon,
   Security as SecurityIcon,
   ManageAccounts as ManageAccountsIcon,
+  ManageSearch as ManageSearchIcon,
 } from '@mui/icons-material';
 import DashboardCard from './DashboardCard';
 import { useAuth } from '../../context/AuthContext';
 
 const quickActions = [
-  { text: 'План закалки',          icon: <AssignmentIcon />,    route: '/annealing-batch-plan' },
-  { text: 'Расписание закалки',    icon: <CalendarTodayIcon />, route: '/annealing-schedule' },
-  { text: 'Управление кассетами',  icon: <InventoryIcon />,     route: '/cassette-management' },
-  { text: 'Входные данные',        icon: <TableChartIcon />,    route: '/input-data' },
   { text: 'Импорт данных',         icon: <UploadFileIcon />,    route: '/import' },
-  { text: 'Пользователи',          icon: <PeopleIcon />,        route: '/users' },
-  { text: 'Управление ролями',     icon: <ManageAccountsIcon />,route: '/roles' },
-  { text: 'Права доступа',         icon: <SecurityIcon />,      route: '/permissions' },
+    { text: 'Входные данные',        icon: <TableChartIcon />,    route: '/input-data' },
+    { text: 'План закалки',          icon: <AssignmentIcon />,    route: '/annealing-batch-plan' },
+    { text: 'План отпуска',          icon: <AssignmentIcon />,    route: '/AnnealingPlan-cassete' },
+    { text: 'Расписание закалки',    icon: <CalendarTodayIcon />, route: '/annealing-schedule' },
+    { text: 'Управление кассетами',  icon: <InventoryIcon />,     route: '/cassette-management' },
+    { text: 'Изменение статусов',    icon: <ManageSearchIcon />,  route: '/sheet-status-updater' },
+    { text: 'Пользователи',          icon: <PeopleIcon />,        route: '/users' },
+    { text: 'Роли',                  icon: <PeopleIcon />,        route: '/roles' },
+    { text: 'Права доступа',         icon: <SecurityIcon />,      route: '/permissions' },
 ];
 
 const SuperAdminDashboard = () => {
