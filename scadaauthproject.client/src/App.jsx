@@ -27,6 +27,7 @@ import AnnealingBatchPlanPage from './pages/AnnealingBatchPlanPage';
 import SheetStatusUpdater from './pages/SheetStatusUpdater';
 import AnnealingReportPage from './pages/AnnealingReportPage';
 import AnnealingPlanPage from './pages/AnnealingPlanPage';
+import HMI from './pages/QuenchingHMI'
 
 const Unauthorized = () => (
     <div style={{ padding: 32, textAlign: 'center' }}>
@@ -171,6 +172,16 @@ const App = () => (
                                 element={
                                     <ProtectedRoute>
                                         <AnnealingPlanPage />
+                                    </ProtectedRoute>
+                                }
+                            />
+
+                            {/* HMI оператора */}
+                            <Route
+                                path="HMI"
+                                element={
+                                    <ProtectedRoute>
+                                        <HMI />
                                     </ProtectedRoute>
                                 }
                             />

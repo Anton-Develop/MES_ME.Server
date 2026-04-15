@@ -11,6 +11,7 @@ import {
   Security as SecurityIcon,
   ManageAccounts as ManageAccountsIcon,
   ManageSearch as ManageSearchIcon,
+  Dashboard as DashboardIcon,
 } from '@mui/icons-material';
 import DashboardCard from './DashboardCard';
 import { useAuth } from '../../context/AuthContext';
@@ -26,6 +27,7 @@ const quickActions = [
     { text: 'Пользователи',          icon: <PeopleIcon />,        route: '/users' },
     { text: 'Роли',                  icon: <PeopleIcon />,        route: '/roles' },
     { text: 'Права доступа',         icon: <SecurityIcon />,      route: '/permissions' },
+    { text: 'HMI',         icon: <DashboardIcon />,      route: '/HMI' },
 ];
 
 const SuperAdminDashboard = () => {

@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const operatorActions = [
   { text: 'План закалки',       icon: <AssignmentIcon />,  route: '/annealing-batch-plan' },
-  { text: 'Входные данные',     icon: <TableChartIcon />,  route: '/input-data' },
+  { text: 'Панель оператора',     icon: <TableChartIcon />,  route: '/HMI' },
 ];
 
 const OperatorDashboard = () => {
