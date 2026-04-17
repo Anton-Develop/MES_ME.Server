@@ -311,7 +311,7 @@ namespace MES_ME.Server.Controllers
             if (!string.IsNullOrEmpty(furnaceNumberFilter))
             {
                 query = query.Where(bp => bp.FurnaceNumber.Contains(furnaceNumberFilter));
-            }
+            } 
 
             // Сортировка по времени начала
             query = query.OrderBy(bp => bp.ScheduledStartTime);

@@ -1,38 +1,5 @@
 import { useState, useEffect } from "react";
-
-const PLANS = [
-  {
-    id: 1, planName: 'План №1047', furnace: 'Печь №1',
-    date: '2025-04-15', time: '08:00', status: 'В работе',
-    sheets: [
-      { id:101, melt:'102247', batch:'404', pack:'14', sheet:'343', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'В работе',  loc:'Зона 1' },
-      { id:102, melt:'102247', batch:'404', pack:'14', sheet:'344', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'В работе',  loc:'Зона 2' },
-      { id:103, melt:'102247', batch:'404', pack:'14', sheet:'345', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'В работе',  loc:'Зона 3' },
-      { id:104, melt:'102247', batch:'404', pack:'14', sheet:'346', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'В работе',  loc:'Закалка' },
-      { id:105, melt:'102247', batch:'404', pack:'14', sheet:'347', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'Ожидание', loc:'' },
-      { id:106, melt:'102247', batch:'404', pack:'14', sheet:'348', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'Ожидание', loc:'' },
-      { id:107, melt:'102247', batch:'404', pack:'15', sheet:'349', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'Ожидание', loc:'' },
-      { id:108, melt:'102247', batch:'404', pack:'15', sheet:'350', grade:'А3',    thick:4.2, width:2000, len:8000, wt:530.4, status:'Ожидание', loc:'' },
-    ],
-  },
-  {
-    id: 2, planName: 'План №1048', furnace: 'Печь №1',
-    date: '2025-04-15', time: '14:30', status: 'Ожидание',
-    sheets: [
-      { id:201, melt:'102248', batch:'405', pack:'01', sheet:'001', grade:'09Г2С', thick:6.0, width:1800, len:9000, wt:763.0, status:'Ожидание', loc:'' },
-      { id:202, melt:'102248', batch:'405', pack:'01', sheet:'002', grade:'09Г2С', thick:6.0, width:1800, len:9000, wt:763.0, status:'Ожидание', loc:'' },
-      { id:203, melt:'102248', batch:'405', pack:'01', sheet:'003', grade:'09Г2С', thick:6.0, width:1800, len:9000, wt:763.0, status:'Ожидание', loc:'' },
-    ],
-  },
-  {
-    id: 3, planName: 'План №1049', furnace: 'Печь №1',
-    date: '2025-04-16', time: '06:00', status: 'Создан',
-    sheets: [
-      { id:301, melt:'102249', batch:'406', pack:'01', sheet:'001', grade:'S355', thick:8.0, width:2000, len:10000, wt:1256.0, status:'Ожидание', loc:'' },
-      { id:302, melt:'102249', batch:'406', pack:'01', sheet:'002', grade:'S355', thick:8.0, width:2000, len:10000, wt:1256.0, status:'Ожидание', loc:'' },
-    ],
-  },
-];
+import api from '../api';
 
 const C = {
   bg:'#0d1117', panel:'#161b22', panelBd:'#30363d',
@@ -79,17 +46,6 @@ const SvgSeg = ({x, y, value, unit='', w=46, h=18}) => (
   </g>
 );
 
-const Btn = ({label, color='#1f4068', onClick, disabled, full}) => (
-  <button onClick={onClick} disabled={disabled} style={{
-    background: disabled ? '#21262d' : color,
-    color: disabled ? C.dim : C.text,
-    border: `1px solid ${disabled ? C.panelBd : color}`,
-    borderRadius:4, padding:'5px 8px', fontSize:11,
-    cursor: disabled ? 'default' : 'pointer',
-    fontFamily:'monospace', fontWeight:600, whiteSpace:'nowrap',
-    width: full ? '100%' : undefined,
-  }}>{label}</button>
-);
 
 // ── SVG helpers ───────────────────────────────────────────────────────────────
 const Rollers = ({x, y, count, w=16, gap=5, h=30}) => (
@@ -133,42 +89,108 @@ const Nozzles9 = ({x, y, active, side}) => (
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function QuenchingHMI() {
-  const [time, setTime]             = useState(new Date());
-  const [plans, setPlans]           = useState(PLANS);
-  const [selectedPlan, setSelPlan]  = useState(PLANS[0]);
-  const [selSheetId, setSelSheet]   = useState(null);
-  const [inputSheet, setInputSheet] = useState(null);
-  const [temps, setTemps]           = useState([852, 920, 922, 905]);
-  const [coolT, setCoolT]           = useState(19.1);
-  const [running, setRunning]       = useState(true);
+  const [time, setTime]                 = useState(new Date());
+  const [selSheetId, setSelSheet]       = useState(null);
+  const [inputSheet, setInputSheet]     = useState(null);
+  const [temps, setTemps]               = useState([852, 920, 922, 905]);
+  const [coolT, setCoolT]               = useState(19.1);
+  const [running, setRunning]           = useState(true);  // setRunning используется в панели управления (раскомментировать блок УПРАВЛЕНИЕ) // eslint-disable-line no-unused-vars
+  const [loading, setLoading]           = useState(true);
+  const [sheetsLoading, setSheetsLoading] = useState(false);
+  const [error, setError]               = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [plans, setPlans]               = useState([]);
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTime(new Date());
-      setTemps(t => t.map(v => Math.round((v+(Math.random()-.5)*2)*10)/10));
-      setCoolT(t => Math.round((t+(Math.random()-.5)*.4)*10)/10);
-    }, 1500);
-    return () => clearInterval(id);
-  }, []);
+   // Функция для загрузки списка планов
+  const fetchPlans = async () => {
+        try {
+            setLoading(true);
+            console.log("Загрузка списка планов с бэкенда...");
+            const response = await api.get('/quenchinghmi/plans');
+            //console.log("Полученные response:", response); 
+           
+            //if (!response.ok) {
+              //  throw new Error(`Ошибка загрузки планов: ${response.status}`); 
+            //}
+            
+            const data = response.data;//await response.json();
+            console.log("Полученные планы:", response.data);
+            setPlans(data);
+            setError(null); // Сбросить ошибку при успешной загрузке
+        } catch (err) {
+            console.error("Ошибка при загрузке планов:", err);
+            setError(err.message);
+            setPlans([]); // Очистить список в случае ошибки
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  const allSheets  = plans.flatMap(p => p.sheets);
-  const inLoc      = loc => allSheets.find(s => s.loc === loc);
+  // Функция для загрузки листов конкретного плана
+    const fetchPlanSheets = async (planId) => {
+        try {
+            setSheetsLoading(true);
+            console.log(`Загрузка листов для плана ${planId} с бэкенда...`);
+            const response = await api.get(`/quenchinghmi/plans/${planId}/sheets`);
+            if (response.status < 200 || response.status >= 300) {
+            // Бросаем ошибку, если статус неуспешный
+            throw new Error(`Ошибка загрузки листов плана ${planId}: ${response.status}`);
+        }
+            const sheets = response.data;
+            console.log(`Полученные листы для плана ${planId}:`, sheets);
+
+            const basePlan = plans.find(p => p.id === planId);
+            setSelectedPlan({ ...basePlan, sheets });
+        } catch (err) {
+            console.error("Ошибка при загрузке листов плана:", err);
+            setError(err.message);
+            setSelectedPlan(null);
+        } finally {
+            setSheetsLoading(false);
+        }
+    };
+  
+    // Загрузка списка планов при первом рендере компонента
+    useEffect(() => {
+        fetchPlans();
+    }, []);
+
+    const handleSelectPlan = (plan) => {
+        console.log("Выбран план:", plan);
+        setSelectedPlan(plan);
+        fetchPlanSheets(plan.id);
+        setSelSheet(null); // сброс выбранного листа при смене плана
+    };
+
+     // --- Таймер для обновления часов и симуляции температур ---
+    useEffect(() => {
+      const id = setInterval(() => {
+        setTime(new Date());
+        setTemps(t => t.map(v => Math.round((v + (Math.random() - 0.5) * 2) * 10) / 10));
+        setCoolT(t => Math.round((t + (Math.random() - 0.5) * 0.4) * 10) / 10);
+      }, 1500);
+      return () => clearInterval(id);
+    }, []);
+
+
+  const allSheets  = selectedPlan ? selectedPlan.sheets : [];// plans.flatMap(p => p.sheets);
+  const inLoc      = loc => Array.isArray(allSheets) ? allSheets.find(s => s.loc === loc) : undefined;//loc => allSheets.find(s => s.loc === loc);
   const zones      = [1,2,3,4].map(i => inLoc(`Зона ${i}`));
   const qS         = inLoc('Закалка');
   const cS         = inLoc('Охл.');
-  const planSheets = plans.find(p => p.id === selectedPlan?.id)?.sheets ?? [];
+  const planSheets = selectedPlan?.sheets || [];//plans.find(p => p.id === selectedPlan?.id)?.sheets ?? [];
   const selSheet   = planSheets.find(s => s.id === selSheetId);
   const canAdd     = !!selSheetId && selSheet?.status === 'Ожидание' && !inputSheet;
 
   const addToConveyor = () => {
     if (!canAdd) return;
     setInputSheet(selSheet);
-    setPlans(prev => prev.map(p => ({
-      ...p,
-      sheets: p.sheets.map(s =>
+    setSelectedPlan(prev => ({
+      ...prev,
+      sheets: prev.sheets.map(s =>
         s.id === selSheetId ? {...s, status:'На рольганге', loc:'Вход'} : s
       ),
-    })));
+    }));
     setSelSheet(null);
   };
 
@@ -176,12 +198,12 @@ export default function QuenchingHMI() {
     if (!inputSheet) return;
     const free = ['Зона 1','Зона 2','Зона 3','Зона 4'].find(z => !inLoc(z));
     if (!free) return;
-    setPlans(prev => prev.map(p => ({
-      ...p,
-      sheets: p.sheets.map(s =>
+    setSelectedPlan(prev => ({
+      ...prev,
+      sheets: prev.sheets.map(s =>
         s.id === inputSheet.id ? {...s, status:'В работе', loc:free} : s
       ),
-    })));
+    }));
     setInputSheet(null);
   };
 
@@ -547,12 +569,32 @@ export default function QuenchingHMI() {
             ПЛАНЫ ЗАКАЛКИ
           </div>
           <div style={{display:'flex', flexDirection:'column', gap:4}}>
+            {loading && (
+              <div style={{color:C.dim, padding:10, textAlign:'center', fontSize:11}}>
+                Загрузка планов...
+              </div>
+            )}
+            {error && !loading && (
+              <div style={{color:C.red, padding:10, fontSize:11, border:`1px solid ${C.red}`, borderRadius:4}}>
+                ⚠ {error}
+                <button onClick={fetchPlans} style={{marginLeft:8, background:'transparent',
+                  color:C.accent, border:`1px solid ${C.accent}`, borderRadius:3,
+                  padding:'1px 6px', cursor:'pointer', fontSize:11}}>
+                  Повторить
+                </button>
+              </div>
+            )}
+            {!loading && !error && plans.length === 0 && (
+              <div style={{color:C.dim, padding:10, textAlign:'center', fontSize:11}}>
+                Нет доступных планов
+              </div>
+            )}
             {plans.map(plan => {
               const sel = selectedPlan?.id === plan.id;
               const sc  = statusColor(plan.status);
               return (
                 <div key={plan.id}
-                  onClick={() => { setSelPlan(plan); setSelSheet(null); }}
+                  onClick={() => handleSelectPlan(plan)}
                   style={{
                     background: sel ? '#1a2f4a' : 'transparent',
                     border: `1px solid ${sel ? C.accent : C.panelBd}`,
@@ -568,7 +610,7 @@ export default function QuenchingHMI() {
                   <div style={{display:'flex', gap:8, fontSize:14, color:C.dim, flexWrap:'wrap'}}>
                     <span>📅 {plan.date}</span>
                     <span>⏰ {plan.time}</span>
-                    <span>📋 {plan.sheets.length} л.</span>
+                    <span>📋 {plan.sheetCount} л.</span>
                     <span>{plan.furnace}</span>
                   </div>
                 </div>
@@ -584,9 +626,11 @@ export default function QuenchingHMI() {
         }}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
             <div style={{fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1}}>
-              {selectedPlan
-                ? `СОСТАВ: ${selectedPlan.planName} — ${planSheets.length} листов`
-                : 'ВЫБЕРИТЕ ПЛАН ИЗ СПИСКА'}
+              {sheetsLoading
+                ? 'Загрузка листов...'
+                : selectedPlan
+                  ? `СОСТАВ: ${selectedPlan.planName} — ${planSheets.length} листов`
+                  : 'ВЫБЕРИТЕ ПЛАН ИЗ СПИСКА'}
             </div>
             <button onClick={addToConveyor} disabled={!canAdd} style={{
               background: canAdd ? '#1a4731' : '#21262d',
@@ -629,10 +673,10 @@ export default function QuenchingHMI() {
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.pack}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace', color:C.accent, fontWeight:700}}>{row.sheet}</td>
                         <td style={{padding:'3px 7px', color:C.yellow}}>{row.grade}</td>
-                        <td style={{padding:'3px 7px', textAlign:'right'}}>{row.thick}</td>
-                        <td style={{padding:'3px 7px', textAlign:'right'}}>{row.width}</td>
-                        <td style={{padding:'3px 7px', textAlign:'right'}}>{row.len}</td>
-                        <td style={{padding:'3px 7px', textAlign:'right', color:C.dim}}>{row.wt}</td>
+                        <td style={{padding:'3px 7px', textAlign:'left'}}>{row.thick}</td>
+                        <td style={{padding:'3px 7px', textAlign:'left'}}>{row.width}</td>
+                        <td style={{padding:'3px 7px', textAlign:'left'}}>{row.len}</td>
+                        <td style={{padding:'3px 7px', textAlign:'left', color:C.dim}}>{row.wt}</td>
                         <td style={{padding:'3px 7px'}}>
                           <span style={{background:sc+'22', color:sc, border:`1px solid ${sc}`,
                             borderRadius:3, padding:'0 5px', fontSize:14, whiteSpace:'nowrap'}}>
