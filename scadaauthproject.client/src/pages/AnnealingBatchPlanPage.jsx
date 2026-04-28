@@ -297,7 +297,7 @@ const AnnealingBatchPlanPage = () => {
     // Возможные статусы выполнения плана
     const possibleExecutionStatuses = [
         'Создан',
-        'Готов к запуску',
+        'Готов к работе',
         'В работе',
         'Завершён',
         'Прерван',
@@ -670,7 +670,7 @@ const AnnealingBatchPlanPage = () => {
         switch (status) {
             case 'Создан':
                 return 'default';
-            case 'Готов к запуску':
+            case 'Готов к работе':
                 return 'info';
             case 'В работе':
                 return 'warning';

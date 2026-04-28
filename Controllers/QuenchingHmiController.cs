@@ -72,11 +72,13 @@ namespace MES_ME.Server.Controllers
         [HttpGet("plans")]
         public async Task<ActionResult<IEnumerable<HmiPlanDto>>> GetPlans()
         {
-            
+            var requiredStatuses = new[] { "Готов к работе", "В работе" };
+
              var hmiPlans = await _context.AnnealingBatchPlans
         // 1. Сначала сортируем по свойству из БД (например, ScheduledStartTime).
         // null значения могут сортироваться по-разному в зависимости от провайдера БД (PostgreSQL, SQL Server).
         // Здесь они будут отсортированы в начало или конец.
+        .Where(bp => requiredStatuses.Contains(bp.Status))
         .OrderBy(bp => bp.ScheduledStartTime)
         // 2. *Затем* выполняем Select для создания DTO.
         .Select(bp => new HmiPlanDto

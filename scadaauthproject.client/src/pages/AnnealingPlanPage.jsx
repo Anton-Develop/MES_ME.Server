@@ -53,7 +53,7 @@ import api from '../api';
 // Константы для статусов и цветов
 const ANNEALING_PLAN_STATUSES = [
   'Создан',
-  'Готов к запуску',
+  'Готов к работе',
   'В работе',
   'Завершён',
   'Прерван',
@@ -62,7 +62,7 @@ const ANNEALING_PLAN_STATUSES = [
 
 const ANNEALING_PLAN_STATUS_COLORS = {
   'Создан': 'default',
-  'Готов к запуску': 'info',
+  'Готов к работе': 'info',
   'В работе': 'warning',
   'Завершён': 'success',
   'Прерван': 'error',

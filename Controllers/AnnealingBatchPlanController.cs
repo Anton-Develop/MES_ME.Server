@@ -192,7 +192,7 @@ namespace MES_ME.Server.Controllers
             // Опционально: проверить, можно ли изменить статус
             // var allowedTransitions = new Dictionary<string, List<string>>
             // {
-            //     { "Создан", new List<string> { "Готов к запуску", "Отменён" } },
+            //     { "Создан", new List<string> { "Готов к работе", "Отменён" } },
             //     { "уску", new List<string> { "В работе", "Отменён" } },
             //     { "В работе", new List<string> { "Завершён", "Прерван", "Отменён" } },
             //     // ... остальные переходы ...

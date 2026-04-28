@@ -69,7 +69,7 @@ namespace MES_ME.Server
                 options.AddPolicy("AllowSpecificOrigin",
                     policy =>
                     {
-                        policy.WithOrigins("http://localhost:3000") 
+                        policy.WithOrigins("http://192.168.9.64:3000") ///192.168.9.200
                               .AllowAnyHeader()
                               .AllowAnyMethod();
                     });
