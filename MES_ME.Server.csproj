@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <Folder Include="Attributes\" />
+    <Folder Include="Models\Tracking\" />
   </ItemGroup>
 
  

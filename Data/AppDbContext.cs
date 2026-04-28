@@ -1,4 +1,6 @@
-﻿using MES_ME.Server.Models;
+﻿using MES_ME.Server.DTOs.Tracking;
+using MES_ME.Server.Models;
+using MES_ME.Server.Models.Tracking;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,9 +33,82 @@ namespace MES_ME.Server.Data
         public DbSet<AnnealingPlan> AnnealingPlans { get; set; }
         public DbSet<CassettePlanLink> CassettePlanLinks { get; set; }
 
+        public DbSet<ActualTemperatureAVG> ActualTemperatureAVG_HMI {get;set;}
+
+
+        //
+        public DbSet<TermokouplerRefTemp> TermokouplerRefTemp { get; set; }
+        public DbSet<MasterPlcTrackingE1> MasterPlcTrackingE1 { get; set; }
+        public DbSet<MasterPlcTrackingF1> MasterPlcTrackingF1 { get; set; }
+        public DbSet<MasterPlcTrackingF2> MasterPlcTrackingF2 { get; set; }
+        public DbSet<MasterPlcTrackingF3> MasterPlcTrackingF3 { get; set; }
+        public DbSet<MasterPlcTrackingX1> MasterPlcTrackingX1 { get; set; }
+        public DbSet<MasterPlcTrackingX2> MasterPlcTrackingX2 { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
              base.OnModelCreating(modelBuilder);
+
+
+
+              modelBuilder.Entity<ActualTemperatureAVG>(entity =>
+            {
+                entity.ToTable("termokoupler_reftemp_actual_avg", "telegraf");                 
+                entity.HasNoKey();
+            });
+
+            // Настройка для termokoupler_reftemp
+                modelBuilder.Entity<TermokouplerRefTemp>(entity =>
+                {
+                    entity.ToTable("termokoupler_reftemp", "telegraf");
+                    entity.HasNoKey(); // Указывает, что у сущности нет ключа
+                    // Настройка столбцов при необходимости
+                    // entity.Property(e => e.Time).HasColumnName("time");
+                    // ...
+                });
+
+                // Настройка для master_plc_tracking_e1_view
+                modelBuilder.Entity<MasterPlcTrackingE1>(entity =>
+                {
+                    entity.ToTable("master_plc_tracking_e1_view", "telegraf");
+                    entity.HasNoKey();
+                    // Настройка столбцов при необходимости
+                });
+
+                // Настройка для master_plc_tracking_f1_view
+                modelBuilder.Entity<MasterPlcTrackingF1>(entity =>
+                {
+                    entity.ToTable("master_plc_tracking_f1_view", "telegraf");
+                    entity.HasNoKey();
+                });
+
+                // Настройка для master_plc_tracking_f2_view
+                modelBuilder.Entity<MasterPlcTrackingF2>(entity =>
+                {
+                    entity.ToTable("master_plc_tracking_f2_view", "telegraf");
+                    entity.HasNoKey();
+                });
+
+                // Настройка для master_plc_tracking_f3_view
+                modelBuilder.Entity<MasterPlcTrackingF3>(entity =>
+                {
+                    entity.ToTable("master_plc_tracking_f3_view", "telegraf");
+                    entity.HasNoKey();
+                });
+
+                // Настройка для master_plc_tracking_x1_view
+                modelBuilder.Entity<MasterPlcTrackingX1>(entity =>
+                {
+                    entity.ToTable("master_plc_tracking_x1_view", "telegraf");
+                    entity.HasNoKey();
+                });
+
+                // Настройка для master_plc_tracking_x2_view
+                modelBuilder.Entity<MasterPlcTrackingX2>(entity =>
+                {
+                    entity.ToTable("master_plc_tracking_x2_view", "telegraf");
+                    entity.HasNoKey();
+                });
 
 
             modelBuilder.Entity<RoutePermission>(entity =>

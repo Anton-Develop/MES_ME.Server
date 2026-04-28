@@ -100,7 +100,29 @@ export default function QuenchingHMI() {
   const [error, setError]               = useState(null);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [plans, setPlans]               = useState([]);
-
+// --- Новое состояние для реальных температур ---
+    const [realTemps, setRealTemps] = useState([0, 0, 0, 0]); // Инициализируем нулями или значениями по умолчанию
+// --- Новая функция для загрузки реальных температур ---
+    const fetchRealTemps = async () => {
+        try {
+            console.log("Загрузка реальных температур...");
+            const response = await api.get('/quenchinghmi/zonetemperatures');
+            
+            const data = response.data; // Ожидаем { Zone1: val, Zone2: val, Zone3: val, Zone4: val }
+            console.log("Полученные реальные температуры:", data);
+            // Обновляем состояние с температурами по зонам
+            setRealTemps([
+               Math.round( parseFloat(data.zone1)) || 0, // Используем parseFloat и fallback к 0
+               Math.round (parseFloat(data.zone2)) || 0,
+               Math.round( parseFloat(data.zone3)) || 0,
+               Math.round( parseFloat(data.zone4)) || 0
+            ]);
+        } catch (err) {
+            console.error("Ошибка при загрузке реальных температур:", err);
+            // Опционально: setError(err.message); - если хотите показывать ошибку температуры отдельно
+            // Для простоты, оставим старые значения или установим 0, если ошибка
+        }
+    };
    // Функция для загрузки списка планов
   const fetchPlans = async () => {
         try {
@@ -114,7 +136,7 @@ export default function QuenchingHMI() {
             //}
             
             const data = response.data;//await response.json();
-            console.log("Полученные планы:", response.data);
+            //console.log("Полученные планы:", response.data);
             setPlans(data);
             setError(null); // Сбросить ошибку при успешной загрузке
         } catch (err) {
@@ -162,13 +184,14 @@ export default function QuenchingHMI() {
         setSelSheet(null); // сброс выбранного листа при смене плана
     };
 
-     // --- Таймер для обновления часов и симуляции температур ---
+     // --- Таймер для обновления часов и  температур ---
     useEffect(() => {
       const id = setInterval(() => {
         setTime(new Date());
-        setTemps(t => t.map(v => Math.round((v + (Math.random() - 0.5) * 2) * 10) / 10));
+         fetchRealTemps();
+       // setTemps(t => t.map(v => Math.round((v + (Math.random() - 0.5) * 2) * 10) / 10));
         setCoolT(t => Math.round((t + (Math.random() - 0.5) * 0.4) * 10) / 10);
-      }, 1500);
+      }, 10000);
       return () => clearInterval(id);
     }, []);
 
@@ -262,11 +285,11 @@ export default function QuenchingHMI() {
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 2. Zone temps */}
+        {/* 2. Zone temps temps  */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, letterSpacing:1, marginBottom:3}}>ТЕМП. ЗОН</div>
           <div style={{display:'flex', gap:5}}>
-            {temps.map((t,i) => (
+            {realTemps.map((t,i) => (  
               <div key={i} style={{textAlign:'center'}}>
                 <div style={{fontSize:14, color:ZONE_LABEL[i], marginBottom:2}}>З{i+1}</div>
                 <Seg value={t} unit="°C" width={62}/>
@@ -425,7 +448,7 @@ export default function QuenchingHMI() {
                   <text x={zx+zW/2} y={rY-30} textAnchor="middle"
                     fill={ZONE_LABEL[i]} fontSize={9} fontWeight={700}>ЗОНА {i+1} НАГРЕВА</text>
                   <text x={zx+zW/2} y={rY-14} textAnchor="middle"
-                    fill={ZONE_LABEL[i]} fontSize={13} fontWeight={700}>{temps[i]} °C</text>
+                    fill={ZONE_LABEL[i]} fontSize={13} fontWeight={700}>{realTemps[i]} °C</text>
                   {sh
                     ? <SheetRect x={zx+5} y={rY-1} w={zW-10} h={rH-4}
                         label={`${sh.melt} / ${sh.sheet}`} color={ZONE_FILL[i]}/>

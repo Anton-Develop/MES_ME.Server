@@ -145,6 +145,48 @@ namespace MES_ME.Server.Controllers
             return Ok(hmiSheets);
         }
 
+         // GET: api/quenchinghmi/zonetemperatures
+        [HttpGet("zonetemperatures")]
+        public async Task<ActionResult<ZoneTemperatureDto>> GetZoneTemperatures()
+        {
+            try
+                {
 
+                var singleRow = await _context.ActualTemperatureAVG_HMI
+                                      .FirstOrDefaultAsync();;
+                    // Преобразуем результаты в DTO с фиксированными полями для 4-х зон
+                if (singleRow == null)
+                    {
+                        // Обработка случая, если строка не найдена
+                        Console.WriteLine("Данные о температуре не найдены в view.");
+                        // Можно вернуть 200 с нулевыми значениями или 500
+                        return Ok(new ZoneTemperatureDto()); // Возвращает DTO с нулями
+                    }
+
+                var zoneTempDto = new ZoneTemperatureDto
+                {
+                    
+                            Zone1     = singleRow.Zone_1_TE_avg ?? 0.0, // Используем 0.0, если null
+                            Zone2     = singleRow.Zone_2_TE_avg ?? 0.0,
+                            Zone3     = singleRow.Zone_3_TE_avg ?? 0.0,
+                            Zone4     = singleRow.Zone_4_TE_avg ?? 0.0,
+                            Zone1_ref = singleRow.Zone_1_RefTE_avg ?? 0.0,
+                            Zone2_ref = singleRow.Zone_2_RefTE_avg ?? 0.0,
+                            Zone3_ref = singleRow.Zone_3_RefTE_avg ?? 0.0,
+                            Zone4_ref = singleRow.Zone_4_RefTE_avg ?? 0.0,
+                            
+                    
+                };
+                
+                   return Ok(zoneTempDto);
+                }  
+            catch(Exception ex)
+            {
+                 // Логирование ошибки (ILogger)
+                Console.WriteLine($"Ошибка при получении температур из view: {ex.Message}");
+                return StatusCode(500, new { message = "Внутренняя ошибка сервера при получении температур." });
+            }
+
+        }
     }
 }
