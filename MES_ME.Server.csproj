@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Core" Version="1.6.0" />
+    <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="EFCore.BulkExtensions" Version="10.0.1" />
     <PackageReference Include="EPPlus" Version="8.4.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
@@ -26,11 +27,16 @@
     <PackageReference Include="MiniExcel" Version="1.42.0" />
     <PackageReference Include="Npgsql" Version="10.0.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="Polly" Version="8.6.6" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="Attributes\" />
+    <Folder Include="Infrastructure\" />
+    <Folder Include="Middleware\" />
     <Folder Include="Models\Tracking\" />
+    <Folder Include="Repositories\" />
+    <Folder Include="Workers\" />
   </ItemGroup>
 
  

@@ -1,8 +1,11 @@
 
 using MES_ME.Server.Data;
+using MES_ME.Server.Repositories;
+using MES_ME.Server.Workers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using OfficeOpenXml;
 using System.Text;
 
@@ -74,7 +77,13 @@ namespace MES_ME.Server
                               .AllowAnyMethod();
                     });
             });
-
+            builder.Services.AddSingleton<NpgsqlDataSource>(sp =>
+                {
+                    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+                    return NpgsqlDataSource.Create(connectionString);
+                });
+            builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
+            builder.Services.AddHostedService<HeatingSessionWorker>();
             builder.Services.AddControllers();
 
             var app = builder.Build();
