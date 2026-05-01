@@ -5,36 +5,38 @@ using MES_ME.Server.Models;
 using Npgsql;
 using Polly;
 using Polly.Retry;
+using System.Text.Json;
+using NpgsqlTypes;
 
 namespace MES_ME.Server.Repositories;
 
 public interface IFurnaceRepository
 {
-    Task<IEnumerable<ZoneHistoryDto>>       GetZoneHistoryAsync(ZoneHistoryFilter filter, CancellationToken ct = default);
-    Task<IEnumerable<ZoneHistoryDto>>       GetZoneTrackBySheetAsync(int sheet, CancellationToken ct = default);
+    Task<IEnumerable<ZoneHistoryDto>> GetZoneHistoryAsync(ZoneHistoryFilter filter, CancellationToken ct = default);
+    Task<IEnumerable<ZoneHistoryDto>> GetZoneTrackBySheetAsync(int sheet, CancellationToken ct = default);
     Task<IEnumerable<TemperatureBucketDto>> GetTemperatureHistoryAsync(TemperatureFilter filter, CancellationToken ct = default);
-    Task<IEnumerable<FurnaceTemperature>>   GetTemperatureRangeAsync(DateTime from, DateTime to, CancellationToken ct = default);
-    Task<HeatingSession?>                   GetSessionBySheetAsync(int sheet, CancellationToken ct = default);
-    Task<PagedResult<HeatingSession>>       GetSessionsAsync(SessionFilter filter, CancellationToken ct = default);
-    // Используется только Worker'ом
-    Task<IEnumerable<dynamic>>              FindCompletedSheetsAsync(int gracePeriodMinutes, CancellationToken ct = default);
-    Task<dynamic?>                          GetAvgTempsAsync(DateTime from, DateTime to, CancellationToken ct = default);
-    Task                                    UpsertHeatingSessionAsync(object parameters, CancellationToken ct = default);
+    Task<IEnumerable<FurnaceTemperature>> GetTemperatureRangeAsync(DateTime from, DateTime to, CancellationToken ct = default);
+    Task<HeatingSession?> GetSessionBySheetAsync(int sheet, CancellationToken ct = default);
+    Task<PagedResult<HeatingSession>> GetSessionsAsync(SessionFilter filter, CancellationToken ct = default);
+
+    // Worker methods
+    Task<IEnumerable<dynamic>> FindCompletedSheetsAsync(int gracePeriodMinutes, CancellationToken ct = default);
+    Task<IEnumerable<dynamic>> FindMissedSheetsAsync(int daysBack, CancellationToken ct = default);
+    Task<TemperatureArraysDto> GetTemperatureArraysAsync(DateTime from, DateTime to, CancellationToken ct = default);
+
+    Task UpsertHeatingSessionAsync(object parameters, CancellationToken ct = default);
 }
 
 public sealed class FurnaceRepository : IFurnaceRepository
 {
-    private readonly NpgsqlDataSource   _ds;
+    private readonly NpgsqlDataSource _ds;
     private readonly ILogger<FurnaceRepository> _log;
-    private readonly AsyncRetryPolicy   _retry;
+    private readonly AsyncRetryPolicy _retry;
 
     public FurnaceRepository(NpgsqlDataSource ds, ILogger<FurnaceRepository> log)
     {
-        _ds  = ds;
+        _ds = ds;
         _log = log;
-
-        // Retry: 3 попытки с экспоненциальной задержкой
-        // Только на transient-ошибки PostgreSQL (connection, timeout)
         _retry = Policy
             .Handle<NpgsqlException>(ex => ex.IsTransient)
             .Or<TimeoutException>()
@@ -42,17 +44,13 @@ public sealed class FurnaceRepository : IFurnaceRepository
                 retryCount: 3,
                 sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
                 onRetry: (ex, delay, attempt, _) =>
-                    _log.LogWarning(ex,
-                        "DB retry {Attempt}/3 after {Delay:N1}s: {Message}",
-                        attempt, delay.TotalSeconds, ex.Message));
+                    _log.LogWarning(ex, "DB retry {Attempt}/3 after {Delay:N1}s", attempt, delay.TotalSeconds));
     }
 
     private async Task<NpgsqlConnection> OpenAsync(CancellationToken ct)
         => await _ds.OpenConnectionAsync(ct);
 
-    // -----------------------------------------------------------------------
-    public async Task<IEnumerable<ZoneHistoryDto>> GetZoneHistoryAsync(
-        ZoneHistoryFilter filter, CancellationToken ct = default)
+    public async Task<IEnumerable<ZoneHistoryDto>> GetZoneHistoryAsync(ZoneHistoryFilter filter, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
@@ -68,9 +66,7 @@ public sealed class FurnaceRepository : IFurnaceRepository
         });
     }
 
-    // -----------------------------------------------------------------------
-    public async Task<IEnumerable<ZoneHistoryDto>> GetZoneTrackBySheetAsync(
-        int sheet, CancellationToken ct = default)
+    public async Task<IEnumerable<ZoneHistoryDto>> GetZoneTrackBySheetAsync(int sheet, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
@@ -79,9 +75,7 @@ public sealed class FurnaceRepository : IFurnaceRepository
         });
     }
 
-    // -----------------------------------------------------------------------
-    public async Task<IEnumerable<TemperatureBucketDto>> GetTemperatureHistoryAsync(
-        TemperatureFilter filter, CancellationToken ct = default)
+    public async Task<IEnumerable<TemperatureBucketDto>> GetTemperatureHistoryAsync(TemperatureFilter filter, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
@@ -95,38 +89,29 @@ public sealed class FurnaceRepository : IFurnaceRepository
         });
     }
 
-    // -----------------------------------------------------------------------
-    public async Task<IEnumerable<FurnaceTemperature>> GetTemperatureRangeAsync(
-        DateTime from, DateTime to, CancellationToken ct = default)
+    public async Task<IEnumerable<FurnaceTemperature>> GetTemperatureRangeAsync(DateTime from, DateTime to, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            return await con.QueryAsync<FurnaceTemperature>(
-                Sql.TemperatureByRange, new { From = from, To = to });
+            return await con.QueryAsync<FurnaceTemperature>(Sql.TemperatureByRange, new { From = from, To = to });
         });
     }
 
-    // -----------------------------------------------------------------------
-    public async Task<HeatingSession?> GetSessionBySheetAsync(
-        int sheet, CancellationToken ct = default)
+    public async Task<HeatingSession?> GetSessionBySheetAsync(int sheet, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            return await con.QuerySingleOrDefaultAsync<HeatingSession>(
-                Sql.SessionBySheet, new { Sheet = sheet });
+            return await con.QuerySingleOrDefaultAsync<HeatingSession>(Sql.SessionBySheet, new { Sheet = sheet });
         });
     }
 
-    // -----------------------------------------------------------------------
-    public async Task<PagedResult<HeatingSession>> GetSessionsAsync(
-        SessionFilter filter, CancellationToken ct = default)
+    public async Task<PagedResult<HeatingSession>> GetSessionsAsync(SessionFilter filter, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-
             var p = new
             {
                 filter.From,
@@ -135,53 +120,166 @@ public sealed class FurnaceRepository : IFurnaceRepository
                 filter.Melt,
                 filter.AlloyCode,
                 PageSize = filter.PageSize,
-                Offset   = (filter.Page - 1) * filter.PageSize
+                Offset = (filter.Page - 1) * filter.PageSize
             };
-
             var total = await con.ExecuteScalarAsync<int>(Sql.SessionCount, p);
             var items = await con.QueryAsync<HeatingSession>(Sql.SessionList, p);
-
             return new PagedResult<HeatingSession>
             {
-                Items    = items,
-                Total    = total,
-                Page     = filter.Page,
+                Items = items,
+                Total = total,
+                Page = filter.Page,
                 PageSize = filter.PageSize
             };
         });
     }
 
-    // -----------------------------------------------------------------------
-    // Worker methods
-    // -----------------------------------------------------------------------
-    public async Task<IEnumerable<dynamic>> FindCompletedSheetsAsync(
-        int gracePeriodMinutes, CancellationToken ct = default)
+    public async Task<IEnumerable<dynamic>> FindCompletedSheetsAsync(int gracePeriodMinutes, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            return await con.QueryAsync(Sql.FindCompletedSheets,
-                new { GracePeriodMinutes = gracePeriodMinutes });
+            return await con.QueryAsync(Sql.FindCompletedSheets, new { GracePeriodMinutes = gracePeriodMinutes });
         });
     }
 
-    public async Task<dynamic?> GetAvgTempsAsync(
-        DateTime from, DateTime to, CancellationToken ct = default)
+    public async Task<IEnumerable<dynamic>> FindMissedSheetsAsync(
+    int daysBack, CancellationToken ct = default)
+    {
+        const string sql = """
+        SELECT 
+            sheet,
+            MAX(slab)          AS slab,
+            MAX(melt)          AS melt,
+            MAX(part_no)       AS part_no,
+            MAX(alloy_code)    AS alloy_code,
+            MAX(alloy_code_text) AS alloy_code_text,
+            MAX(thickness)     AS thickness,
+            MIN(CASE WHEN zone = 'F1' THEN time END) AS entered_at,
+            MAX(CASE WHEN zone = 'F4' THEN time END) AS exited_at,
+            EXTRACT(EPOCH FROM (
+                MAX(CASE WHEN zone='F1' THEN time END) - 
+                MIN(CASE WHEN zone='F1' THEN time END)
+            )) / 60 AS f1_min,
+            EXTRACT(EPOCH FROM (
+                MAX(CASE WHEN zone='F2' THEN time END) - 
+                MIN(CASE WHEN zone='F2' THEN time END)
+            )) / 60 AS f2_min,
+            EXTRACT(EPOCH FROM (
+                MAX(CASE WHEN zone='F3' THEN time END) - 
+                MIN(CASE WHEN zone='F3' THEN time END)
+            )) / 60 AS f3_min,
+            EXTRACT(EPOCH FROM (
+                MAX(CASE WHEN zone='F4' THEN time END) - 
+                MIN(CASE WHEN zone='F4' THEN time END)
+            )) / 60 AS f4_min,
+            CONCAT_WS('->',
+                MAX(CASE WHEN zone='F1' THEN zone END),
+                MAX(CASE WHEN zone='F2' THEN zone END),
+                MAX(CASE WHEN zone='F3' THEN zone END),
+                MAX(CASE WHEN zone='F4' THEN zone END)
+            ) AS zones_path,
+            BOOL_OR(alarm_exist) AS had_alarm
+        FROM plc.furnace_zone_data
+        WHERE zone IN ('F1','F2','F3','F4')
+          AND zone_occup = TRUE
+          AND sheet > 0
+          AND time > NOW() - (@DaysBack || ' days')::INTERVAL
+        GROUP BY sheet
+        HAVING 
+            MAX(CASE WHEN zone='F4' THEN time END) < NOW() - INTERVAL '5 minutes'
+            AND MAX(CASE WHEN zone='F4' THEN time END) IS NOT NULL
+            AND sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
+        ORDER BY MIN(time)
+        """;
+
+        return await _retry.ExecuteAsync(async () =>
+        {
+            await using var con = await OpenAsync(ct);
+            return await con.QueryAsync(sql, new { DaysBack = daysBack });
+        });
+    }
+    
+
+
+    public async Task<TemperatureArraysDto> GetTemperatureArraysAsync(
+    DateTime from, DateTime to, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            return await con.QuerySingleOrDefaultAsync(
-                Sql.AvgTempsForSession, new { From = from, To = to });
+
+            // Явно UTC — иначе Npgsql отклонит для timestamptz
+            var fromUtc = DateTime.SpecifyKind(from, DateTimeKind.Utc);
+            var toUtc = DateTime.SpecifyKind(to, DateTimeKind.Utc);
+
+            using var cmd = new NpgsqlCommand(Sql.GetTemperaturesArray, con);
+            cmd.Parameters.AddWithValue("@From", NpgsqlTypes.NpgsqlDbType.TimestampTz, fromUtc);
+            cmd.Parameters.AddWithValue("@To", NpgsqlTypes.NpgsqlDbType.TimestampTz, toUtc);
+
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            var result = new TemperatureArraysDto();
+
+            if (!await reader.ReadAsync(ct)) return result; // нет строк вообще
+
+            // Безопасное чтение jsonb — null если колонка DBNull
+            static List<float?> ReadFloats(NpgsqlDataReader r, int col)
+            {
+                if (r.IsDBNull(col)) return [];
+                var json = r.GetString(col);   // GetString безопаснее GetValue для jsonb
+                return JsonSerializer.Deserialize<List<float?>>(json) ?? [];
+            }
+
+            static List<DateTime> ReadTimes(NpgsqlDataReader r, int col)
+            {
+                if (r.IsDBNull(col)) return [];
+                var json = r.GetString(col);
+                // PostgreSQL отдаёт timestamptz в ISO формате
+                return JsonSerializer.Deserialize<List<DateTime>>(json)
+                    ?.Select(d => DateTime.SpecifyKind(d, DateTimeKind.Utc))
+                    .ToList() ?? [];
+            }
+
+            result.Z1_1 = ReadFloats(reader, 0);
+            result.Z1_2 = ReadFloats(reader, 1);
+            result.Z1_3 = ReadFloats(reader, 2);
+            result.Z1_4 = ReadFloats(reader, 3);
+            result.Z2_1 = ReadFloats(reader, 4);
+            result.Z2_2 = ReadFloats(reader, 5);
+            result.Z2_3 = ReadFloats(reader, 6);
+            result.Z2_4 = ReadFloats(reader, 7);
+            result.Z3_1 = ReadFloats(reader, 8);
+            result.Z3_2 = ReadFloats(reader, 9);
+            result.Z3_3 = ReadFloats(reader, 10);
+            result.Z3_4 = ReadFloats(reader, 11);
+            result.Z4_1 = ReadFloats(reader, 12);
+            result.Z4_2 = ReadFloats(reader, 13);
+            result.Z4_3 = ReadFloats(reader, 14);
+            result.Z4_4 = ReadFloats(reader, 15);
+            result.Times = ReadTimes(reader, 16);
+
+            return result;
         });
     }
+
+
 
     public async Task UpsertHeatingSessionAsync(object parameters, CancellationToken ct = default)
     {
         await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            await con.ExecuteAsync(Sql.UpsertHeatingSession, parameters);
+
+            // JSONB INSERT может быть тяжёлым — даём 120 секунд
+            var cmd = new CommandDefinition(
+                Sql.UpsertHeatingSession,
+                parameters,
+                commandTimeout: 120,
+                cancellationToken: ct);
+
+            await con.ExecuteAsync(cmd);
         });
+
     }
 }

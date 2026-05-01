@@ -20,7 +20,7 @@ namespace MES_ME.Server
             var builder = WebApplication.CreateBuilder(args);
 
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
-           
+            AppContext.SetSwitch("Npgsql.DisableDateTimeInfinityConversions", true);
 
             // Add services to the container.
             builder.Services.AddDbContext<AppDbContext>(options =>

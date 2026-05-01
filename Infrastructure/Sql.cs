@@ -36,15 +36,10 @@ internal static class Sql
     // furnace_temperatures
     // -----------------------------------------------------------------------
 
-    /// <summary>
-    /// Даунсемплинг: усредняем по бакетам @IntervalMin минут.
-    /// </summary>
     public const string TemperatureHistory = """
         SELECT
-            date_trunc('minute', time)
-              + ( EXTRACT(MINUTE FROM time)::INT
-                  / @IntervalMinutes  * @IntervalMinutes 
-                ) * INTERVAL '1 minute'             AS time,
+            date_trunc('minute', time) +
+            (floor(EXTRACT(MINUTE FROM time) / @IntervalMinutes) * @IntervalMinutes) * INTERVAL '1 minute' AS time,
             AVG(z1_1_te) AS z1_1_te, AVG(z1_1_ref) AS z1_1_ref,
             AVG(z1_2_te) AS z1_2_te,
             AVG(z1_3_te) AS z1_3_te,
@@ -80,12 +75,92 @@ internal static class Sql
         """;
 
     // -----------------------------------------------------------------------
+    // Массивы температур для сессии
+    // -----------------------------------------------------------------------
+
+    public const string GetTemperaturesArray = """
+        SELECT 
+            JSONB_AGG(z1_1_te ORDER BY time) AS z1_1,
+            JSONB_AGG(z1_2_te ORDER BY time) AS z1_2,
+            JSONB_AGG(z1_3_te ORDER BY time) AS z1_3,
+            JSONB_AGG(z1_4_te ORDER BY time) AS z1_4,
+            JSONB_AGG(z2_1_te ORDER BY time) AS z2_1,
+            JSONB_AGG(z2_2_te ORDER BY time) AS z2_2,
+            JSONB_AGG(z2_3_te ORDER BY time) AS z2_3,
+            JSONB_AGG(z2_4_te ORDER BY time) AS z2_4,
+            JSONB_AGG(z3_1_te ORDER BY time) AS z3_1,
+            JSONB_AGG(z3_2_te ORDER BY time) AS z3_2,
+            JSONB_AGG(z3_3_te ORDER BY time) AS z3_3,
+            JSONB_AGG(z3_4_te ORDER BY time) AS z3_4,
+            JSONB_AGG(z4_1_te ORDER BY time) AS z4_1,
+            JSONB_AGG(z4_2_te ORDER BY time) AS z4_2,
+            JSONB_AGG(z4_3_te ORDER BY time) AS z4_3,
+            JSONB_AGG(z4_4_te ORDER BY time) AS z4_4,
+            JSONB_AGG(time ORDER BY time) AS temps_time
+        FROM plc.furnace_temperatures
+        WHERE time BETWEEN @From AND @To
+        """;
+
+    // -----------------------------------------------------------------------
     // heating_sessions
     // -----------------------------------------------------------------------
 
+    public const string FindCompletedSheets = """
+        SELECT 
+            sheet,
+            MAX(slab) AS slab,
+            MAX(melt) AS melt,
+            MAX(part_no) AS part_no,
+            MAX(alloy_code) AS alloy_code,
+            MAX(alloy_code_text) AS alloy_code_text,
+            MAX(thickness) AS thickness,
+            MIN(CASE WHEN zone = 'F1' THEN time END) AS entered_at,
+            MAX(CASE WHEN zone = 'F4' THEN time END) AS exited_at,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone = 'F1' THEN time END) - 
+                               MIN(CASE WHEN zone = 'F1' THEN time END))) / 60 AS f1_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone = 'F2' THEN time END) - 
+                               MIN(CASE WHEN zone = 'F2' THEN time END))) / 60 AS f2_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone = 'F3' THEN time END) - 
+                               MIN(CASE WHEN zone = 'F3' THEN time END))) / 60 AS f3_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone = 'F4' THEN time END) - 
+                               MIN(CASE WHEN zone = 'F4' THEN time END))) / 60 AS f4_min,
+            CONCAT_WS('->',
+                MAX(CASE WHEN zone = 'F1' THEN zone END),
+                MAX(CASE WHEN zone = 'F2' THEN zone END),
+                MAX(CASE WHEN zone = 'F3' THEN zone END),
+                MAX(CASE WHEN zone = 'F4' THEN zone END)
+            ) AS zones_path,
+            BOOL_OR(alarm_exist) AS had_alarm
+        FROM plc.furnace_zone_data
+        WHERE zone IN ('F1', 'F2', 'F3', 'F4')
+          AND zone_occup = TRUE
+          AND sheet > 0
+        GROUP BY sheet
+        HAVING MAX(CASE WHEN zone = 'F4' THEN time END) < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
+           AND sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
+        """;
+
+    public const string FindMissedSheets = """
+        WITH completed_sheets AS (
+            SELECT 
+                sheet,
+                MAX(CASE WHEN zone = 'F4' THEN time END) AS last_seen
+            FROM plc.furnace_zone_data
+            WHERE zone IN ('F1', 'F2', 'F3', 'F4')
+              AND sheet > 0
+            GROUP BY sheet
+            HAVING MAX(CASE WHEN zone = 'F4' THEN time END) < NOW() - INTERVAL '5 minutes'
+        )
+        SELECT fzd.*
+        FROM plc.furnace_zone_data fzd
+        INNER JOIN completed_sheets cs ON fzd.sheet = cs.sheet
+        WHERE fzd.sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
+          AND fzd.time > NOW() - (@DaysBack || ' days')::INTERVAL
+        """;
+
     public const string SessionCount = """
         SELECT COUNT(*)
-        FROM heating_sessions
+        FROM plc.heating_sessions
         WHERE (@From      IS NULL OR entered_at >= @From)
           AND (@To        IS NULL OR entered_at <= @To)
           AND (@Slab      IS NULL OR slab       = @Slab)
@@ -98,8 +173,6 @@ internal static class Sql
             id, sheet, slab, melt, part_no, alloy_code, alloy_code_text,
             thickness, zones_path, entered_at, exited_at, total_min,
             f1_min, f2_min, f3_min, f4_min,
-            avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
-            avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
             had_alarm, created_at
         FROM plc.heating_sessions
         WHERE (@From      IS NULL OR entered_at >= @From)
@@ -116,88 +189,9 @@ internal static class Sql
             id, sheet, slab, melt, part_no, alloy_code, alloy_code_text,
             thickness, zones_path, entered_at, exited_at, total_min,
             f1_min, f2_min, f3_min, f4_min,
-            avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
-            avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
             had_alarm, created_at
         FROM plc.heating_sessions
         WHERE sheet = @Sheet
-        """;
-
-    // -----------------------------------------------------------------------
-    // Worker — поиск завершённых листов для записи в heating_sessions
-    // -----------------------------------------------------------------------
-
-    /*public const string FindCompletedSheets = """
-        WITH zone_passages AS (
-            SELECT
-                sheet, slab, melt, part_no, alloy_code, alloy_code_text,
-                thickness, zone,
-                MIN(time)            AS entry_time,
-                MAX(time)            AS exit_time,
-                MAX(proc_time_min)   AS zone_proc_min,
-                BOOL_OR(alarm_exist) AS zone_had_alarm
-            FROM plc.furnace_zone_data
-            WHERE zone     IN ('F1','F2','F3','F4')
-              AND zone_occup = TRUE
-              AND sheet      > 0
-            GROUP BY sheet, slab, melt, part_no, alloy_code, alloy_code_text, thickness, zone
-        )
-        SELECT
-            sheet, slab, melt, part_no, alloy_code, alloy_code_text, thickness,
-            MIN(entry_time)    AS entered_at,
-            MAX(exit_time)     AS exited_at,
-            MAX(CASE WHEN zone = 'F1' THEN zone_proc_min END) AS f1_min,
-            MAX(CASE WHEN zone = 'F2' THEN zone_proc_min END) AS f2_min,
-            MAX(CASE WHEN zone = 'F3' THEN zone_proc_min END) AS f3_min,
-            MAX(CASE WHEN zone = 'F4' THEN zone_proc_min END) AS f4_min,
-            STRING_AGG(zone, '->' ORDER BY MIN(entry_time))    AS zones_path,
-            BOOL_OR(zone_had_alarm)                            AS had_alarm
-        FROM zone_passages
-        GROUP BY sheet, slab, melt, part_no, alloy_code, alloy_code_text, thickness
-        HAVING MAX(exit_time) < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
-           AND sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
-        """;
-*/
-public const string FindCompletedSheets = """
-    SELECT 
-        sheet,
-        MAX(slab) AS slab,
-        MAX(melt) AS melt,
-        MAX(part_no) AS part_no,
-        MAX(alloy_code) AS alloy_code,
-        MAX(alloy_code_text) AS alloy_code_text,
-        MAX(thickness) AS thickness,
-        MAX(CASE WHEN zone = 'F1' THEN proc_time_min END) AS f1_min,
-        MAX(CASE WHEN zone = 'F2' THEN proc_time_min END) AS f2_min,
-        MAX(CASE WHEN zone = 'F3' THEN proc_time_min END) AS f3_min,
-        MAX(CASE WHEN zone = 'F4' THEN proc_time_min END) AS f4_min,
-        CONCAT_WS('->',
-            MAX(CASE WHEN zone = 'F1' THEN zone END),
-            MAX(CASE WHEN zone = 'F2' THEN zone END),
-            MAX(CASE WHEN zone = 'F3' THEN zone END),
-            MAX(CASE WHEN zone = 'F4' THEN zone END)
-        ) AS zones_path,
-        BOOL_OR(alarm_exist) AS had_alarm,
-        MIN(time) AS entered_at,
-        MAX(time) AS exited_at
-    FROM plc.furnace_zone_data
-    WHERE zone IN ('F1', 'F2', 'F3', 'F4')
-      AND zone_occup = TRUE
-      AND sheet > 0
-    GROUP BY sheet
-    HAVING MAX(CASE WHEN zone = 'F4' THEN time END) < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
-       AND sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
-    """;
-    public const string AvgTempsForSession = """
-        SELECT
-            AVG(z1_1_te) AS avg_z1_1, AVG(z1_2_te) AS avg_z1_2,
-            AVG(z2_1_te) AS avg_z2_1, AVG(z2_2_te) AS avg_z2_2,
-            AVG(z3_1_te) AS avg_z3_1, AVG(z3_2_te) AS avg_z3_2,
-            AVG(z3_3_te) AS avg_z3_3, AVG(z3_4_te) AS avg_z3_4,
-            AVG(z4_1_te) AS avg_z4_1, AVG(z4_2_te) AS avg_z4_2,
-            AVG(z4_3_te) AS avg_z4_3, AVG(z4_4_te) AS avg_z4_4
-        FROM plc.furnace_temperatures
-        WHERE time BETWEEN @From AND @To
         """;
 
     public const string UpsertHeatingSession = """
@@ -205,31 +199,22 @@ public const string FindCompletedSheets = """
             sheet, slab, melt, part_no, alloy_code, alloy_code_text,
             thickness, zones_path, entered_at, exited_at, total_min,
             f1_min, f2_min, f3_min, f4_min,
-            avg_z1_1, avg_z1_2, avg_z2_1, avg_z2_2,
-            avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
-            avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
-            had_alarm
+            temps_z1, temps_z2, temps_z3, temps_z4, temps_time, had_alarm
         ) VALUES (
             @Sheet, @Slab, @Melt, @PartNo, @AlloyCode, @AlloyCodeText,
             @Thickness, @ZonesPath, @EnteredAt, @ExitedAt, @TotalMin,
             @F1Min, @F2Min, @F3Min, @F4Min,
-            @AvgZ1_1, @AvgZ1_2, @AvgZ2_1, @AvgZ2_2,
-            @AvgZ3_1, @AvgZ3_2, @AvgZ3_3, @AvgZ3_4,
-            @AvgZ4_1, @AvgZ4_2, @AvgZ4_3, @AvgZ4_4,
-            @HadAlarm
+            @TempsZ1::jsonb, @TempsZ2::jsonb, @TempsZ3::jsonb, @TempsZ4::jsonb, @TempsTime::jsonb, @HadAlarm
         )
         ON CONFLICT (sheet) DO UPDATE SET
             exited_at      = EXCLUDED.exited_at,
             total_min      = EXCLUDED.total_min,
             zones_path     = EXCLUDED.zones_path,
             had_alarm      = EXCLUDED.had_alarm,
-            avg_z3_1       = EXCLUDED.avg_z3_1,
-            avg_z3_2       = EXCLUDED.avg_z3_2,
-            avg_z3_3       = EXCLUDED.avg_z3_3,
-            avg_z3_4       = EXCLUDED.avg_z3_4,
-            avg_z4_1       = EXCLUDED.avg_z4_1,
-            avg_z4_2       = EXCLUDED.avg_z4_2,
-            avg_z4_3       = EXCLUDED.avg_z4_3,
-            avg_z4_4       = EXCLUDED.avg_z4_4
+            temps_z1       = EXCLUDED.temps_z1,
+            temps_z2       = EXCLUDED.temps_z2,
+            temps_z3       = EXCLUDED.temps_z3,
+            temps_z4       = EXCLUDED.temps_z4,
+            temps_time     = EXCLUDED.temps_time
         """;
 }

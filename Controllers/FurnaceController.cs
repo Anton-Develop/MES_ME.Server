@@ -22,7 +22,12 @@ public sealed class FurnaceController : ControllerBase
         _log  = log;
         _cfg  = cfg;
     }
-
+    private static DateTime ToUtc(DateTime dt) => dt.Kind switch
+    {
+        DateTimeKind.Utc => dt,
+        DateTimeKind.Local => dt.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+    };
     // -----------------------------------------------------------------------
     // ЗОНЫ — история и текущее состояние
     // -----------------------------------------------------------------------
@@ -54,9 +59,9 @@ public sealed class FurnaceController : ControllerBase
 
         var filter = new ZoneHistoryFilter
         {
-            From  = from,
-            To    = to,
-            Zone  = zone?.ToUpperInvariant(),
+            From = ToUtc(from),   // ← добавить ToUtc
+            To = ToUtc(to),
+            Zone = zone?.ToUpperInvariant(),
             Sheet = sheet,
             Limit = Math.Min(limit ?? defLimit, maxLimit)
         };
@@ -122,8 +127,8 @@ public sealed class FurnaceController : ControllerBase
 
         var filter = new TemperatureFilter
         {
-            From            = from,
-            To              = to,
+            From = ToUtc(from),
+            To = ToUtc(to),
             IntervalMinutes = Math.Max(1, intervalMin)
         };
 
@@ -156,13 +161,14 @@ public sealed class FurnaceController : ControllerBase
         // Параллельно подгружаем детальный трек зон и температуры за период нагрева
         var trackTask = _repo.GetZoneTrackBySheetAsync(sheet, ct);
         var tempsTask = session.EnteredAt.HasValue && session.ExitedAt.HasValue
-            ? _repo.GetTemperatureHistoryAsync(new TemperatureFilter
-              {
-                  From            = session.EnteredAt.Value,
-                  To              = session.ExitedAt.Value,
-                  IntervalMinutes = 1
-              }, ct)
-            : Task.FromResult(Enumerable.Empty<TemperatureBucketDto>());
+    ? _repo.GetTemperatureHistoryAsync(new TemperatureFilter
+    {
+        From = ToUtc(session.EnteredAt.Value),
+        To = ToUtc(session.ExitedAt.Value),
+        IntervalMinutes = 1
+    }, ct)
+    : Task.FromResult(Enumerable.Empty<TemperatureBucketDto>());
+
 
         await Task.WhenAll(trackTask, tempsTask);
 
@@ -227,14 +233,15 @@ public sealed class FurnaceController : ControllerBase
 
         var filter = new SessionFilter
         {
-            From      = from,
-            To        = to,
-            Slab      = slab,
-            Melt      = melt,
+            From = from.HasValue ? ToUtc(from.Value) : null,
+            To = to.HasValue ? ToUtc(to.Value) : null,
+            Slab = slab,
+            Melt = melt,
             AlloyCode = alloyCode,
-            Page      = page,
-            PageSize  = pageSize
+            Page = page,
+            PageSize = pageSize
         };
+
 
         var result = await _repo.GetSessionsAsync(filter, ct);
         return Ok(result);
