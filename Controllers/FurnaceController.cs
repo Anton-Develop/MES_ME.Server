@@ -261,4 +261,6 @@ public sealed class FurnaceController : ControllerBase
             ? NotFound(new ApiError { Code = "NOT_FOUND", Message = $"Лист {sheet} не найден" })
             : Ok(session);
     }
+
+    
 }

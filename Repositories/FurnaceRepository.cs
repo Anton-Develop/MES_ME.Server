@@ -154,6 +154,7 @@ public sealed class FurnaceRepository : IFurnaceRepository
             MAX(part_no)       AS part_no,
             MAX(alloy_code)    AS alloy_code,
             MAX(alloy_code_text) AS alloy_code_text,
+            MAX(pack) AS pack,
             MAX(thickness)     AS thickness,
             MIN(CASE WHEN zone = 'F1' THEN time END) AS entered_at,
             MAX(CASE WHEN zone = 'F4' THEN time END) AS exited_at,

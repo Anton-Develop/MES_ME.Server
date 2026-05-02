@@ -156,11 +156,20 @@ public sealed class HeatingSessionWorker : BackgroundService
             return;
         }
 
-        var tempsFrom = enteredAt.AddMinutes(-5);
-        var tempsTo = exitedAt.AddMinutes(5);
+        var tempsFrom = enteredAt;
+        var tempsTo = exitedAt;
 
         var tempsRaw = await repo.GetTemperatureArraysAsync(tempsFrom, tempsTo, ct);
         var temps = DownsampleTemps(tempsRaw, 300);
+
+
+        // Хелпер среднего — игнорирует null
+        static float? Avg(List<float?> list)
+        {
+            if (list == null || list.Count == 0) return null;
+            var vals = list.Where(v => v.HasValue).Select(v => v!.Value).ToList();
+            return vals.Count > 0 ? vals.Average() : null;
+        }
 
         var parameters = new
         {
@@ -168,6 +177,8 @@ public sealed class HeatingSessionWorker : BackgroundService
             Slab = ConvertToNullableInt(c.slab),
             Melt = ConvertToNullableInt(c.melt),
             PartNo = ConvertToNullableInt(c.part_no),
+            Pack = ConvertToNullableInt(c.pack),
+            ReheatNum = ConvertToInt(c.reheat_num),
             AlloyCode = ConvertToNullableInt(c.alloy_code),
             AlloyCodeText = ConvertToString(c.alloy_code_text),
             Thickness = ConvertToNullableFloat(c.thickness),
@@ -180,6 +191,21 @@ public sealed class HeatingSessionWorker : BackgroundService
             F3Min = ConvertToNullableFloat(c.f3_min),
             F4Min = ConvertToNullableFloat(c.f4_min),
             HadAlarm = ConvertToBool(c.had_alarm),
+            // Средние — из полных данных
+            AvgZ1_1 = Avg(tempsRaw.Z1_1),
+            AvgZ1_2 = Avg(tempsRaw.Z1_2),
+            AvgZ2_1 = Avg(tempsRaw.Z2_1),
+            AvgZ2_2 = Avg(tempsRaw.Z2_2),
+            AvgZ3_1 = Avg(tempsRaw.Z3_1),
+            AvgZ3_2 = Avg(tempsRaw.Z3_2),
+            AvgZ3_3 = Avg(tempsRaw.Z3_3),
+            AvgZ3_4 = Avg(tempsRaw.Z3_4),
+            AvgZ4_1 = Avg(tempsRaw.Z4_1),
+            AvgZ4_2 = Avg(tempsRaw.Z4_2),
+            AvgZ4_3 = Avg(tempsRaw.Z4_3),
+            AvgZ4_4 = Avg(tempsRaw.Z4_4),
+
+            // Массивы — даунсемплированные для графика
             TempsZ1 = JsonSerializer.Serialize(new
             {
                 z1_1 = temps.Z1_1,
