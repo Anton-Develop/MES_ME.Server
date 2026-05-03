@@ -106,125 +106,134 @@ internal static class Sql
     // -----------------------------------------------------------------------
 
     public const string FindCompletedSheets = """
-    WITH
-    -- Входы в F1 (начало новой сессии)
-    f1_entries AS (
-        SELECT sheet, melt, part_no, pack, MIN(time) AS entry_time
-        FROM plc.furnace_zone_data
-        WHERE zone = 'F1' AND zone_occup = TRUE AND sheet > 0
-        GROUP BY sheet, melt, part_no, pack,
-                 -- Группируем непрерывные пребывания: новая группа если пауза > 1 мин
-                 (SELECT COUNT(*) FROM plc.furnace_zone_data prev
-                  WHERE prev.sheet   = furnace_zone_data.sheet
-                    AND prev.melt    = furnace_zone_data.melt
-                    AND prev.zone    = 'F1'
-                    AND prev.zone_occup = TRUE
-                    AND prev.time < furnace_zone_data.time
-                    AND prev.time > furnace_zone_data.time - INTERVAL '1 minute')
-    ),
-    -- Нумеруем сессии по времени входа в F1
-    sessions AS (
-        SELECT *,
-            ROW_NUMBER() OVER (
-                PARTITION BY sheet, melt, part_no, pack
-                ORDER BY entry_time
-            ) - 1 AS reheat_num   -- 0 = первый нагрев
-        FROM f1_entries
-    ),
-    -- Для каждой сессии берём данные до следующего входа
-    session_bounds AS (
-        SELECT
-            s.*,
-            COALESCE(
-                LEAD(s.entry_time) OVER (
-                    PARTITION BY s.sheet, s.melt, s.part_no, s.pack
-                    ORDER BY s.entry_time
-                ),
-                'infinity'::timestamptz
-            ) AS next_entry_time
-        FROM sessions s
-    ),
-    -- Агрегируем данные зон в рамках каждой сессии
-    agg AS (
-        SELECT
-            sb.sheet, sb.reheat_num,
-            MAX(fzd.melt)            AS melt,
-            MAX(fzd.slab)            AS slab,
-            MAX(fzd.part_no)         AS part_no,
-            MAX(fzd.pack)            AS pack,
-            MAX(fzd.alloy_code)      AS alloy_code,
-            MAX(fzd.alloy_code_text) AS alloy_code_text,
-            MAX(fzd.thickness)       AS thickness,
-            MIN(fzd.time)            AS entered_at,
-            MAX(fzd.time)            AS exited_at,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN fzd.zone='F1' THEN fzd.time END) -
-                MIN(CASE WHEN fzd.zone='F1' THEN fzd.time END)
-            )) / 60 AS f1_min,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN fzd.zone='F2' THEN fzd.time END) -
-                MIN(CASE WHEN fzd.zone='F2' THEN fzd.time END)
-            )) / 60 AS f2_min,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN fzd.zone='F3' THEN fzd.time END) -
-                MIN(CASE WHEN fzd.zone='F3' THEN fzd.time END)
-            )) / 60 AS f3_min,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN fzd.zone='F4' THEN fzd.time END) -
-                MIN(CASE WHEN fzd.zone='F4' THEN fzd.time END)
-            )) / 60 AS f4_min,
-            CONCAT_WS('->',
-                MAX(CASE WHEN fzd.zone='F1' THEN fzd.zone END),
-                MAX(CASE WHEN fzd.zone='F2' THEN fzd.zone END),
-                MAX(CASE WHEN fzd.zone='F3' THEN fzd.zone END),
-                MAX(CASE WHEN fzd.zone='F4' THEN fzd.zone END)
-            ) AS zones_path,
-            BOOL_OR(fzd.alarm_exist) AS had_alarm
-        FROM session_bounds sb
-        JOIN plc.furnace_zone_data fzd
-          ON fzd.sheet   = sb.sheet
-         AND fzd.melt    = sb.melt
-         AND fzd.part_no = sb.part_no
-         AND fzd.pack    = sb.pack
-         AND fzd.zone IN ('F1','F2','F3','F4')
-         AND fzd.zone_occup = TRUE
-         AND fzd.time >= sb.entry_time
-         AND fzd.time <  sb.next_entry_time  -- строго до следующей сессии
-        GROUP BY sb.sheet, sb.melt, sb.part_no, sb.pack, sb.reheat_num
-    )
-    SELECT agg.*
-    FROM agg
-    LEFT JOIN plc.heating_sessions hs
-           ON hs.sheet      = agg.sheet
-          AND hs.melt       = agg.melt
-          AND hs.part_no    = agg.part_no
-          AND hs.pack       = agg.pack
-          AND hs.reheat_num = agg.reheat_num
-    WHERE hs.id IS NULL
-      AND agg.exited_at IS NOT NULL
-      AND agg.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
-    ORDER BY agg.entered_at
-    """;
-
+WITH
+presence AS (
+    SELECT
+        sheet, melt, part_no, pack, zone,
+        time, alarm_exist,
+        time - LAG(time) OVER (
+            PARTITION BY sheet, melt, part_no, pack, zone
+            ORDER BY time
+        ) AS gap
+    FROM plc.furnace_zone_data
+    WHERE zone IN ('F1','F2','F3','F4')
+      AND zone_occup = TRUE
+      AND sheet > 0
+      AND part_no > 0
+      AND pack > 0
+),
+with_flag AS (
+    SELECT *,
+        CASE WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1 ELSE 0 END AS is_new_session
+    FROM presence
+),
+with_session AS (
+    SELECT *,
+        SUM(is_new_session) OVER (
+            PARTITION BY sheet, melt, part_no, pack, zone
+            ORDER BY time
+            ROWS UNBOUNDED PRECEDING
+        ) - 1 AS reheat_num
+    FROM with_flag
+),
+agg AS (
+    SELECT
+        ws.sheet,           -- ← явно указываем ws.
+        ws.melt,            -- ← явно указываем ws.
+        ws.part_no,         -- ← явно указываем ws.
+        ws.pack,            -- ← явно указываем ws.
+        MIN(ws.reheat_num) AS reheat_num,
+        MIN(ws.time) AS entered_at,
+        MAX(ws.time) AS exited_at,
+        EXTRACT(EPOCH FROM (MAX(ws.time) - MIN(ws.time)))/60 AS total_minutes,
+        EXTRACT(EPOCH FROM (MAX(CASE WHEN ws.zone = 'F1' THEN ws.time END) - 
+                            MIN(CASE WHEN ws.zone = 'F1' THEN ws.time END)))/60 AS f1_min,
+        EXTRACT(EPOCH FROM (MAX(CASE WHEN ws.zone = 'F2' THEN ws.time END) - 
+                            MIN(CASE WHEN ws.zone = 'F2' THEN ws.time END)))/60 AS f2_min,
+        EXTRACT(EPOCH FROM (MAX(CASE WHEN ws.zone = 'F3' THEN ws.time END) - 
+                            MIN(CASE WHEN ws.zone = 'F3' THEN ws.time END)))/60 AS f3_min,
+        EXTRACT(EPOCH FROM (MAX(CASE WHEN ws.zone = 'F4' THEN ws.time END) - 
+                            MIN(CASE WHEN ws.zone = 'F4' THEN ws.time END)))/60 AS f4_min,
+        BOOL_OR(ws.alarm_exist) AS had_alarm,
+        MAX(fzd.slab) AS slab,
+        MAX(fzd.alloy_code) AS alloy_code,
+        MAX(fzd.alloy_code_text) AS alloy_code_text,
+        MAX(fzd.thickness) AS thickness
+    FROM with_session ws
+    JOIN plc.furnace_zone_data fzd
+        ON fzd.sheet = ws.sheet
+        AND fzd.melt = ws.melt
+        AND fzd.part_no = ws.part_no
+        AND fzd.pack = ws.pack
+        AND fzd.time = ws.time
+        AND fzd.zone = ws.zone
+    GROUP BY ws.sheet, ws.melt, ws.part_no, ws.pack
+),
+zones_paths AS (
+    SELECT 
+        sheet, melt, part_no, pack,
+        STRING_AGG(zone, '->' ORDER BY first_time) AS zones_path
+    FROM (
+        SELECT 
+            sheet, melt, part_no, pack, zone,
+            MIN(time) AS first_time
+        FROM with_session
+        GROUP BY sheet, melt, part_no, pack, zone
+    ) zone_order
+    GROUP BY sheet, melt, part_no, pack
+)
+SELECT 
+    agg.*,
+    zp.zones_path
+FROM agg
+LEFT JOIN zones_paths zp
+    ON zp.sheet = agg.sheet
+    AND zp.melt = agg.melt
+    AND zp.part_no = agg.part_no
+    AND zp.pack = agg.pack
+LEFT JOIN plc.heating_sessions hs
+    ON hs.sheet = agg.sheet
+    AND hs.melt = agg.melt
+    AND hs.part_no = agg.part_no
+    AND hs.pack = agg.pack
+    AND hs.reheat_num = agg.reheat_num
+WHERE hs.id IS NULL
+    AND agg.exited_at IS NOT NULL
+    AND agg.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
+    AND agg.total_minutes <= 35
+ORDER BY agg.entered_at
+""";
 
 
     public const string FindMissedSheets = """
-        WITH completed_sheets AS (
-            SELECT 
-                sheet,
-                MAX(CASE WHEN zone = 'F4' THEN time END) AS last_seen
-            FROM plc.furnace_zone_data
-            WHERE zone IN ('F1', 'F2', 'F3', 'F4')
-              AND sheet > 0
-            GROUP BY sheet
-            HAVING MAX(CASE WHEN zone = 'F4' THEN time END) < NOW() - INTERVAL '5 minutes'
-        )
-        SELECT fzd.*
-        FROM plc.furnace_zone_data fzd
-        INNER JOIN completed_sheets cs ON fzd.sheet = cs.sheet
-        WHERE fzd.sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
-          AND fzd.time > NOW() - (@DaysBack || ' days')::INTERVAL
-        """;
+    WITH candidate_keys AS (
+        SELECT 
+            sheet, melt, part_no, pack,
+            MAX(CASE WHEN zone = 'F4' THEN time END) AS last_seen_f4
+        FROM plc.furnace_zone_data
+        WHERE zone IN ('F1','F2','F3','F4')
+          AND zone_occup = TRUE
+          AND sheet > 0
+          AND part_no > 0
+          AND pack > 0
+        GROUP BY sheet, melt, part_no, pack
+        HAVING MAX(CASE WHEN zone = 'F4' THEN time END) < NOW() - INTERVAL '5 minutes'
+    )
+    SELECT fzd.*
+    FROM plc.furnace_zone_data fzd
+    WHERE EXISTS (
+        SELECT 1 FROM candidate_keys ck
+        WHERE ck.sheet   = fzd.sheet
+          AND ck.melt    = fzd.melt
+          AND ck.part_no = fzd.part_no
+          AND ck.pack    = fzd.pack
+    )
+    AND fzd.time > NOW() - (@DaysBack || ' days')::INTERVAL
+    AND (fzd.sheet, fzd.melt, fzd.part_no, fzd.pack) NOT IN (
+        SELECT sheet, melt, part_no, pack FROM plc.heating_sessions
+    )
+    """;
+
 
     public const string SessionCount = """
         SELECT COUNT(*)
@@ -238,13 +247,38 @@ internal static class Sql
 
     public const string SessionList = """
     SELECT
-        id, sheet, slab, melt, part_no, alloy_code, alloy_code_text,
-        thickness, zones_path, entered_at, exited_at, total_min,
-        f1_min, f2_min, f3_min, f4_min,
-        avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
-        avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
-        had_alarm, created_at
+        id AS Id,
+        sheet AS Sheet,
+        business_key AS BusinessKey,
+        slab AS Slab,
+        melt AS Melt,
+        part_no AS PartNo,
+        pack AS Pack,
+        reheat_num AS ReheatNum,
+        alloy_code AS AlloyCode,
+        alloy_code_text AS AlloyCodeText,
+        thickness AS Thickness,
+        zones_path AS ZonesPath,
+        entered_at AS EnteredAt,
+        exited_at AS ExitedAt,
+        total_min AS TotalMin,
+        f1_min AS F1Min,
+        f2_min AS F2Min,
+        f3_min AS F3Min,
+        f4_min AS F4Min,
+        avg_z3_1 AS AvgZ3_1,
+        avg_z3_2 AS AvgZ3_2,
+        avg_z3_3 AS AvgZ3_3,
+        avg_z3_4 AS AvgZ3_4,
+        avg_z4_1 AS AvgZ4_1,
+        avg_z4_2 AS AvgZ4_2,
+        avg_z4_3 AS AvgZ4_3,
+        avg_z4_4 AS AvgZ4_4,
+        had_alarm AS HadAlarm,
+        created_at AS CreatedAt
+      
     FROM plc.heating_sessions
+    
     WHERE (@From      IS NULL OR entered_at >= @From)
       AND (@To        IS NULL OR entered_at <= @To)
       AND (@Slab      IS NULL OR slab       = @Slab)
@@ -271,10 +305,41 @@ internal static class Sql
     """;
 
     public const string SessionByKey = """
-    SELECT *
+    SELECT
+        id AS Id,
+        sheet AS Sheet,
+        slab AS Slab,
+        melt AS Melt,
+        part_no AS PartNo,
+        pack AS Pack,
+        reheat_num AS ReheatNum,
+        business_key AS BusinessKey,
+        alloy_code AS AlloyCode,
+        alloy_code_text AS AlloyCodeText,
+        thickness AS Thickness,
+        zones_path AS ZonesPath,
+        entered_at AS EnteredAt,
+        exited_at AS ExitedAt,
+        total_min AS TotalMin,
+        f1_min AS F1Min,
+        f2_min AS F2Min,
+        f3_min AS F3Min,
+        f4_min AS F4Min,
+        avg_z3_1 AS AvgZ3_1,
+        avg_z3_2 AS AvgZ3_2,
+        avg_z3_3 AS AvgZ3_3,
+        avg_z3_4 AS AvgZ3_4,
+        avg_z4_1 AS AvgZ4_1,
+        avg_z4_2 AS AvgZ4_2,
+        avg_z4_3 AS AvgZ4_3,
+        avg_z4_4 AS AvgZ4_4,
+        had_alarm AS HadAlarm,
+        created_at AS CreatedAt
+       
     FROM plc.heating_sessions
     WHERE business_key = @Key
     """;
+
 
 
     public const string SessionBySheet = """

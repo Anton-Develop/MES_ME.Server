@@ -19,111 +19,89 @@ public sealed class FurnaceController : ControllerBase
         IConfiguration cfg)
     {
         _repo = repo;
-        _log  = log;
-        _cfg  = cfg;
+        _log = log;
+        _cfg = cfg;
     }
+
     private static DateTime ToUtc(DateTime dt) => dt.Kind switch
     {
         DateTimeKind.Utc => dt,
         DateTimeKind.Local => dt.ToUniversalTime(),
         _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc)
     };
+
     // -----------------------------------------------------------------------
-    // ЗОНЫ — история и текущее состояние
+    // ЗОНЫ
     // -----------------------------------------------------------------------
 
-    /// <summary>
-    /// История слежения зон за период.
-    /// GET /api/furnace/zones/history?from=...&amp;to=...&amp;zone=F1&amp;sheet=42&amp;limit=500
-    /// </summary>
+    // GET /api/furnace/zones/history?from=...&to=...&zone=F1&sheet=42&limit=500
     [HttpGet("zones/history")]
-    [ProducesResponseType(typeof(IEnumerable<ZoneHistoryDto>), 200)]
-    [ProducesResponseType(typeof(ApiError), 400)]
     public async Task<IActionResult> GetZoneHistory(
-        [FromQuery] DateTime  from,
-        [FromQuery] DateTime  to,
-        [FromQuery] string?   zone  = null,
-        [FromQuery] int?      sheet = null,
-        [FromQuery] int?      limit = null,
-        CancellationToken     ct    = default)
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        [FromQuery] string? zone = null,
+        [FromQuery] int? sheet = null,
+        [FromQuery] int? limit = null,
+        CancellationToken ct = default)
     {
         if (from >= to)
-            return BadRequest(new ApiError
-            {
-                Code    = "INVALID_RANGE",
-                Message = "from должен быть меньше to"
-            });
-
-        var maxLimit = _cfg.GetValue("Api:MaxPageSize", 5000);
-        var defLimit = _cfg.GetValue("Api:DefaultPageSize", 500);
+            return BadRequest(new ApiError { Code = "INVALID_RANGE", Message = "from должен быть меньше to" });
 
         var filter = new ZoneHistoryFilter
         {
-            From = ToUtc(from),   // ← добавить ToUtc
+            From = ToUtc(from),
             To = ToUtc(to),
             Zone = zone?.ToUpperInvariant(),
             Sheet = sheet,
-            Limit = Math.Min(limit ?? defLimit, maxLimit)
+            Limit = Math.Min(limit ?? _cfg.GetValue("Api:DefaultPageSize", 500),
+                                     _cfg.GetValue("Api:MaxPageSize", 5000))
         };
 
-        var data = await _repo.GetZoneHistoryAsync(filter, ct);
-        return Ok(data);
+        return Ok(await _repo.GetZoneHistoryAsync(filter, ct));
     }
 
-    /// <summary>
-    /// Трек конкретного листа по всем зонам печи (для отчёта).
-    /// GET /api/furnace/zones/track/42
-    /// </summary>
+    // GET /api/furnace/zones/track/{sheet}?melt=888888&partNo=8&pack=7
+    // Трек конкретного листа — нужны все 4 поля для точного поиска
     [HttpGet("zones/track/{sheet:int}")]
-    [ProducesResponseType(typeof(IEnumerable<ZoneHistoryDto>), 200)]
-    [ProducesResponseType(typeof(ApiError), 404)]
-    public async Task<IActionResult> GetZoneTrack(int sheet, CancellationToken ct = default)
+    public async Task<IActionResult> GetZoneTrack(
+        int sheet,
+        [FromQuery] int? melt = null,
+        [FromQuery] int? partNo = null,
+        [FromQuery] int? pack = null,
+        CancellationToken ct = default)
     {
         var data = await _repo.GetZoneTrackBySheetAsync(sheet, ct);
         var list = data.ToList();
 
+        // Если переданы уточняющие параметры — фильтруем в памяти
+        // (данных за 30 мин немного, дополнительный запрос не нужен)
+        if (melt.HasValue) list = list.Where(r => r.Melt == melt).ToList();
+        if (partNo.HasValue) list = list.Where(r => r.PartNo == partNo).ToList();
+        if (pack.HasValue) list = list.Where(r => r.Pack == pack).ToList();
+
         if (list.Count == 0)
-            return NotFound(new ApiError
-            {
-                Code    = "NOT_FOUND",
-                Message = $"Нет данных для листа {sheet}"
-            });
+            return NotFound(new ApiError { Code = "NOT_FOUND", Message = $"Нет данных для листа {sheet}" });
 
         return Ok(list);
     }
 
     // -----------------------------------------------------------------------
-    // ТЕМПЕРАТУРЫ — история горения печи
+    // ТЕМПЕРАТУРЫ
     // -----------------------------------------------------------------------
 
-    /// <summary>
-    /// История температур с даунсемплингом (для графика горения).
-    /// GET /api/furnace/temperatures?from=...&amp;to=...&amp;intervalMin=5
-    /// </summary>
+    // GET /api/furnace/temperatures?from=...&to=...&intervalMin=5
     [HttpGet("temperatures")]
-    [ProducesResponseType(typeof(IEnumerable<TemperatureBucketDto>), 200)]
-    [ProducesResponseType(typeof(ApiError), 400)]
     public async Task<IActionResult> GetTemperatures(
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
-        [FromQuery] int      intervalMin = 1,
-        CancellationToken    ct          = default)
+        [FromQuery] int intervalMin = 1,
+        CancellationToken ct = default)
     {
         if (from >= to)
-            return BadRequest(new ApiError
-            {
-                Code    = "INVALID_RANGE",
-                Message = "from должен быть меньше to"
-            });
+            return BadRequest(new ApiError { Code = "INVALID_RANGE", Message = "from должен быть меньше to" });
 
-        // Защита: не даём запросить сырые данные за слишком большой период
-        // При intervalMin=1 и периоде > 24ч переключаем на 5 мин автоматически
-        var spanHours = (to - from).TotalHours;
-        if (spanHours > 24 && intervalMin < 5)
-        {
+        if ((to - from).TotalHours > 24 && intervalMin < 5)
             intervalMin = 5;
-            _log.LogDebug("Auto-adjusted intervalMin to 5 for {Hours:N1}h range", spanHours);
-        }
 
         var filter = new TemperatureFilter
         {
@@ -132,104 +110,27 @@ public sealed class FurnaceController : ControllerBase
             IntervalMinutes = Math.Max(1, intervalMin)
         };
 
-        var data = await _repo.GetTemperatureHistoryAsync(filter, ct);
-        return Ok(data);
+        return Ok(await _repo.GetTemperatureHistoryAsync(filter, ct));
     }
 
     // -----------------------------------------------------------------------
-    // ОТЧЁТ ПО НАГРЕВУ ЛИСТА
+    // СЕССИИ НАГРЕВА
     // -----------------------------------------------------------------------
 
-    /// <summary>
-    /// Полный отчёт по нагреву конкретного листа.
-    /// GET /api/furnace/report/sheet/42
-    /// </summary>
-    [HttpGet("report/sheet/{sheet:int}")]
-    [ProducesResponseType(typeof(HeatingReportDto), 200)]
-    [ProducesResponseType(typeof(ApiError), 404)]
-    public async Task<IActionResult> GetSheetReport(int sheet, CancellationToken ct = default)
-    {
-        // Берём агрегат из heating_sessions (быстро — один запрос по индексу)
-        var session = await _repo.GetSessionBySheetAsync(sheet, ct);
-        if (session is null)
-            return NotFound(new ApiError
-            {
-                Code    = "NOT_FOUND",
-                Message = $"Отчёт для листа {sheet} ещё не готов или лист не найден"
-            });
-
-        // Параллельно подгружаем детальный трек зон и температуры за период нагрева
-        var trackTask = _repo.GetZoneTrackBySheetAsync(sheet, ct);
-        var tempsTask = session.EnteredAt.HasValue && session.ExitedAt.HasValue
-    ? _repo.GetTemperatureHistoryAsync(new TemperatureFilter
-    {
-        From = ToUtc(session.EnteredAt.Value),
-        To = ToUtc(session.ExitedAt.Value),
-        IntervalMinutes = 1
-    }, ct)
-    : Task.FromResult(Enumerable.Empty<TemperatureBucketDto>());
-
-
-        await Task.WhenAll(trackTask, tempsTask);
-
-        var report = new HeatingReportDto
-        {
-            Sheet          = session.Sheet,
-            Slab           = session.Slab,
-            Melt           = session.Melt,
-            PartNo         = session.PartNo,
-            AlloyCode      = session.AlloyCode,
-            AlloyCodeText  = session.AlloyCodeText,
-            Thickness      = session.Thickness,
-            ZonesPath      = session.ZonesPath,
-            EnteredAt      = session.EnteredAt,
-            ExitedAt       = session.ExitedAt,
-            TotalMin       = session.TotalMin,
-            F1Min          = session.F1Min,
-            F2Min          = session.F2Min,
-            F3Min          = session.F3Min,
-            F4Min          = session.F4Min,
-            AvgZ3_1        = session.AvgZ3_1,
-            AvgZ3_2        = session.AvgZ3_2,
-            AvgZ3_3        = session.AvgZ3_3,
-            AvgZ3_4        = session.AvgZ3_4,
-            AvgZ4_1        = session.AvgZ4_1,
-            AvgZ4_2        = session.AvgZ4_2,
-            AvgZ4_3        = session.AvgZ4_3,
-            AvgZ4_4        = session.AvgZ4_4,
-            HadAlarm       = session.HadAlarm,
-            ZoneTrack      = (await trackTask).ToList(),
-            Temperatures   = (await tempsTask).ToList()
-        };
-
-        return Ok(report);
-    }
-
-    // -----------------------------------------------------------------------
-    // СПИСОК СЕССИЙ НАГРЕВА (история по плавкам/слябам)
-    // -----------------------------------------------------------------------
-
-    /// <summary>
-    /// Постраничный список сессий нагрева с фильтрами.
-    /// GET /api/furnace/sessions?from=...&amp;to=...&amp;slab=5&amp;page=1&amp;pageSize=50
-    /// </summary>
+    // GET /api/furnace/sessions?from=...&to=...&melt=888888&page=1&pageSize=50
     [HttpGet("sessions")]
-    [ProducesResponseType(typeof(PagedResult<HeatingSession>), 200)]
-    [ProducesResponseType(typeof(ApiError), 400)]
     public async Task<IActionResult> GetSessions(
-        [FromQuery] DateTime? from      = null,
-        [FromQuery] DateTime? to        = null,
-        [FromQuery] int?      slab      = null,
-        [FromQuery] int?      melt      = null,
-        [FromQuery] int?      alloyCode = null,
-        [FromQuery] int       page      = 1,
-        [FromQuery] int       pageSize  = 50,
-        CancellationToken     ct        = default)
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] int? slab = null,
+        [FromQuery] int? melt = null,
+        [FromQuery] int? alloyCode = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken ct = default)
     {
         if (page < 1)
             return BadRequest(new ApiError { Code = "INVALID_PAGE", Message = "page >= 1" });
-
-        pageSize = Math.Clamp(pageSize, 1, 200);
 
         var filter = new SessionFilter
         {
@@ -239,28 +140,143 @@ public sealed class FurnaceController : ControllerBase
             Melt = melt,
             AlloyCode = alloyCode,
             Page = page,
-            PageSize = pageSize
+            PageSize = Math.Clamp(pageSize, 1, 200)
         };
 
-
-        var result = await _repo.GetSessionsAsync(filter, ct);
-        return Ok(result);
+        return Ok(await _repo.GetSessionsAsync(filter, ct));
     }
 
-    /// <summary>
-    /// Одна сессия по номеру листа.
-    /// GET /api/furnace/sessions/sheet/42
-    /// </summary>
+    // GET /api/furnace/sessions/sheet/42
+    // Все сессии листа (все плавки, все повторы)
     [HttpGet("sessions/sheet/{sheet:int}")]
-    [ProducesResponseType(typeof(HeatingSession), 200)]
-    [ProducesResponseType(typeof(ApiError), 404)]
-    public async Task<IActionResult> GetSessionBySheet(int sheet, CancellationToken ct = default)
+    public async Task<IActionResult> GetSessionsBySheet(int sheet, CancellationToken ct = default)
     {
-        var session = await _repo.GetSessionBySheetAsync(sheet, ct);
-        return session is null
+        var sessions = await _repo.GetSessionBySheetAsync(sheet, ct);
+        return sessions is null
             ? NotFound(new ApiError { Code = "NOT_FOUND", Message = $"Лист {sheet} не найден" })
+            : Ok(sessions);
+    }
+
+    // GET /api/furnace/sessions/key/888888-8-7-77-0
+    // Конкретная сессия по business_key
+    [HttpGet("sessions/key/{key}")]
+    public async Task<IActionResult> GetSessionByKey(string key, CancellationToken ct = default)
+    {
+        var session = await _repo.GetSessionByKeyAsync(key, ct);
+        return session is null
+            ? NotFound(new ApiError { Code = "NOT_FOUND", Message = $"Сессия {key} не найдена" })
             : Ok(session);
     }
 
-    
-}
+    // -----------------------------------------------------------------------
+    // ОТЧЁТ ПО НАГРЕВУ
+    // -----------------------------------------------------------------------
+
+    // GET /api/furnace/report/key/888888-8-7-77-0
+    // Полный отчёт по конкретной сессии (business_key)
+    [HttpGet("report/key/{key}")]
+    public async Task<IActionResult> GetReportByKey(string key, CancellationToken ct = default)
+    {
+        var session = await _repo.GetSessionByKeyAsync(key, ct);
+        if (session is null)
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Сессия {key} не найдена или ещё не обработана воркером"
+            });
+
+        return Ok(await BuildReport(session, ct));
+    }
+
+    // GET /api/furnace/report/sheet/42?melt=888888&partNo=8&pack=7&reheatNum=0
+    // Отчёт по листу с уточнением (если несколько плавок/повторов)
+    [HttpGet("report/sheet/{sheet:int}")]
+    public async Task<IActionResult> GetReportBySheet(
+        int sheet,
+        [FromQuery] int? melt = null,
+        [FromQuery] int? partNo = null,
+        [FromQuery] int? pack = null,
+        [FromQuery] int reheatNum = 0,
+        CancellationToken ct = default)
+    {
+        HeatingSession? session;
+
+        // Если переданы все параметры — ищем по business_key точно
+        if (melt.HasValue && partNo.HasValue && pack.HasValue)
+        {
+            var key = $"{melt}-{partNo}-{pack}-{sheet}-{reheatNum}";
+            session = await _repo.GetSessionByKeyAsync(key, ct);
+        }
+        else
+        {
+            // Иначе берём первую запись по номеру листа
+            session = await _repo.GetSessionBySheetAsync(sheet, ct);
+        }
+
+        if (session is null)
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Отчёт для листа {sheet} не найден"
+            });
+
+        return Ok(await BuildReport(session, ct));
+    }
+
+    // -----------------------------------------------------------------------
+    // Приватный метод сборки отчёта
+    // -----------------------------------------------------------------------
+    private async Task<HeatingReportDto> BuildReport(HeatingSession session, CancellationToken ct)
+    {
+        var trackTask = _repo.GetZoneTrackBySheetAsync(session.Sheet, ct);
+
+        var tempsTask = session.EnteredAt.HasValue && session.ExitedAt.HasValue
+            ? _repo.GetTemperatureHistoryAsync(new TemperatureFilter
+            {
+                From = ToUtc(session.EnteredAt.Value),
+                To = ToUtc(session.ExitedAt.Value),
+                IntervalMinutes = 1
+            }, ct)
+            : Task.FromResult(Enumerable.Empty<TemperatureBucketDto>());
+
+        await Task.WhenAll(trackTask, tempsTask);
+
+        // Фильтруем трек только по нужной плавке/пачке
+        var track = (await trackTask)
+            .Where(r => r.Melt == session.Melt
+                     && r.PartNo == session.PartNo
+                     && r.Pack == session.Pack)
+            .ToList();
+
+        return new HeatingReportDto
+        {
+            Sheet = session.Sheet,
+            Slab = session.Slab,
+            Melt = session.Melt,
+            PartNo = session.PartNo,
+            AlloyCode = session.AlloyCode,
+            AlloyCodeText = session.AlloyCodeText,
+            Thickness = session.Thickness,
+            ZonesPath = session.ZonesPath,
+            EnteredAt = session.EnteredAt,
+            ExitedAt = session.ExitedAt,
+            TotalMin = session.TotalMin,
+            F1Min = session.F1Min,
+            F2Min = session.F2Min,
+            F3Min = session.F3Min,
+            F4Min = session.F4Min,
+            AvgZ3_1 = session.AvgZ3_1,
+            AvgZ3_2 = session.AvgZ3_2,
+            AvgZ3_3 = session.AvgZ3_3,
+            AvgZ3_4 = session.AvgZ3_4,
+            AvgZ4_1 = session.AvgZ4_1,
+            AvgZ4_2 = session.AvgZ4_2,
+            AvgZ4_3 = session.AvgZ4_3,
+            AvgZ4_4 = session.AvgZ4_4,
+            HadAlarm = session.HadAlarm,
+            ZoneTrack = track,
+            Temperatures = (await tempsTask).ToList()
+        };
+    }
+}    
+

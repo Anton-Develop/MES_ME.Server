@@ -11,6 +11,8 @@ public sealed record ZoneHistoryDto
     public int?     Sheet         { get; init; }
     public int?     Slab          { get; init; }
     public int?     Melt          { get; init; }
+    public int?     Pack          { get; init; }
+    public int?     PartNo        { get; init; }
     public short?   State         { get; init; }
     public bool?    ZoneOccup     { get; init; }
     public float?   PlatePos      { get; init; }

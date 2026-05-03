@@ -25,6 +25,7 @@ const devActions = [
   { text: 'Пользователи',          icon: <PeopleIcon />,        route: '/users' },
   { text: 'Роли',                  icon: <PeopleIcon />,        route: '/roles' },
   { text: 'Права доступа',         icon: <SecurityIcon />,      route: '/permissions' },
+  { text: 'Отчёты печи',           icon: <AssignmentIcon />,    route: '/furnace/sessions' }
 ];
 
 const DeveloperDashboard = () => {

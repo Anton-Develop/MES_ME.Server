@@ -27,7 +27,11 @@ import AnnealingBatchPlanPage from './pages/AnnealingBatchPlanPage';
 import SheetStatusUpdater from './pages/SheetStatusUpdater';
 import AnnealingReportPage from './pages/AnnealingReportPage';
 import AnnealingPlanPage from './pages/AnnealingPlanPage';
-import HMI from './pages/QuenchingHMI'
+import HMI from './pages/QuenchingHMI';
+
+import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
+import FurnaceReport from './components/Furnace/FurnaceReport';
+
 
 const Unauthorized = () => (
     <div style={{ padding: 32, textAlign: 'center' }}>
@@ -197,14 +201,10 @@ const App = () => (
                             />
 
                             {/* Изменение статусов листов */}
-                            <Route
-                                path="sheet-status-updater"
-                                element={
-                                    <ProtectedRoute>
-                                        <SheetStatusUpdater />
-                                    </ProtectedRoute>
-                                }
-                            />
+                            <Route path="sheet-status-updater" element={<ProtectedRoute><SheetStatusUpdater /></ProtectedRoute>}/>
+
+                            <Route path="furnace/sessions" element={<ProtectedRoute><FurnaceSessionsList /></ProtectedRoute>} />
+                            <Route path="furnace/report" element={<ProtectedRoute requireRouteAccess={false}><FurnaceReport /></ProtectedRoute>} />
 
                             {/* Фолбэк — любой неизвестный путь */}
                             <Route path="*" element={<Navigate to="/unauthorized" replace />} />

@@ -3,10 +3,12 @@ using MES_ME.Server.DTOs;
 using MES_ME.Server.Infrastructure;
 using MES_ME.Server.Models;
 using Npgsql;
+using NpgsqlTypes;
 using Polly;
 using Polly.Retry;
+using System.Data;
 using System.Text.Json;
-using NpgsqlTypes;
+
 
 namespace MES_ME.Server.Repositories;
 
@@ -23,6 +25,8 @@ public interface IFurnaceRepository
     Task<IEnumerable<dynamic>> FindCompletedSheetsAsync(int gracePeriodMinutes, CancellationToken ct = default);
     Task<IEnumerable<dynamic>> FindMissedSheetsAsync(int daysBack, CancellationToken ct = default);
     Task<TemperatureArraysDto> GetTemperatureArraysAsync(DateTime from, DateTime to, CancellationToken ct = default);
+
+    Task<HeatingSession?> GetSessionByKeyAsync(string key, CancellationToken ct = default);
 
     Task UpsertHeatingSessionAsync(object parameters, CancellationToken ct = default);
 }
@@ -63,6 +67,15 @@ public sealed class FurnaceRepository : IFurnaceRepository
                 filter.Sheet,
                 filter.Limit
             });
+        });
+    }
+    public async Task<HeatingSession?> GetSessionByKeyAsync(string key, CancellationToken ct = default)
+    {
+        return await _retry.ExecuteAsync(async () =>
+        {
+            await using var con = await OpenAsync(ct);
+            return await con.QuerySingleOrDefaultAsync<HeatingSession>(
+                Sql.SessionByKey, new { Key = key });
         });
     }
 
@@ -112,18 +125,22 @@ public sealed class FurnaceRepository : IFurnaceRepository
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            var p = new
-            {
-                filter.From,
-                filter.To,
-                filter.Slab,
-                filter.Melt,
-                filter.AlloyCode,
-                PageSize = filter.PageSize,
-                Offset = (filter.Page - 1) * filter.PageSize
-            };
-            var total = await con.ExecuteScalarAsync<int>(Sql.SessionCount, p);
-            var items = await con.QueryAsync<HeatingSession>(Sql.SessionList, p);
+
+            var p = new DynamicParameters();
+            p.Add("@From", filter.From, DbType.DateTime);
+            p.Add("@To", filter.To, DbType.DateTime);
+            p.Add("@Slab", filter.Slab, DbType.Int32);
+            p.Add("@Melt", filter.Melt, DbType.Int32);
+            p.Add("@AlloyCode", filter.AlloyCode, DbType.Int32);
+            p.Add("@PageSize", filter.PageSize, DbType.Int32);
+            p.Add("@Offset", (filter.Page - 1) * filter.PageSize, DbType.Int32);
+
+            var totalCmd = new CommandDefinition(Sql.SessionCount, p, commandTimeout: 60, cancellationToken: ct);
+            var total = await con.ExecuteScalarAsync<int>(totalCmd);
+
+            var listCmd = new CommandDefinition(Sql.SessionList, p, commandTimeout: 60, cancellationToken: ct);
+            var items = await con.QueryAsync<HeatingSession>(listCmd);
+
             return new PagedResult<HeatingSession>
             {
                 Items = items,
@@ -143,37 +160,24 @@ public sealed class FurnaceRepository : IFurnaceRepository
         });
     }
 
-    public async Task<IEnumerable<dynamic>> FindMissedSheetsAsync(
-    int daysBack, CancellationToken ct = default)
+    public async Task<IEnumerable<dynamic>> FindMissedSheetsAsync(int daysBack, CancellationToken ct = default)
     {
         const string sql = """
         SELECT 
             sheet,
-            MAX(slab)          AS slab,
-            MAX(melt)          AS melt,
-            MAX(part_no)       AS part_no,
-            MAX(alloy_code)    AS alloy_code,
+            melt,
+            part_no,
+            pack,
+            MAX(slab) AS slab,
+            MAX(alloy_code) AS alloy_code,
             MAX(alloy_code_text) AS alloy_code_text,
-            MAX(pack) AS pack,
-            MAX(thickness)     AS thickness,
+            MAX(thickness) AS thickness,
             MIN(CASE WHEN zone = 'F1' THEN time END) AS entered_at,
             MAX(CASE WHEN zone = 'F4' THEN time END) AS exited_at,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN zone='F1' THEN time END) - 
-                MIN(CASE WHEN zone='F1' THEN time END)
-            )) / 60 AS f1_min,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN zone='F2' THEN time END) - 
-                MIN(CASE WHEN zone='F2' THEN time END)
-            )) / 60 AS f2_min,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN zone='F3' THEN time END) - 
-                MIN(CASE WHEN zone='F3' THEN time END)
-            )) / 60 AS f3_min,
-            EXTRACT(EPOCH FROM (
-                MAX(CASE WHEN zone='F4' THEN time END) - 
-                MIN(CASE WHEN zone='F4' THEN time END)
-            )) / 60 AS f4_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F1' THEN time END) - MIN(CASE WHEN zone='F1' THEN time END))) / 60 AS f1_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F2' THEN time END) - MIN(CASE WHEN zone='F2' THEN time END))) / 60 AS f2_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F3' THEN time END) - MIN(CASE WHEN zone='F3' THEN time END))) / 60 AS f3_min,
+            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F4' THEN time END) - MIN(CASE WHEN zone='F4' THEN time END))) / 60 AS f4_min,
             CONCAT_WS('->',
                 MAX(CASE WHEN zone='F1' THEN zone END),
                 MAX(CASE WHEN zone='F2' THEN zone END),
@@ -185,14 +189,18 @@ public sealed class FurnaceRepository : IFurnaceRepository
         WHERE zone IN ('F1','F2','F3','F4')
           AND zone_occup = TRUE
           AND sheet > 0
-          AND time > NOW() - (@DaysBack || ' days')::INTERVAL
-        GROUP BY sheet
+          AND part_no > 0
+          AND pack > 0
+          AND time > NOW() - MAKE_INTERVAL(days => @DaysBack)
+        GROUP BY sheet, melt, part_no, pack
         HAVING 
             MAX(CASE WHEN zone='F4' THEN time END) < NOW() - INTERVAL '5 minutes'
             AND MAX(CASE WHEN zone='F4' THEN time END) IS NOT NULL
-            AND sheet NOT IN (SELECT sheet FROM plc.heating_sessions)
+            AND (sheet, melt, part_no, pack) NOT IN (
+                SELECT sheet, melt, part_no, pack FROM plc.heating_sessions
+            )
         ORDER BY MIN(time)
-        """;
+    """;
 
         return await _retry.ExecuteAsync(async () =>
         {
@@ -200,7 +208,6 @@ public sealed class FurnaceRepository : IFurnaceRepository
             return await con.QueryAsync(sql, new { DaysBack = daysBack });
         });
     }
-    
 
 
     public async Task<TemperatureArraysDto> GetTemperatureArraysAsync(

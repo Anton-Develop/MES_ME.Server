@@ -65,4 +65,24 @@ button:focus-visible {
   button {
     background-color: #f9f9f9;
   }
+  @media print {
+  .MuiAppBar-root, .MuiDrawer-root, button, .no-print {
+    display: none !important;
+  }
+  .MuiPaper-root {
+    box-shadow: none !important;
+    border: 1px solid #ccc;
+    margin: 0;
+    padding: 10px;
+  }
+  body {
+    background: white;
+    margin: 0;
+    padding: 0;
+  }
+  #root {
+    padding: 0;
+    max-width: 100%;
+  }
+}
 }
