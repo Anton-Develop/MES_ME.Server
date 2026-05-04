@@ -37,7 +37,8 @@ const safeJson = (val) => {
 // ---------------------------------------------------------------------------
 const ZoneChart = ({ title, tempsObj, timestamps, series: seriesDef, height = 280 }) => {
   const options = useMemo(() => {
-    if (!tempsObj || !timestamps?.length) return null;
+    // ✅ Добавлена проверка на undefined
+    if (!tempsObj || !timestamps?.length || !seriesDef) return null;
 
     const series = seriesDef
       .filter(s => tempsObj[s.key]?.length)
@@ -49,6 +50,7 @@ const ZoneChart = ({ title, tempsObj, timestamps, series: seriesDef, height = 28
         marker:    { enabled: false },
         tooltip:   { valueSuffix: ' °C', valueDecimals: 1 },
       }));
+
 
     if (!series.length) return null;
 
@@ -135,6 +137,47 @@ const SERIES = {
 };
 
 // ---------------------------------------------------------------------------
+// Функция преобразования данных температур из API в формат для графиков
+// ---------------------------------------------------------------------------
+const transformTemperatures = (temperatureData) => {
+  if (!temperatureData || !Array.isArray(temperatureData) || temperatureData.length === 0) {
+    return { tempsZ1: null, tempsZ2: null, tempsZ3: null, tempsZ4: null, timestamps: [] };
+  }
+
+  const tempsZ1 = { z1_1: [], z1_2: [], z1_3: [], z1_4: [] };
+  const tempsZ2 = { z2_1: [], z2_2: [], z2_3: [], z2_4: [] };
+  const tempsZ3 = { z3_1: [], z3_2: [], z3_3: [], z3_4: [] };
+  const tempsZ4 = { z4_1: [], z4_2: [], z4_3: [], z4_4: [] };
+  const timestamps = [];
+
+  temperatureData.forEach(point => {
+    timestamps.push(new Date(point.time).getTime());
+    
+    tempsZ1.z1_1.push(point.z1_1_te);
+    tempsZ1.z1_2.push(point.z1_2_te);
+    tempsZ1.z1_3.push(point.z1_3_te);
+    tempsZ1.z1_4.push(point.z1_4_te);
+    
+    tempsZ2.z2_1.push(point.z2_1_te);
+    tempsZ2.z2_2.push(point.z2_2_te);
+    tempsZ2.z2_3.push(point.z2_3_te);
+    tempsZ2.z2_4.push(point.z2_4_te);
+    
+    tempsZ3.z3_1.push(point.z3_1_te);
+    tempsZ3.z3_2.push(point.z3_2_te);
+    tempsZ3.z3_3.push(point.z3_3_te);
+    tempsZ3.z3_4.push(point.z3_4_te);
+    
+    tempsZ4.z4_1.push(point.z4_1_te);
+    tempsZ4.z4_2.push(point.z4_2_te);
+    tempsZ4.z4_3.push(point.z4_3_te);
+    tempsZ4.z4_4.push(point.z4_4_te);
+  });
+
+  return { tempsZ1, tempsZ2, tempsZ3, tempsZ4, timestamps };
+};
+
+// ---------------------------------------------------------------------------
 // Основной компонент
 // ---------------------------------------------------------------------------
 const FurnaceReport = () => {
@@ -148,9 +191,8 @@ const FurnaceReport = () => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-
- // const isPrint = new URLSearchParams(location.search).get('print') === 'true';
+  const [temperatureData, setTemperatureData] = useState(null);
+  const [tempsLoading, setTempsLoading] = useState(false);
 
   useEffect(() => {
     if (!key) return;
@@ -161,6 +203,28 @@ const FurnaceReport = () => {
       try {
         const res = await furnaceApi.getSessionByKey(key);
         setSession(res.data);
+        
+        // Проверяем, есть ли данные температур в сессии
+        const hasTempsInSession = res.data.tempsZ1 || res.data.tempsZ2 || 
+                                 res.data.tempsZ3 || res.data.tempsZ4;
+        
+        // Если температур нет в сессии, но есть даты входа/выхода - загружаем через API
+        if (!hasTempsInSession && res.data.enteredAt && res.data.exitedAt) {
+          setTempsLoading(true);
+          try {
+            const tempsRes = await furnaceApi.getTemperatures({
+              from: res.data.enteredAt,
+              to: res.data.exitedAt,
+              intervalMin: 1  // Получаем данные с минутным интервалом
+            });
+            setTemperatureData(tempsRes.data);
+          } catch (tempsErr) {
+            console.error('Ошибка загрузки температур:', tempsErr);
+            // Не показываем ошибку, просто не будет графиков
+          } finally {
+            setTempsLoading(false);
+          }
+        }
       } catch (err) {
         setError(err.response?.data?.message ?? 'Ошибка загрузки отчёта');
       } finally {
@@ -179,15 +243,37 @@ const FurnaceReport = () => {
     }
   }, [isPrint, session, loading]);
 
-  // Парсим JSONB данные температур
-  const tempsZ1   = useMemo(() => safeJson(session?.tempsZ1),   [session]);
-  const tempsZ2   = useMemo(() => safeJson(session?.tempsZ2),   [session]);
-  const tempsZ3   = useMemo(() => safeJson(session?.tempsZ3),   [session]);
-  const tempsZ4   = useMemo(() => safeJson(session?.tempsZ4),   [session]);
-  const timestamps = useMemo(() => {
-    const raw = safeJson(session?.tempsTime);
-    return Array.isArray(raw) ? raw.map(t => new Date(t).getTime()) : [];
+  // Парсим JSONB данные температур из сессии
+  const sessionTemps = useMemo(() => {
+    if (!session) return null;
+    
+    // Проверяем, есть ли данные в сессии
+    if (session.tempsZ1 || session.tempsZ2 || session.tempsZ3 || session.tempsZ4) {
+      return {
+        tempsZ1: safeJson(session.tempsZ1),
+        tempsZ2: safeJson(session.tempsZ2),
+        tempsZ3: safeJson(session.tempsZ3),
+        tempsZ4: safeJson(session.tempsZ4),
+        timestamps: (() => {
+          const raw = safeJson(session.tempsTime);
+          return Array.isArray(raw) ? raw.map(t => new Date(t).getTime()) : [];
+        })()
+      };
+    }
+    return null;
   }, [session]);
+
+  // Если в сессии нет температур, используем загруженные через API
+  const apiTemps = useMemo(() => {
+    return temperatureData ? transformTemperatures(temperatureData) : null;
+  }, [temperatureData]);
+
+  // Выбираем источник данных для графиков: сначала сессия, потом API
+  const tempsZ1 = sessionTemps?.tempsZ1 || apiTemps?.tempsZ1 || null;
+  const tempsZ2 = sessionTemps?.tempsZ2 || apiTemps?.tempsZ2 || null;
+  const tempsZ3 = sessionTemps?.tempsZ3 || apiTemps?.tempsZ3 || null;
+  const tempsZ4 = sessionTemps?.tempsZ4 || apiTemps?.tempsZ4 || null;
+  const timestamps = sessionTemps?.timestamps || apiTemps?.timestamps || [];
 
   const hasTemps = timestamps.length > 0;
 
@@ -240,7 +326,7 @@ const FurnaceReport = () => {
             variant="outlined"
             startIcon={<GetApp />}
             onClick={() => window.open(
-              `/furnace/report/${encodeURIComponent(key)}?print=true`, '_blank'
+              `/furnace/report?key=${encodeURIComponent(key)}&print=true`, '_blank'
             )}
           >
             PDF (новая вкладка)
@@ -389,42 +475,59 @@ const FurnaceReport = () => {
         </TableContainer>
       </Paper>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Графики температур                                                  */}
-      {/* ------------------------------------------------------------------ */}
-      {hasTemps ? (
-        <>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-            Температуры по зонам ({timestamps.length} точек)
-          </Typography>
-          <Grid container spacing={2}>
-            {[
-              { label: 'Зона 1', obj: tempsZ1, def: SERIES.Z1 },
-              { label: 'Зона 2', obj: tempsZ2, def: SERIES.Z2 },
-              { label: 'Зона 3', obj: tempsZ3, def: SERIES.Z3 },
-              { label: 'Зона 4', obj: tempsZ4, def: SERIES.Z4 },
-            ].map(({ label, obj, def }) => (
-              <Grid item xs={12} md={6} key={label}>
-                <Paper sx={{ p: 1.5, borderRadius: 2 }}>
-                  <ZoneChart
-                    title={label}
-                    tempsObj={obj}
-                    timestamps={timestamps}
-                    seriesDef={def}
-                    height={260}
-                  />
-                </Paper>
-              </Grid>
-            ))}
-          </Grid>
-        </>
-      ) : (
-        <Alert severity="info">
-          Температуры не записаны для этой сессии. Для просмотра используйте
-          страницу «Горение печи» за период{' '}
-          {fmtDate(session.enteredAt)} — {fmtDate(session.exitedAt)}.
-        </Alert>
+{/* ------------------------------------------------------------------ */}
+{/* Графики температур                                                  */}
+{/* ------------------------------------------------------------------ */}
+{tempsLoading ? (
+  <Box sx={{ textAlign: 'center', py: 3 }}>
+    <CircularProgress size={24} />
+    <Typography variant="body2" color="text.secondary" mt={1}>
+      Загрузка температур...
+    </Typography>
+  </Box>
+) : hasTemps ? (
+  <>
+    <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+      Температуры по зонам ({timestamps.length} точек)
+      {apiTemps && !sessionTemps && (
+        <Chip 
+          label="Загружены через API" 
+          size="small" 
+          variant="outlined" 
+          sx={{ ml: 1 }} 
+        />
       )}
+    </Typography>
+    <Grid container spacing={2}>
+      {[
+        { label: 'Зона 1', obj: tempsZ1, def: SERIES.Z1 },
+        { label: 'Зона 2', obj: tempsZ2, def: SERIES.Z2 },
+        { label: 'Зона 3', obj: tempsZ3, def: SERIES.Z3 },
+        { label: 'Зона 4', obj: tempsZ4, def: SERIES.Z4 },
+      ].map(({ label, obj, def }) => (
+        obj ? ( // ✅ Добавлена проверка наличия данных для зоны
+          <Grid item xs={12} md={6} key={label}>
+            <Paper sx={{ p: 1.5, borderRadius: 2 }}>
+              <ZoneChart
+                title={label}
+                tempsObj={obj}
+                timestamps={timestamps}
+                seriesDef={def}
+                height={260}
+              />
+            </Paper>
+          </Grid>
+        ) : null
+      ))}
+    </Grid>
+  </>
+) : (
+  <Alert severity="info">
+    Температуры не записаны для этой сессии. Для просмотра используйте
+    страницу «Горение печи» за период{' '}
+    {fmtDate(session.enteredAt)} — {fmtDate(session.exitedAt)}.
+  </Alert>
+)}
 
       {/* Дата формирования отчёта */}
       <Typography
