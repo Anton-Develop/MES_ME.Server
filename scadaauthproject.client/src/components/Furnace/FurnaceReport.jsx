@@ -138,15 +138,19 @@ const SERIES = {
 // Основной компонент
 // ---------------------------------------------------------------------------
 const FurnaceReport = () => {
-  const { key }    = useParams();
-  const location   = useLocation();
-  const navigate   = useNavigate();
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const [session,  setSession]  = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
+  const searchParams = new URLSearchParams(location.search);
+  const key = searchParams.get('key');
+  const isPrint = searchParams.get('print') === 'true';
 
-  const isPrint = new URLSearchParams(location.search).get('print') === 'true';
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+
+ // const isPrint = new URLSearchParams(location.search).get('print') === 'true';
 
   useEffect(() => {
     if (!key) return;
@@ -275,7 +279,7 @@ const FurnaceReport = () => {
             { label: 'Плавка',  value: session.melt   ?? '—' },
             { label: 'Партия',  value: session.partNo ?? '—' },
             { label: 'Пачка',   value: session.pack   ?? '—' },
-            { label: 'Сплав',   value: session.alloyCodeText || session.alloyCode || '—' },
+            { label: 'Марка стали',   value: session.alloyCodeText || session.alloyCode || '—' },
             { label: 'Толщина', value: session.thickness != null ? `${Number(session.thickness).toFixed(1)} мм` : '—' },
           ].map(({ label, value }) => (
             <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
@@ -338,8 +342,8 @@ const FurnaceReport = () => {
             <TableBody>
               <TableRow>
                 {[
-                  ['З3.1', session.avgZ3_1], ['З3.2', session.avgZ3_2],
-                  ['З3.3', session.avgZ3_3], ['З3.4', session.avgZ3_4],
+                  ['Зона 1. Термопара 1', session.avgZ1_1], ['Зона 1. Термопара 2', session.avgZ1_2],
+                  ['Зона 1. Термопара 3', session.avgZ1_3], ['Зона 1. Термопара 4', session.avgZ1_4],
                 ].map(([label, val]) => (
                   <React.Fragment key={label}>
                     <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
@@ -349,8 +353,30 @@ const FurnaceReport = () => {
               </TableRow>
               <TableRow>
                 {[
-                  ['З4.1', session.avgZ4_1], ['З4.2', session.avgZ4_2],
-                  ['З4.3', session.avgZ4_3], ['З4.4', session.avgZ4_4],
+                  ['Зона 2. Термопара 1', session.avgZ2_1], ['Зона 2. Термопара 2', session.avgZ2_2],
+                  ['Зона 2. Термопара 3', session.avgZ2_3], ['Зона 2. Термопара 4', session.avgZ2_4],
+                ].map(([label, val]) => (
+                  <React.Fragment key={label}>
+                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#ff7043' }}>{fmtTemp(val)}</TableCell>
+                  </React.Fragment>
+                ))}
+              </TableRow>
+              <TableRow>
+                {[
+                  ['Зона 3. Термопара 1', session.avgZ3_1], ['Зона 3. Термопара 2', session.avgZ3_2],
+                  ['Зона 3. Термопара 3', session.avgZ3_3], ['Зона 3. Термопара 4', session.avgZ3_4],
+                ].map(([label, val]) => (
+                  <React.Fragment key={label}>
+                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#ff7043' }}>{fmtTemp(val)}</TableCell>
+                  </React.Fragment>
+                ))}
+              </TableRow>
+              <TableRow>
+                {[
+                  ['Зона 4. Термопара 1', session.avgZ4_1], ['Зона 4. Термопара 2', session.avgZ4_2],
+                  ['Зона 4. Термопара 3', session.avgZ4_3], ['Зона 4. Термопара 4', session.avgZ4_4],
                 ].map(([label, val]) => (
                   <React.Fragment key={label}>
                     <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>

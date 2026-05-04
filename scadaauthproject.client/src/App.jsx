@@ -204,7 +204,7 @@ const App = () => (
                             <Route path="sheet-status-updater" element={<ProtectedRoute><SheetStatusUpdater /></ProtectedRoute>}/>
 
                             <Route path="furnace/sessions" element={<ProtectedRoute><FurnaceSessionsList /></ProtectedRoute>} />
-                            <Route path="furnace/report" element={<ProtectedRoute requireRouteAccess={false}><FurnaceReport /></ProtectedRoute>} />
+                            <Route path="furnace/report" element={<ProtectedRoute><FurnaceReport /></ProtectedRoute>} />
 
                             {/* Фолбэк — любой неизвестный путь */}
                             <Route path="*" element={<Navigate to="/unauthorized" replace />} />

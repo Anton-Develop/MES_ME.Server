@@ -265,7 +265,13 @@ public sealed class FurnaceRepository : IFurnaceRepository
             result.Z4_2 = ReadFloats(reader, 13);
             result.Z4_3 = ReadFloats(reader, 14);
             result.Z4_4 = ReadFloats(reader, 15);
-            result.Times = ReadTimes(reader, 16);
+            result.Times    = ReadTimes(reader, 16);
+            // Задания
+            result.Z1_1_Ref = ReadFloats(reader, 17);
+            result.Z2_1_Ref = ReadFloats(reader, 18);
+            result.Z3_1_Ref = ReadFloats(reader, 19);
+            result.Z4_1_Ref = ReadFloats(reader, 20);
+
 
             return result;
         });

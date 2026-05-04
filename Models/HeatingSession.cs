@@ -28,8 +28,12 @@ public sealed class HeatingSession
     public float?      F4Min          { get; init; }
     public float?      AvgZ1_1        { get; init; }
     public float?      AvgZ1_2        { get; init; }
+    public float?      AvgZ1_3        { get; init; }
+    public float?      AvgZ1_4        { get; init; }
     public float?      AvgZ2_1        { get; init; }
     public float?      AvgZ2_2        { get; init; }
+    public float?      AvgZ2_3        { get; init; }
+    public float?      AvgZ2_4        { get; init; }
     public float?      AvgZ3_1        { get; init; }
     public float?      AvgZ3_2        { get; init; }
     public float?      AvgZ3_3        { get; init; }

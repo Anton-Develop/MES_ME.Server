@@ -85,12 +85,14 @@ const FurnaceSessionsList = () => {
     setPage(0);
   };
 
-  const handleViewReport = (key) =>
-    navigate(`/furnace/report/${encodeURIComponent(key)}`);
+  // ✅ ИСПРАВЛЕНО: передача key через query-параметр, как в AnnealingBatchPlanPage
+  const handleViewReport = (businessKey) =>
+    navigate(`/furnace/report?key=${encodeURIComponent(businessKey)}`);
 
-  const handlePrint = (key) => {
+  // ✅ ИСПРАВЛЕНО: печать тоже через query-параметр
+  const handlePrint = (businessKey) => {
     const w = window.open(
-      `/furnace/report/${encodeURIComponent(key)}?print=true`,
+      `/furnace/report?key=${encodeURIComponent(businessKey)}&print=true`,
       '_blank'
     );
     w?.focus();

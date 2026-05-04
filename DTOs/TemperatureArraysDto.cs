@@ -2,6 +2,7 @@
 {
     public class TemperatureArraysDto
     {
+        // Факт
         public List<float?> Z1_1 { get; set; } = new();
         public List<float?> Z1_2 { get; set; } = new();
         public List<float?> Z1_3 { get; set; } = new();
@@ -18,6 +19,13 @@
         public List<float?> Z4_2 { get; set; } = new();
         public List<float?> Z4_3 { get; set; } = new();
         public List<float?> Z4_4 { get; set; } = new();
+
+        // Задания (ref) — есть только у первых термопар каждой зоны
+        public List<float?> Z1_1_Ref { get; set; } = new();
+        public List<float?> Z2_1_Ref { get; set; } = new();
+        public List<float?> Z3_1_Ref { get; set; } = new();
+        public List<float?> Z4_1_Ref { get; set; } = new();
+
         public List<DateTime> Times { get; set; } = new();
     }
 

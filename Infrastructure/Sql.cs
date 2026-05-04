@@ -78,28 +78,34 @@ internal static class Sql
     // Массивы температур для сессии
     // -----------------------------------------------------------------------
 
-    public const string GetTemperaturesArray = """
-        SELECT 
-            JSONB_AGG(z1_1_te ORDER BY time) AS z1_1,
-            JSONB_AGG(z1_2_te ORDER BY time) AS z1_2,
-            JSONB_AGG(z1_3_te ORDER BY time) AS z1_3,
-            JSONB_AGG(z1_4_te ORDER BY time) AS z1_4,
-            JSONB_AGG(z2_1_te ORDER BY time) AS z2_1,
-            JSONB_AGG(z2_2_te ORDER BY time) AS z2_2,
-            JSONB_AGG(z2_3_te ORDER BY time) AS z2_3,
-            JSONB_AGG(z2_4_te ORDER BY time) AS z2_4,
-            JSONB_AGG(z3_1_te ORDER BY time) AS z3_1,
-            JSONB_AGG(z3_2_te ORDER BY time) AS z3_2,
-            JSONB_AGG(z3_3_te ORDER BY time) AS z3_3,
-            JSONB_AGG(z3_4_te ORDER BY time) AS z3_4,
-            JSONB_AGG(z4_1_te ORDER BY time) AS z4_1,
-            JSONB_AGG(z4_2_te ORDER BY time) AS z4_2,
-            JSONB_AGG(z4_3_te ORDER BY time) AS z4_3,
-            JSONB_AGG(z4_4_te ORDER BY time) AS z4_4,
-            JSONB_AGG(time ORDER BY time) AS temps_time
-        FROM plc.furnace_temperatures
-        WHERE time BETWEEN @From AND @To
-        """;
+   public const string GetTemperaturesArray = """
+    SELECT 
+        JSONB_AGG(z1_1_te  ORDER BY time) AS z1_1,
+        JSONB_AGG(z1_2_te  ORDER BY time) AS z1_2,
+        JSONB_AGG(z1_3_te  ORDER BY time) AS z1_3,
+        JSONB_AGG(z1_4_te  ORDER BY time) AS z1_4,
+        JSONB_AGG(z2_1_te  ORDER BY time) AS z2_1,
+        JSONB_AGG(z2_2_te  ORDER BY time) AS z2_2,
+        JSONB_AGG(z2_3_te  ORDER BY time) AS z2_3,
+        JSONB_AGG(z2_4_te  ORDER BY time) AS z2_4,
+        JSONB_AGG(z3_1_te  ORDER BY time) AS z3_1,
+        JSONB_AGG(z3_2_te  ORDER BY time) AS z3_2,
+        JSONB_AGG(z3_3_te  ORDER BY time) AS z3_3,
+        JSONB_AGG(z3_4_te  ORDER BY time) AS z3_4,
+        JSONB_AGG(z4_1_te  ORDER BY time) AS z4_1,
+        JSONB_AGG(z4_2_te  ORDER BY time) AS z4_2,
+        JSONB_AGG(z4_3_te  ORDER BY time) AS z4_3,
+        JSONB_AGG(z4_4_te  ORDER BY time) AS z4_4,
+        JSONB_AGG(time     ORDER BY time) AS temps_time,
+        -- Задания — у каждой зоны по одному заданию на все термопары
+        JSONB_AGG(z1_1_ref ORDER BY time) AS z1_1_ref,
+        JSONB_AGG(z2_1_ref ORDER BY time) AS z2_1_ref,
+        JSONB_AGG(z3_1_ref ORDER BY time) AS z3_1_ref,
+        JSONB_AGG(z4_1_ref ORDER BY time) AS z4_1_ref
+    FROM plc.furnace_temperatures
+    WHERE time BETWEEN @From AND @To
+    """;
+
 
     // -----------------------------------------------------------------------
     // heating_sessions
@@ -293,6 +299,8 @@ ORDER BY agg.entered_at
         alloy_code, alloy_code_text, thickness, zones_path,
         entered_at, exited_at, total_min,
         f1_min, f2_min, f3_min, f4_min,
+        avg_z1_1, avg_z1_2, avg_z1_3, avg_z1_4,
+        avg_z2_1, avg_z2_2, avg_z2_3, avg_z2_4,
         avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
         avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
         had_alarm, created_at
@@ -325,6 +333,14 @@ ORDER BY agg.entered_at
         f2_min AS F2Min,
         f3_min AS F3Min,
         f4_min AS F4Min,
+        avg_z1_1 AS AvgZ1_1,
+        avg_z1_2 AS AvgZ1_2,
+        avg_z1_3 AS AvgZ1_3,
+        avg_z1_4 AS AvgZ1_4,
+        avg_z2_1 AS AvgZ2_1,
+        avg_z2_2 AS AvgZ2_2,
+        avg_z2_3 AS AvgZ2_3,
+        avg_z2_4 AS AvgZ2_4,
         avg_z3_1 AS AvgZ3_1,
         avg_z3_2 AS AvgZ3_2,
         avg_z3_3 AS AvgZ3_3,
@@ -335,7 +351,11 @@ ORDER BY agg.entered_at
         avg_z4_4 AS AvgZ4_4,
         had_alarm AS HadAlarm,
         created_at AS CreatedAt
-       
+        --temps_z1 AS TempsZ1,
+        --temps_z2 AS TempsZ2,
+        --temps_z3 AS TempsZ3,
+        --temps_z4 AS TempsZ4,
+        --temps_time AS TempsTime
     FROM plc.heating_sessions
     WHERE business_key = @Key
     """;
@@ -356,7 +376,8 @@ ORDER BY agg.entered_at
         alloy_code, alloy_code_text,
         thickness, zones_path, entered_at, exited_at, total_min,
         f1_min, f2_min, f3_min, f4_min,
-        avg_z1_1, avg_z1_2, avg_z2_1, avg_z2_2,
+        avg_z1_1, avg_z1_2, avg_z1_3, avg_z1_4,
+        avg_z2_1, avg_z2_2, avg_z2_3, avg_z2_4,
         avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
         avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
         temps_z1, temps_z2, temps_z3, temps_z4, temps_time,
@@ -366,7 +387,8 @@ ORDER BY agg.entered_at
         @AlloyCode, @AlloyCodeText,
         @Thickness, @ZonesPath, @EnteredAt, @ExitedAt, @TotalMin,
         @F1Min, @F2Min, @F3Min, @F4Min,
-        @AvgZ1_1, @AvgZ1_2, @AvgZ2_1, @AvgZ2_2,
+        @AvgZ1_1, @AvgZ1_2, @AvgZ1_3, @AvgZ1_4,
+        @AvgZ2_1, @AvgZ2_2, @AvgZ2_3, @AvgZ2_4,
         @AvgZ3_1, @AvgZ3_2, @AvgZ3_3, @AvgZ3_4,
         @AvgZ4_1, @AvgZ4_2, @AvgZ4_3, @AvgZ4_4,
         @TempsZ1::jsonb, @TempsZ2::jsonb, @TempsZ3::jsonb,
@@ -379,7 +401,9 @@ ORDER BY agg.entered_at
         zones_path = EXCLUDED.zones_path,
         had_alarm  = EXCLUDED.had_alarm,
         avg_z1_1 = EXCLUDED.avg_z1_1, avg_z1_2 = EXCLUDED.avg_z1_2,
+        avg_z1_3 = EXCLUDED.avg_z1_3, avg_z1_4 = EXCLUDED.avg_z1_4,
         avg_z2_1 = EXCLUDED.avg_z2_1, avg_z2_2 = EXCLUDED.avg_z2_2,
+        avg_z2_3 = EXCLUDED.avg_z2_3, avg_z2_4 = EXCLUDED.avg_z2_4,
         avg_z3_1 = EXCLUDED.avg_z3_1, avg_z3_2 = EXCLUDED.avg_z3_2,
         avg_z3_3 = EXCLUDED.avg_z3_3, avg_z3_4 = EXCLUDED.avg_z3_4,
         avg_z4_1 = EXCLUDED.avg_z4_1, avg_z4_2 = EXCLUDED.avg_z4_2,

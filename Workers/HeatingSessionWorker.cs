@@ -194,8 +194,12 @@ public sealed class HeatingSessionWorker : BackgroundService
             // Средние — из полных данных
             AvgZ1_1 = Avg(tempsRaw.Z1_1),
             AvgZ1_2 = Avg(tempsRaw.Z1_2),
+            AvgZ1_3 = Avg(tempsRaw.Z1_3), 
+            AvgZ1_4 = Avg(tempsRaw.Z1_4),  
             AvgZ2_1 = Avg(tempsRaw.Z2_1),
             AvgZ2_2 = Avg(tempsRaw.Z2_2),
+            AvgZ2_3 = Avg(tempsRaw.Z2_3),  
+            AvgZ2_4 = Avg(tempsRaw.Z2_4), 
             AvgZ3_1 = Avg(tempsRaw.Z3_1),
             AvgZ3_2 = Avg(tempsRaw.Z3_2),
             AvgZ3_3 = Avg(tempsRaw.Z3_3),
@@ -205,36 +209,37 @@ public sealed class HeatingSessionWorker : BackgroundService
             AvgZ4_3 = Avg(tempsRaw.Z4_3),
             AvgZ4_4 = Avg(tempsRaw.Z4_4),
 
-            // Массивы — даунсемплированные для графика
-            TempsZ1 = JsonSerializer.Serialize(new
-            {
-                z1_1 = temps.Z1_1,
-                z1_2 = temps.Z1_2,
-                z1_3 = temps.Z1_3,
-                z1_4 = temps.Z1_4
+            // Массивы с заданиями — добавляем ref в каждую зону
+            TempsZ1 = JsonSerializer.Serialize(new {
+                z1_1     = temps.Z1_1,
+                z1_2     = temps.Z1_2,
+                z1_3     = temps.Z1_3,
+                z1_4     = temps.Z1_4,
+                z1_1_ref = temps.Z1_1_Ref  // ← задание зоны 1
             }),
-            TempsZ2 = JsonSerializer.Serialize(new
-            {
-                z2_1 = temps.Z2_1,
-                z2_2 = temps.Z2_2,
-                z2_3 = temps.Z2_3,
-                z2_4 = temps.Z2_4
+            TempsZ2 = JsonSerializer.Serialize(new {
+                z2_1     = temps.Z2_1,
+                z2_2     = temps.Z2_2,
+                z2_3     = temps.Z2_3,
+                z2_4     = temps.Z2_4,
+                z2_1_ref = temps.Z2_1_Ref  // ← задание зоны 2
             }),
-            TempsZ3 = JsonSerializer.Serialize(new
-            {
-                z3_1 = temps.Z3_1,
-                z3_2 = temps.Z3_2,
-                z3_3 = temps.Z3_3,
-                z3_4 = temps.Z3_4
+            TempsZ3 = JsonSerializer.Serialize(new {
+                z3_1     = temps.Z3_1,
+                z3_2     = temps.Z3_2,
+                z3_3     = temps.Z3_3,
+                z3_4     = temps.Z3_4,
+                z3_1_ref = temps.Z3_1_Ref  // ← задание зоны 3
             }),
-            TempsZ4 = JsonSerializer.Serialize(new
-            {
-                z4_1 = temps.Z4_1,
-                z4_2 = temps.Z4_2,
-                z4_3 = temps.Z4_3,
-                z4_4 = temps.Z4_4
+            TempsZ4 = JsonSerializer.Serialize(new {
+                z4_1     = temps.Z4_1,
+                z4_2     = temps.Z4_2,
+                z4_3     = temps.Z4_3,
+                z4_4     = temps.Z4_4,
+                z4_1_ref = temps.Z4_1_Ref  // ← задание зоны 4
             }),
             TempsTime = JsonSerializer.Serialize(temps.Times),
+                
         };
 
         await repo.UpsertHeatingSessionAsync(parameters, ct);
@@ -318,23 +323,28 @@ public sealed class HeatingSessionWorker : BackgroundService
 
         return new TemperatureArraysDto
         {
-            Times = indices.Select(i => src.Times[i]).ToList(),
-            Z1_1 = Pick(src.Z1_1),
-            Z1_2 = Pick(src.Z1_2),
-            Z1_3 = Pick(src.Z1_3),
-            Z1_4 = Pick(src.Z1_4),
-            Z2_1 = Pick(src.Z2_1),
-            Z2_2 = Pick(src.Z2_2),
-            Z2_3 = Pick(src.Z2_3),
-            Z2_4 = Pick(src.Z2_4),
-            Z3_1 = Pick(src.Z3_1),
-            Z3_2 = Pick(src.Z3_2),
-            Z3_3 = Pick(src.Z3_3),
-            Z3_4 = Pick(src.Z3_4),
-            Z4_1 = Pick(src.Z4_1),
-            Z4_2 = Pick(src.Z4_2),
-            Z4_3 = Pick(src.Z4_3),
-            Z4_4 = Pick(src.Z4_4),
+            Times    = indices.Select(i => src.Times[i]).ToList(),
+            Z1_1     = Pick(src.Z1_1),
+            Z1_2     = Pick(src.Z1_2),
+            Z1_3     = Pick(src.Z1_3),
+            Z1_4     = Pick(src.Z1_4),
+            Z2_1     = Pick(src.Z2_1),
+            Z2_2     = Pick(src.Z2_2),
+            Z2_3     = Pick(src.Z2_3),
+            Z2_4     = Pick(src.Z2_4),
+            Z3_1     = Pick(src.Z3_1),
+            Z3_2     = Pick(src.Z3_2),
+            Z3_3     = Pick(src.Z3_3),
+            Z3_4     = Pick(src.Z3_4),
+            Z4_1     = Pick(src.Z4_1),
+            Z4_2     = Pick(src.Z4_2),
+            Z4_3     = Pick(src.Z4_3),
+            Z4_4     = Pick(src.Z4_4),
+            // Задания тоже даунсемплируем
+            Z1_1_Ref = Pick(src.Z1_1_Ref),
+            Z2_1_Ref = Pick(src.Z2_1_Ref),
+            Z3_1_Ref = Pick(src.Z3_1_Ref),
+            Z4_1_Ref = Pick(src.Z4_1_Ref),
         };
     }
 
