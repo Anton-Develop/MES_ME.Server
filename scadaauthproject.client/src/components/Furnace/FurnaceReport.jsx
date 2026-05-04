@@ -1,11 +1,10 @@
 // src/components/Furnace/FurnaceReport.jsx
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Grid, Typography, Chip, Divider, Button,
   CircularProgress, Table, TableBody, TableCell,
-  TableContainer, TableRow, Alert, IconButton, Tooltip,
-  Stack,
+  TableContainer, TableRow, Alert, Stack,
 } from '@mui/material';
 import { Print, GetApp, ArrowBack } from '@mui/icons-material';
 import Highcharts from 'highcharts';
@@ -25,55 +24,127 @@ const fmtDate = (d) => d
 const fmtMin  = (v) => v != null ? `${Number(v).toFixed(1)} мин` : '—';
 const fmtTemp = (v) => v != null ? `${Number(v).toFixed(1)} °C`  : '—';
 
-// Безопасный парсинг — данные могут прийти как строка или уже объект
+// Безопасный парсинг
 const safeJson = (val) => {
   if (!val) return null;
   if (typeof val === 'object') return val;
   try { return JSON.parse(val); } catch { return null; }
 };
 
+// Нормализуем ключи объекта к нижнему регистру — решает проблему Z3_1 vs z3_1
+const normalizeKeys = (obj) => {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [k.toLowerCase(), v])
+  );
+};
+
+// Извлекаем timestamps из объекта зоны (поле "times")
+const getTimestamps = (tempsObj) => {
+  if (!tempsObj?.times?.length) return [];
+  return tempsObj.times.map(t => new Date(t).getTime());
+};
+
+// ---------------------------------------------------------------------------
+// Определения серий для каждой группы зон — строчные ключи
+// ---------------------------------------------------------------------------
+const SERIES = {
+  Z1: [
+    { key: 'z1_1', name: 'З1.1',       color: '#1565c0' },
+    { key: 'z1_2', name: 'З1.2',       color: '#1976d2' },
+    { key: 'z1_3', name: 'З1.3',       color: '#42a5f5' },
+    { key: 'z1_4', name: 'З1.4',       color: '#90caf9' },
+  ],
+  Z2: [
+    { key: 'z2_1', name: 'З2.1',       color: '#00695c' },
+    { key: 'z2_2', name: 'З2.2',       color: '#00897b' },
+    { key: 'z2_3', name: 'З2.3',       color: '#26a69a' },
+    { key: 'z2_4', name: 'З2.4',       color: '#80cbc4' },
+  ],
+  Z3: [
+    { key: 'z3_1', name: 'З3.1 (верх)', color: '#bf360c' },
+    { key: 'z3_2', name: 'З3.2',        color: '#e64a19' },
+    { key: 'z3_3', name: 'З3.3',        color: '#ff7043' },
+    { key: 'z3_4', name: 'З3.4 (низ)', color: '#ffab91' },
+  ],
+  Z4: [
+    { key: 'z4_1', name: 'З4.1 (верх)', color: '#b71c1c' },
+    { key: 'z4_2', name: 'З4.2',        color: '#c62828' },
+    { key: 'z4_3', name: 'З4.3',        color: '#ef5350' },
+    { key: 'z4_4', name: 'З4.4 (низ)', color: '#ef9a9a' },
+  ],
+};
+
+// Ключи заданий для каждой зоны
+const REF_KEYS = {
+  Z1: 'z1_1_ref',
+  Z2: 'z2_1_ref',
+  Z3: 'z3_1_ref',
+  Z4: 'z4_1_ref',
+};
+
 // ---------------------------------------------------------------------------
 // График одной группы зон
 // ---------------------------------------------------------------------------
-const ZoneChart = ({ title, tempsObj, timestamps, series: seriesDef, height = 280 }) => {
-  const options = useMemo(() => {
-    // ✅ Добавлена проверка на undefined
-    if (!tempsObj || !timestamps?.length || !seriesDef) return null;
+const ZoneChart = ({ title, tempsObj, seriesDef, refKey, height = 280 }) => {
+  // Нормализуем ключи к нижнему регистру (z3_1 вместо Z3_1)
+  const normalized = useMemo(() => normalizeKeys(tempsObj), [tempsObj]);
 
-    const series = seriesDef
-      .filter(s => tempsObj[s.key]?.length)
+  const options = useMemo(() => {
+    if (!normalized) return null;
+
+    const timestamps = getTimestamps(normalized);
+    if (!timestamps.length) return null;
+
+    // Серии факт
+    const factSeries = seriesDef
+      .filter(s => normalized[s.key]?.length)
       .map(s => ({
         name:      s.name,
         color:     s.color,
         lineWidth: 1.5,
-        data:      timestamps.map((ts, i) => [ts, tempsObj[s.key]?.[i] ?? null]),
+        dashStyle: 'Solid',
+        data:      timestamps.map((ts, i) => [ts, normalized[s.key]?.[i] ?? null]),
         marker:    { enabled: false },
         tooltip:   { valueSuffix: ' °C', valueDecimals: 1 },
       }));
 
+    // Серия задания — пунктир чёрный
+    const refData = normalized[refKey];
+    const refSeries = (refData?.length) ? [{
+      name:      'Задание',
+      color:     '#212121',
+      lineWidth: 2,
+      dashStyle: 'ShortDash',
+      zIndex:    10,
+      data:      timestamps.map((ts, i) => [ts, refData[i] ?? null]),
+      marker:    { enabled: false },
+      tooltip:   { valueSuffix: ' °C', valueDecimals: 0 },
+    }] : [];
 
+    const series = [...factSeries, ...refSeries];
     if (!series.length) return null;
 
     return {
       chart: {
-        type: 'line',
+        type:            'line',
         height,
-        zoomType: 'x',
-        animation: false,
+        zoomType:        'x',
+        animation:       false,
         backgroundColor: '#fff',
-        style: { fontFamily: '"Roboto","Helvetica","Arial",sans-serif' },
+        style:           { fontFamily: '"Roboto","Helvetica","Arial",sans-serif' },
       },
       title:   { text: title, style: { fontSize: '13px', fontWeight: '600' } },
       credits: { enabled: false },
       xAxis: {
-        type: 'datetime',
-        labels: { format: '{value:%H:%M}', style: { color: '#555', fontSize: '10px' } },
-        crosshair: true,
+        type:       'datetime',
+        crosshair:  true,
+        labels:     { format: '{value:%H:%M}', style: { fontSize: '10px' } },
       },
       yAxis: {
         title:         { text: '°C', style: { color: '#555' } },
         gridLineColor: '#e0e0e0',
-        labels:        { style: { color: '#555', fontSize: '10px' } },
+        labels:        { style: { fontSize: '10px' } },
       },
       tooltip: {
         shared:      true,
@@ -81,23 +152,39 @@ const ZoneChart = ({ title, tempsObj, timestamps, series: seriesDef, height = 28
         style:       { fontSize: '11px' },
       },
       legend: {
-        enabled: true,
+        enabled:   true,
         itemStyle: { fontSize: '10px', color: '#333' },
       },
       plotOptions: {
         series: {
           boostThreshold: 300,
-          turboThreshold: 0,
-          animation: false,
-          connectNulls: false,
+          turboThreshold:  0,
+          animation:       false,
+          connectNulls:    false,
         },
       },
-      boost: { enabled: true, useGPUTranslations: true, seriesThreshold: 1 },
+      boost:  { enabled: true, useGPUTranslations: true, seriesThreshold: 1 },
+      exporting: {
+        enabled: true,
+        buttons: {
+          contextButton: {
+            menuItems: ['downloadPNG', 'downloadCSV', 'separator', 'printChart'],
+          },
+        },
+      },
       series,
     };
-  }, [tempsObj, timestamps, seriesDef, title, height]);
+  }, [normalized, seriesDef, refKey, title, height]);
 
-  if (!options) return null;
+  if (!options) {
+    return (
+      <Box sx={{ p: 3, textAlign: 'center' }}>
+        <Typography variant="caption" color="text.secondary">
+          Лист не проходил через эту зону или данные отсутствуют
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
     <HighchartsReact
@@ -108,134 +195,113 @@ const ZoneChart = ({ title, tempsObj, timestamps, series: seriesDef, height = 28
   );
 };
 
-// Определения серий для каждой группы зон
-const SERIES = {
-  Z1: [
-    { key: 'z1_1', name: 'З1.1', color: '#42a5f5' },
-    { key: 'z1_2', name: 'З1.2', color: '#64b5f6' },
-    { key: 'z1_3', name: 'З1.3', color: '#90caf9' },
-    { key: 'z1_4', name: 'З1.4', color: '#bbdefb' },
-  ],
-  Z2: [
-    { key: 'z2_1', name: 'З2.1', color: '#26a69a' },
-    { key: 'z2_2', name: 'З2.2', color: '#4db6ac' },
-    { key: 'z2_3', name: 'З2.3', color: '#80cbc4' },
-    { key: 'z2_4', name: 'З2.4', color: '#b2dfdb' },
-  ],
-  Z3: [
-    { key: 'z3_1', name: 'З3.1 (верх)',     color: '#ff7043' },
-    { key: 'z3_2', name: 'З3.2',            color: '#ff8a65' },
-    { key: 'z3_3', name: 'З3.3',            color: '#ffab91' },
-    { key: 'z3_4', name: 'З3.4 (низ)',      color: '#ffccbc' },
-  ],
-  Z4: [
-    { key: 'z4_1', name: 'З4.1 (верх)',     color: '#ef5350' },
-    { key: 'z4_2', name: 'З4.2',            color: '#e57373' },
-    { key: 'z4_3', name: 'З4.3',            color: '#ef9a9a' },
-    { key: 'z4_4', name: 'З4.4 (низ)',      color: '#ffcdd2' },
-  ],
-};
-
 // ---------------------------------------------------------------------------
-// Функция преобразования данных температур из API в формат для графиков
+// Таблица средних температур
 // ---------------------------------------------------------------------------
-const transformTemperatures = (temperatureData) => {
-  if (!temperatureData || !Array.isArray(temperatureData) || temperatureData.length === 0) {
-    return { tempsZ1: null, tempsZ2: null, tempsZ3: null, tempsZ4: null, timestamps: [] };
-  }
+const AvgTempsTable = ({ session }) => {
+  const rows = [
+    {
+      label: 'Зона 1',
+      color: '#1565c0',
+      cells: [
+        ['Термопара 1', session.avgZ1_1],
+        ['Термопара 2', session.avgZ1_2],
+        ['Термопара 3', session.avgZ1_3],
+        ['Термопара 4', session.avgZ1_4],
+      ],
+    },
+    {
+      label: 'Зона 2',
+      color: '#00695c',
+      cells: [
+        ['Термопара 1', session.avgZ2_1],
+        ['Термопара 2', session.avgZ2_2],
+        ['Термопара 3', session.avgZ2_3],
+        ['Термопара 4', session.avgZ2_4],
+      ],
+    },
+    {
+      label: 'Зона 3',
+      color: '#bf360c',
+      cells: [
+        ['Термопара 1', session.avgZ3_1],
+        ['Термопара 2', session.avgZ3_2],
+        ['Термопара 3', session.avgZ3_3],
+        ['Термопара 4', session.avgZ3_4],
+      ],
+    },
+    {
+      label: 'Зона 4',
+      color: '#b71c1c',
+      cells: [
+        ['Термопара 1', session.avgZ4_1],
+        ['Термопара 2', session.avgZ4_2],
+        ['Термопара 3', session.avgZ4_3],
+        ['Термопара 4', session.avgZ4_4],
+      ],
+    },
+  ];
 
-  const tempsZ1 = { z1_1: [], z1_2: [], z1_3: [], z1_4: [] };
-  const tempsZ2 = { z2_1: [], z2_2: [], z2_3: [], z2_4: [] };
-  const tempsZ3 = { z3_1: [], z3_2: [], z3_3: [], z3_4: [] };
-  const tempsZ4 = { z4_1: [], z4_2: [], z4_3: [], z4_4: [] };
-  const timestamps = [];
-
-  temperatureData.forEach(point => {
-    timestamps.push(new Date(point.time).getTime());
-    
-    tempsZ1.z1_1.push(point.z1_1_te);
-    tempsZ1.z1_2.push(point.z1_2_te);
-    tempsZ1.z1_3.push(point.z1_3_te);
-    tempsZ1.z1_4.push(point.z1_4_te);
-    
-    tempsZ2.z2_1.push(point.z2_1_te);
-    tempsZ2.z2_2.push(point.z2_2_te);
-    tempsZ2.z2_3.push(point.z2_3_te);
-    tempsZ2.z2_4.push(point.z2_4_te);
-    
-    tempsZ3.z3_1.push(point.z3_1_te);
-    tempsZ3.z3_2.push(point.z3_2_te);
-    tempsZ3.z3_3.push(point.z3_3_te);
-    tempsZ3.z3_4.push(point.z3_4_te);
-    
-    tempsZ4.z4_1.push(point.z4_1_te);
-    tempsZ4.z4_2.push(point.z4_2_te);
-    tempsZ4.z4_3.push(point.z4_3_te);
-    tempsZ4.z4_4.push(point.z4_4_te);
-  });
-
-  return { tempsZ1, tempsZ2, tempsZ3, tempsZ4, timestamps };
+  return (
+    <TableContainer>
+      <Table size="small">
+        <TableBody>
+          {rows.map(({ label, color, cells }) => (
+            <TableRow key={label}>
+              <TableCell sx={{ fontWeight: 600, color, width: 80, fontSize: '0.78rem' }}>
+                {label}
+              </TableCell>
+              {cells.map(([name, val]) => (
+                <React.Fragment key={name}>
+                  <TableCell sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                    {name}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, color, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                    {fmtTemp(val)}
+                  </TableCell>
+                </React.Fragment>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
 };
 
 // ---------------------------------------------------------------------------
 // Основной компонент
 // ---------------------------------------------------------------------------
 const FurnaceReport = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
+  const location  = useLocation();
+  const navigate  = useNavigate();
 
   const searchParams = new URLSearchParams(location.search);
-  const key = searchParams.get('key');
+  const key     = searchParams.get('key');
   const isPrint = searchParams.get('print') === 'true';
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [temperatureData, setTemperatureData] = useState(null);
-  const [tempsLoading, setTempsLoading] = useState(false);
+  const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    if (!key) return;
-
+    if (!key) { setLoading(false); return; }
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
         const res = await furnaceApi.getSessionByKey(key);
         setSession(res.data);
-        
-        // Проверяем, есть ли данные температур в сессии
-        const hasTempsInSession = res.data.tempsZ1 || res.data.tempsZ2 || 
-                                 res.data.tempsZ3 || res.data.tempsZ4;
-        
-        // Если температур нет в сессии, но есть даты входа/выхода - загружаем через API
-        if (!hasTempsInSession && res.data.enteredAt && res.data.exitedAt) {
-          setTempsLoading(true);
-          try {
-            const tempsRes = await furnaceApi.getTemperatures({
-              from: res.data.enteredAt,
-              to: res.data.exitedAt,
-              intervalMin: 1  // Получаем данные с минутным интервалом
-            });
-            setTemperatureData(tempsRes.data);
-          } catch (tempsErr) {
-            console.error('Ошибка загрузки температур:', tempsErr);
-            // Не показываем ошибку, просто не будет графиков
-          } finally {
-            setTempsLoading(false);
-          }
-        }
       } catch (err) {
         setError(err.response?.data?.message ?? 'Ошибка загрузки отчёта');
       } finally {
         setLoading(false);
       }
     };
-
     load();
   }, [key]);
 
-  // Авто-печать если открыт с ?print=true
+  // Авто-печать
   useEffect(() => {
     if (isPrint && session && !loading) {
       const timer = setTimeout(() => window.print(), 800);
@@ -243,48 +309,37 @@ const FurnaceReport = () => {
     }
   }, [isPrint, session, loading]);
 
-  // Парсим JSONB данные температур из сессии
-  const sessionTemps = useMemo(() => {
-    if (!session) return null;
-    
-    // Проверяем, есть ли данные в сессии
-    if (session.tempsZ1 || session.tempsZ2 || session.tempsZ3 || session.tempsZ4) {
-      return {
-        tempsZ1: safeJson(session.tempsZ1),
-        tempsZ2: safeJson(session.tempsZ2),
-        tempsZ3: safeJson(session.tempsZ3),
-        tempsZ4: safeJson(session.tempsZ4),
-        timestamps: (() => {
-          const raw = safeJson(session.tempsTime);
-          return Array.isArray(raw) ? raw.map(t => new Date(t).getTime()) : [];
-        })()
-      };
+  // Парсим JSONB — нормализация ключей происходит внутри ZoneChart
+  const tempsZ1 = useMemo(() => safeJson(session?.tempsZ1), [session]);
+  const tempsZ2 = useMemo(() => safeJson(session?.tempsZ2), [session]);
+  const tempsZ3 = useMemo(() => safeJson(session?.tempsZ3), [session]);
+  const tempsZ4 = useMemo(() => safeJson(session?.tempsZ4), [session]);
+
+  // Есть ли хоть какие-то данные температур
+  const hasTemps = useMemo(() => {
+    const check = (obj) => {
+      if (!obj) return false;
+      const n = normalizeKeys(obj);
+      return n?.times?.length > 0;
+    };
+    return check(tempsZ1) || check(tempsZ2) || check(tempsZ3) || check(tempsZ4);
+  }, [tempsZ1, tempsZ2, tempsZ3, tempsZ4]);
+
+  // Количество точек (из первой доступной зоны)
+  const pointsCount = useMemo(() => {
+    for (const obj of [tempsZ1, tempsZ2, tempsZ3, tempsZ4]) {
+      const n = normalizeKeys(obj);
+      if (n?.times?.length) return n.times.length;
     }
-    return null;
-  }, [session]);
-
-  // Если в сессии нет температур, используем загруженные через API
-  const apiTemps = useMemo(() => {
-    return temperatureData ? transformTemperatures(temperatureData) : null;
-  }, [temperatureData]);
-
-  // Выбираем источник данных для графиков: сначала сессия, потом API
-  const tempsZ1 = sessionTemps?.tempsZ1 || apiTemps?.tempsZ1 || null;
-  const tempsZ2 = sessionTemps?.tempsZ2 || apiTemps?.tempsZ2 || null;
-  const tempsZ3 = sessionTemps?.tempsZ3 || apiTemps?.tempsZ3 || null;
-  const tempsZ4 = sessionTemps?.tempsZ4 || apiTemps?.tempsZ4 || null;
-  const timestamps = sessionTemps?.timestamps || apiTemps?.timestamps || [];
-
-  const hasTemps = timestamps.length > 0;
+    return 0;
+  }, [tempsZ1, tempsZ2, tempsZ3, tempsZ4]);
 
   // ---------------------------------------------------------------------------
   if (loading) {
     return (
       <Box sx={{ p: 5, textAlign: 'center' }}>
         <CircularProgress />
-        <Typography variant="body2" color="text.secondary" mt={2}>
-          Загрузка отчёта...
-        </Typography>
+        <Typography variant="body2" color="text.secondary" mt={2}>Загрузка отчёта...</Typography>
       </Box>
     );
   }
@@ -302,6 +357,13 @@ const FurnaceReport = () => {
     return <Alert severity="warning" sx={{ m: 3 }}>Сессия не найдена</Alert>;
   }
 
+  const zones   = [
+    { label: 'Зона 1 (F1)', obj: tempsZ1, def: SERIES.Z1, refKey: REF_KEYS.Z1 },
+    { label: 'Зона 2 (F2)', obj: tempsZ2, def: SERIES.Z2, refKey: REF_KEYS.Z2 },
+    { label: 'Зона 3 (F3)', obj: tempsZ3, def: SERIES.Z3, refKey: REF_KEYS.Z3 },
+    { label: 'Зона 4 (F4)', obj: tempsZ4, def: SERIES.Z4, refKey: REF_KEYS.Z4 },
+  ];
+
   return (
     <Box
       sx={{
@@ -312,7 +374,7 @@ const FurnaceReport = () => {
         },
       }}
     >
-      {/* Кнопки управления — скрываются при печати */}
+      {/* Кнопки */}
       <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
         <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
           Назад
@@ -321,52 +383,39 @@ const FurnaceReport = () => {
         <Button variant="contained" startIcon={<Print />} onClick={() => window.print()}>
           Печать
         </Button>
-        <Tooltip title="Открыть для печати в новой вкладке">
-          <Button
-            variant="outlined"
-            startIcon={<GetApp />}
-            onClick={() => window.open(
-              `/furnace/report?key=${encodeURIComponent(key)}&print=true`, '_blank'
-            )}
-          >
-            PDF (новая вкладка)
-          </Button>
-        </Tooltip>
+        <Button
+          variant="outlined" startIcon={<GetApp />}
+          onClick={() => window.open(`/furnace/report?key=${encodeURIComponent(key)}&print=true`, '_blank')}
+        >
+          PDF (новая вкладка)
+        </Button>
       </Box>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Заголовок отчёта                                                    */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Заголовок */}
       <Paper sx={{ p: 3, mb: 2 }}>
         <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
           <Typography variant="h5" fontWeight={700}>
             Отчёт о нагреве листа №{session.sheet}
           </Typography>
           {session.zonesPath && (
-            <Chip
-              label={session.zonesPath}
-              color="primary" size="small" variant="outlined"
-              sx={{ fontFamily: 'monospace', fontWeight: 600 }}
-            />
+            <Chip label={session.zonesPath} color="primary" size="small" variant="outlined"
+              sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
           )}
           {session.reheatNum > 0 && (
             <Chip label={`Повторный нагрев №${session.reheatNum}`} color="warning" size="small" />
           )}
-          {session.hadAlarm && (
-            <Chip label="АВАРИЯ" color="error" size="small" />
-          )}
+          {session.hadAlarm && <Chip label="АВАРИЯ" color="error" size="small" />}
         </Stack>
 
-        {/* Идентификация */}
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
           {[
-            { label: 'Лист',    value: session.sheet },
-            { label: 'Сляб',    value: session.slab   ?? '—' },
-            { label: 'Плавка',  value: session.melt   ?? '—' },
-            { label: 'Партия',  value: session.partNo ?? '—' },
-            { label: 'Пачка',   value: session.pack   ?? '—' },
-            { label: 'Марка стали',   value: session.alloyCodeText || session.alloyCode || '—' },
-            { label: 'Толщина', value: session.thickness != null ? `${Number(session.thickness).toFixed(1)} мм` : '—' },
+            { label: 'Лист',        value: session.sheet },
+            { label: 'Сляб',        value: session.slab    ?? '—' },
+            { label: 'Плавка',      value: session.melt    ?? '—' },
+            { label: 'Партия',      value: session.partNo  ?? '—' },
+            { label: 'Пачка',       value: session.pack    ?? '—' },
+            { label: 'Марка стали', value: session.alloyCodeText || session.alloyCode || '—' },
+            { label: 'Толщина',     value: session.thickness != null ? `${Number(session.thickness).toFixed(1)} мм` : '—' },
           ].map(({ label, value }) => (
             <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
               <Box>
@@ -381,7 +430,6 @@ const FurnaceReport = () => {
 
         <Divider sx={{ my: 2 }} />
 
-        {/* Времена */}
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
           <Grid item xs={12} sm={6} md={4}>
             <Typography variant="caption" color="text.secondary">Вход в печь</Typography>
@@ -399,7 +447,6 @@ const FurnaceReport = () => {
           </Grid>
         </Grid>
 
-        {/* Время в зонах */}
         <Typography variant="subtitle2" gutterBottom>Время в зонах</Typography>
         <Grid container spacing={1}>
           {['F1','F2','F3','F4'].map((zone, i) => {
@@ -416,127 +463,47 @@ const FurnaceReport = () => {
         </Grid>
       </Paper>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Средние температуры                                                 */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Средние температуры */}
       <Paper sx={{ p: 2.5, mb: 2 }}>
         <Typography variant="subtitle1" fontWeight={600} gutterBottom>
           Средние температуры за нагрев
         </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableBody>
-              <TableRow>
-                {[
-                  ['Зона 1. Термопара 1', session.avgZ1_1], ['Зона 1. Термопара 2', session.avgZ1_2],
-                  ['Зона 1. Термопара 3', session.avgZ1_3], ['Зона 1. Термопара 4', session.avgZ1_4],
-                ].map(([label, val]) => (
-                  <React.Fragment key={label}>
-                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#ff7043' }}>{fmtTemp(val)}</TableCell>
-                  </React.Fragment>
-                ))}
-              </TableRow>
-              <TableRow>
-                {[
-                  ['Зона 2. Термопара 1', session.avgZ2_1], ['Зона 2. Термопара 2', session.avgZ2_2],
-                  ['Зона 2. Термопара 3', session.avgZ2_3], ['Зона 2. Термопара 4', session.avgZ2_4],
-                ].map(([label, val]) => (
-                  <React.Fragment key={label}>
-                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#ff7043' }}>{fmtTemp(val)}</TableCell>
-                  </React.Fragment>
-                ))}
-              </TableRow>
-              <TableRow>
-                {[
-                  ['Зона 3. Термопара 1', session.avgZ3_1], ['Зона 3. Термопара 2', session.avgZ3_2],
-                  ['Зона 3. Термопара 3', session.avgZ3_3], ['Зона 3. Термопара 4', session.avgZ3_4],
-                ].map(([label, val]) => (
-                  <React.Fragment key={label}>
-                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#ff7043' }}>{fmtTemp(val)}</TableCell>
-                  </React.Fragment>
-                ))}
-              </TableRow>
-              <TableRow>
-                {[
-                  ['Зона 4. Термопара 1', session.avgZ4_1], ['Зона 4. Термопара 2', session.avgZ4_2],
-                  ['Зона 4. Термопара 3', session.avgZ4_3], ['Зона 4. Термопара 4', session.avgZ4_4],
-                ].map(([label, val]) => (
-                  <React.Fragment key={label}>
-                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{label}</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#ef5350' }}>{fmtTemp(val)}</TableCell>
-                  </React.Fragment>
-                ))}
-              </TableRow>
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <AvgTempsTable session={session} />
       </Paper>
 
-{/* ------------------------------------------------------------------ */}
-{/* Графики температур                                                  */}
-{/* ------------------------------------------------------------------ */}
-{tempsLoading ? (
-  <Box sx={{ textAlign: 'center', py: 3 }}>
-    <CircularProgress size={24} />
-    <Typography variant="body2" color="text.secondary" mt={1}>
-      Загрузка температур...
-    </Typography>
-  </Box>
-) : hasTemps ? (
-  <>
-    <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-      Температуры по зонам ({timestamps.length} точек)
-      {apiTemps && !sessionTemps && (
-        <Chip 
-          label="Загружены через API" 
-          size="small" 
-          variant="outlined" 
-          sx={{ ml: 1 }} 
-        />
-      )}
-    </Typography>
-    <Grid container spacing={2}>
-      {[
-        { label: 'Зона 1', obj: tempsZ1, def: SERIES.Z1 },
-        { label: 'Зона 2', obj: tempsZ2, def: SERIES.Z2 },
-        { label: 'Зона 3', obj: tempsZ3, def: SERIES.Z3 },
-        { label: 'Зона 4', obj: tempsZ4, def: SERIES.Z4 },
-      ].map(({ label, obj, def }) => (
-        obj ? ( // ✅ Добавлена проверка наличия данных для зоны
-          <Grid item xs={12} md={6} key={label}>
-            <Paper sx={{ p: 1.5, borderRadius: 2 }}>
-              <ZoneChart
-                title={label}
-                tempsObj={obj}
-                timestamps={timestamps}
-                seriesDef={def}
-                height={260}
-              />
-            </Paper>
+      {/* Графики */}
+      {hasTemps ? (
+        <>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+            Температуры по зонам ({pointsCount} точек)
+            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              — пунктир = задание
+            </Typography>
+          </Typography>
+          <Grid container spacing={2}>
+            {zones.map(({ label, obj, def, refKey }) => (
+              <Grid item xs={12} md={6} key={label}>
+                <Paper sx={{ p: 1.5, borderRadius: 2 }}>
+                  <ZoneChart
+                    title={label}
+                    tempsObj={obj}
+                    seriesDef={def}
+                    refKey={refKey}
+                    height={450}
+                  />
+                </Paper>
+              </Grid>
+            ))}
           </Grid>
-        ) : null
-      ))}
-    </Grid>
-  </>
-) : (
-  <Alert severity="info">
-    Температуры не записаны для этой сессии. Для просмотра используйте
-    страницу «Горение печи» за период{' '}
-    {fmtDate(session.enteredAt)} — {fmtDate(session.exitedAt)}.
-  </Alert>
-)}
+        </>
+      ) : (
+        <Alert severity="info">
+          Температуры не записаны для этой сессии. Используйте страницу «Горение печи»
+          за период {fmtDate(session.enteredAt)} — {fmtDate(session.exitedAt)}.
+        </Alert>
+      )}
 
-      {/* Дата формирования отчёта */}
-      <Typography
-        variant="caption"
-        color="text.disabled"
-        display="block"
-        textAlign="right"
-        mt={3}
-      >
+      <Typography variant="caption" color="text.disabled" display="block" textAlign="right" mt={3}>
         Отчёт сформирован: {fmtDate(new Date())} | business_key: {key}
       </Typography>
     </Box>

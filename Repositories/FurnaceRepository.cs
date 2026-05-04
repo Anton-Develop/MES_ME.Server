@@ -162,52 +162,13 @@ public sealed class FurnaceRepository : IFurnaceRepository
 
     public async Task<IEnumerable<dynamic>> FindMissedSheetsAsync(int daysBack, CancellationToken ct = default)
     {
-        const string sql = """
-        SELECT 
-            sheet,
-            melt,
-            part_no,
-            pack,
-            MAX(slab) AS slab,
-            MAX(alloy_code) AS alloy_code,
-            MAX(alloy_code_text) AS alloy_code_text,
-            MAX(thickness) AS thickness,
-            MIN(CASE WHEN zone = 'F1' THEN time END) AS entered_at,
-            MAX(CASE WHEN zone = 'F4' THEN time END) AS exited_at,
-            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F1' THEN time END) - MIN(CASE WHEN zone='F1' THEN time END))) / 60 AS f1_min,
-            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F2' THEN time END) - MIN(CASE WHEN zone='F2' THEN time END))) / 60 AS f2_min,
-            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F3' THEN time END) - MIN(CASE WHEN zone='F3' THEN time END))) / 60 AS f3_min,
-            EXTRACT(EPOCH FROM (MAX(CASE WHEN zone='F4' THEN time END) - MIN(CASE WHEN zone='F4' THEN time END))) / 60 AS f4_min,
-            CONCAT_WS('->',
-                MAX(CASE WHEN zone='F1' THEN zone END),
-                MAX(CASE WHEN zone='F2' THEN zone END),
-                MAX(CASE WHEN zone='F3' THEN zone END),
-                MAX(CASE WHEN zone='F4' THEN zone END)
-            ) AS zones_path,
-            BOOL_OR(alarm_exist) AS had_alarm
-        FROM plc.furnace_zone_data
-        WHERE zone IN ('F1','F2','F3','F4')
-          AND zone_occup = TRUE
-          AND sheet > 0
-          AND part_no > 0
-          AND pack > 0
-          AND time > NOW() - MAKE_INTERVAL(days => @DaysBack)
-        GROUP BY sheet, melt, part_no, pack
-        HAVING 
-            MAX(CASE WHEN zone='F4' THEN time END) < NOW() - INTERVAL '5 minutes'
-            AND MAX(CASE WHEN zone='F4' THEN time END) IS NOT NULL
-            AND (sheet, melt, part_no, pack) NOT IN (
-                SELECT sheet, melt, part_no, pack FROM plc.heating_sessions
-            )
-        ORDER BY MIN(time)
-    """;
-
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            return await con.QueryAsync(sql, new { DaysBack = daysBack });
+            return await con.QueryAsync(Sql.FindMissedSheets, new { DaysBack = daysBack });
         });
     }
+
 
 
     public async Task<TemperatureArraysDto> GetTemperatureArraysAsync(

@@ -51,26 +51,27 @@ public sealed class HeatingSession
     public string? TempsTime { get; init; } // JSON строка временных меток
 
     // Вычисляемые свойства для удобного доступа
-    [NotMapped]
+    //[NotMapped]
+    [System.Text.Json.Serialization.JsonIgnore]
     public List<ZoneTemperatures>? Z1Temperatures =>
         string.IsNullOrEmpty(TempsZ1) ? new List<ZoneTemperatures>() :
         JsonSerializer.Deserialize<List<ZoneTemperatures>>(TempsZ1);
-
+    [System.Text.Json.Serialization.JsonIgnore]
     [NotMapped]
     public List<ZoneTemperatures>? Z2Temperatures =>
         string.IsNullOrEmpty(TempsZ2) ? new List<ZoneTemperatures>() :
         JsonSerializer.Deserialize<List<ZoneTemperatures>>(TempsZ2);
-
+    [System.Text.Json.Serialization.JsonIgnore]
     [NotMapped]
     public List<ZoneTemperatures>? Z3Temperatures =>
         string.IsNullOrEmpty(TempsZ3) ? new List<ZoneTemperatures>() :
         JsonSerializer.Deserialize<List <ZoneTemperatures>>(TempsZ3);
-
+    [System.Text.Json.Serialization.JsonIgnore]
     [NotMapped]
     public List<ZoneTemperatures>? Z4Temperatures =>
         string.IsNullOrEmpty(TempsZ4) ? new List<ZoneTemperatures>() :
         JsonSerializer.Deserialize<List<ZoneTemperatures>>(TempsZ4);
-
+    [System.Text.Json.Serialization.JsonIgnore]
     [NotMapped]
     public List<DateTime>? TimePoints =>
         string.IsNullOrEmpty(TempsTime) ? new List<DateTime>() :

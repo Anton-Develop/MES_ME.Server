@@ -156,21 +156,129 @@ public sealed class HeatingSessionWorker : BackgroundService
             return;
         }
 
-        var tempsFrom = enteredAt;
-        var tempsTo = exitedAt;
+        static float? Avg(List<float?> list) => list?.Where(v => v.HasValue).Select(v => v!.Value).ToList() is var vals && vals.Count > 0 ? vals.Average() : null;
 
-        var tempsRaw = await repo.GetTemperatureArraysAsync(tempsFrom, tempsTo, ct);
-        var temps = DownsampleTemps(tempsRaw, 300);
+        float? avgZ1_1 = null, avgZ1_2 = null, avgZ1_3 = null, avgZ1_4 = null;
+        float? avgZ2_1 = null, avgZ2_2 = null, avgZ2_3 = null, avgZ2_4 = null;
+        float? avgZ3_1 = null, avgZ3_2 = null, avgZ3_3 = null, avgZ3_4 = null;
+        float? avgZ4_1 = null, avgZ4_2 = null, avgZ4_3 = null, avgZ4_4 = null;
+        string? tempsZ1 = null, tempsZ2 = null, tempsZ3 = null, tempsZ4 = null;
 
-
-        // Хелпер среднего — игнорирует null
-        static float? Avg(List<float?> list)
+        // Обработка зоны F1
+        DateTime? enteredF1 = null, exitedF1 = null;
+        try
         {
-            if (list == null || list.Count == 0) return null;
-            var vals = list.Where(v => v.HasValue).Select(v => v!.Value).ToList();
-            return vals.Count > 0 ? vals.Average() : null;
+            var e1 = c.entered_at_f1;
+            var x1 = c.exited_at_f1;
+            if (e1 is DateTime dt1 && x1 is DateTime dt2)
+            {
+                enteredF1 = dt1;
+                exitedF1 = dt2;
+            }
+        }
+        catch { /* не было в зоне */ }
+
+        if (enteredF1.HasValue && exitedF1.HasValue && enteredF1.Value < exitedF1.Value)
+        {
+            var from = ToUtc(enteredF1.Value);
+            var to = ToUtc(exitedF1.Value);
+            var raw = await repo.GetTemperatureArraysAsync(from, to, ct);
+            avgZ1_1 = Avg(raw.Z1_1);
+            avgZ1_2 = Avg(raw.Z1_2);
+            avgZ1_3 = Avg(raw.Z1_3);
+            avgZ1_4 = Avg(raw.Z1_4);
+            var down = DownsampleTemps(raw, 300);
+            var jsonObj = new { times = down.Times.Select(t => t.ToString("o")).ToList(), z1_1 = down.Z1_1, z1_2 = down.Z1_2, z1_3 = down.Z1_3, z1_4 = down.Z1_4, z1_1_ref = down.Z1_1_Ref };
+            tempsZ1 = JsonSerializer.Serialize(jsonObj);
         }
 
+
+
+        // Зона F2
+        DateTime? enteredF2 = null, exitedF2 = null;
+        try
+        {
+            var e1 = c.entered_at_f2;
+            var x1 = c.exited_at_f2;
+            if (e1 is DateTime dt1 && x1 is DateTime dt2)
+            {
+                enteredF2 = dt1;
+                exitedF2 = dt2;
+            }
+        }
+        catch { /* не было в зоне */ }
+
+        if (enteredF2.HasValue && exitedF2.HasValue && enteredF2.Value < exitedF2.Value)
+        {
+            var from = ToUtc(enteredF2.Value);
+            var to = ToUtc(exitedF2.Value);
+            var raw = await repo.GetTemperatureArraysAsync(from, to, ct);
+            avgZ2_1 = Avg(raw.Z2_1);
+            avgZ2_2 = Avg(raw.Z2_2);
+            avgZ2_3 = Avg(raw.Z2_3);
+            avgZ2_4 = Avg(raw.Z2_4);
+            var down = DownsampleTemps(raw, 300);
+            var jsonObj = new { times = down.Times.Select(t => t.ToString("o")).ToList(), z2_1 = down.Z2_1, z2_2 = down.Z2_2, z2_3 = down.Z2_3, z2_4 = down.Z2_4, z2_1_ref = down.Z2_1_Ref };
+            tempsZ2 = JsonSerializer.Serialize(jsonObj);
+        }
+
+        // Зона F3
+        DateTime? enteredF3 = null, exitedF3 = null;
+        try
+        {
+            var e1 = c.entered_at_f3;
+            var x1 = c.exited_at_f3;
+            if (e1 is DateTime dt1 && x1 is DateTime dt2)
+            {
+                enteredF3 = dt1;
+                exitedF3 = dt2;
+            }
+        }
+        catch { /* не было в зоне */ }
+
+        if (enteredF3.HasValue && exitedF3.HasValue && enteredF3.Value < exitedF3.Value)
+        {
+            var from = ToUtc(enteredF3.Value);
+            var to = ToUtc(exitedF3.Value);
+            var raw = await repo.GetTemperatureArraysAsync(from, to, ct);
+            avgZ3_1 = Avg(raw.Z3_1);
+            avgZ3_2 = Avg(raw.Z3_2);
+            avgZ3_3 = Avg(raw.Z3_3);
+            avgZ3_4 = Avg(raw.Z3_4);
+            var down = DownsampleTemps(raw, 300);
+            var jsonObj = new { times = down.Times.Select(t => t.ToString("o")).ToList(), Z3_1 = down.Z3_1, Z3_2 = down.Z3_2, Z3_3 = down.Z3_3, Z3_4 = down.Z3_4, Z3_1_ref = down.Z3_1_Ref };
+            tempsZ3 = JsonSerializer.Serialize(jsonObj);
+        }
+
+        // Зона F4
+        DateTime? enteredF4 = null, exitedF4 = null;
+        try
+        {
+            var e1 = c.entered_at_f4;
+            var x1 = c.exited_at_f4;
+            if (e1 is DateTime dt1 && x1 is DateTime dt2)
+            {
+                enteredF4 = dt1;
+                exitedF4 = dt2;
+            }
+        }
+        catch { /* не было в зоне */ }
+
+        if (enteredF4.HasValue && exitedF4.HasValue && enteredF4.Value < exitedF4.Value)
+        {
+            var from = ToUtc(enteredF4.Value);
+            var to = ToUtc(exitedF4.Value);
+            var raw = await repo.GetTemperatureArraysAsync(from, to, ct);
+            avgZ4_1 = Avg(raw.Z4_1);
+            avgZ4_2 = Avg(raw.Z4_2);
+            avgZ4_3 = Avg(raw.Z4_3);
+            avgZ4_4 = Avg(raw.Z4_4);
+            var down = DownsampleTemps(raw, 300);
+            var jsonObj = new { times = down.Times.Select(t => t.ToString("o")).ToList(), Z4_1 = down.Z4_1, Z4_2 = down.Z4_2, Z4_3 = down.Z4_3, Z4_4 = down.Z4_4, Z4_1_ref = down.Z4_1_Ref };
+            tempsZ4 = JsonSerializer.Serialize(jsonObj);
+        }
+
+        // Формирование parameters и вызов UpsertHeatingSession (как раньше, но с новыми avg и temps)
         var parameters = new
         {
             Sheet = ConvertToInt(c.sheet),
@@ -183,70 +291,62 @@ public sealed class HeatingSessionWorker : BackgroundService
             AlloyCodeText = ConvertToString(c.alloy_code_text),
             Thickness = ConvertToNullableFloat(c.thickness),
             ZonesPath = ConvertToString(c.zones_path),
-            EnteredAt = enteredAt,
-            ExitedAt = exitedAt,
-            TotalMin = (float)(exitedAt - enteredAt).TotalMinutes,
+            EnteredAt = ToUtc(enteredAtRaw),
+            ExitedAt = ToUtc(exitedAtRaw),
+            TotalMin = (float)(exitedAtRaw - enteredAtRaw).TotalMinutes,
             F1Min = ConvertToNullableFloat(c.f1_min),
             F2Min = ConvertToNullableFloat(c.f2_min),
             F3Min = ConvertToNullableFloat(c.f3_min),
             F4Min = ConvertToNullableFloat(c.f4_min),
             HadAlarm = ConvertToBool(c.had_alarm),
-            // Средние — из полных данных
-            AvgZ1_1 = Avg(tempsRaw.Z1_1),
-            AvgZ1_2 = Avg(tempsRaw.Z1_2),
-            AvgZ1_3 = Avg(tempsRaw.Z1_3), 
-            AvgZ1_4 = Avg(tempsRaw.Z1_4),  
-            AvgZ2_1 = Avg(tempsRaw.Z2_1),
-            AvgZ2_2 = Avg(tempsRaw.Z2_2),
-            AvgZ2_3 = Avg(tempsRaw.Z2_3),  
-            AvgZ2_4 = Avg(tempsRaw.Z2_4), 
-            AvgZ3_1 = Avg(tempsRaw.Z3_1),
-            AvgZ3_2 = Avg(tempsRaw.Z3_2),
-            AvgZ3_3 = Avg(tempsRaw.Z3_3),
-            AvgZ3_4 = Avg(tempsRaw.Z3_4),
-            AvgZ4_1 = Avg(tempsRaw.Z4_1),
-            AvgZ4_2 = Avg(tempsRaw.Z4_2),
-            AvgZ4_3 = Avg(tempsRaw.Z4_3),
-            AvgZ4_4 = Avg(tempsRaw.Z4_4),
-
-            // Массивы с заданиями — добавляем ref в каждую зону
-            TempsZ1 = JsonSerializer.Serialize(new {
-                z1_1     = temps.Z1_1,
-                z1_2     = temps.Z1_2,
-                z1_3     = temps.Z1_3,
-                z1_4     = temps.Z1_4,
-                z1_1_ref = temps.Z1_1_Ref  // ← задание зоны 1
-            }),
-            TempsZ2 = JsonSerializer.Serialize(new {
-                z2_1     = temps.Z2_1,
-                z2_2     = temps.Z2_2,
-                z2_3     = temps.Z2_3,
-                z2_4     = temps.Z2_4,
-                z2_1_ref = temps.Z2_1_Ref  // ← задание зоны 2
-            }),
-            TempsZ3 = JsonSerializer.Serialize(new {
-                z3_1     = temps.Z3_1,
-                z3_2     = temps.Z3_2,
-                z3_3     = temps.Z3_3,
-                z3_4     = temps.Z3_4,
-                z3_1_ref = temps.Z3_1_Ref  // ← задание зоны 3
-            }),
-            TempsZ4 = JsonSerializer.Serialize(new {
-                z4_1     = temps.Z4_1,
-                z4_2     = temps.Z4_2,
-                z4_3     = temps.Z4_3,
-                z4_4     = temps.Z4_4,
-                z4_1_ref = temps.Z4_1_Ref  // ← задание зоны 4
-            }),
-            TempsTime = JsonSerializer.Serialize(temps.Times),
-                
+            AvgZ1_1 = avgZ1_1,
+            AvgZ1_2 = avgZ1_2,
+            AvgZ1_3 = avgZ1_3,
+            AvgZ1_4 = avgZ1_4,
+            AvgZ2_1 = avgZ2_1,
+            AvgZ2_2 = avgZ2_2,
+            AvgZ2_3 = avgZ2_3,
+            AvgZ2_4 = avgZ2_4,
+            AvgZ3_1 = avgZ3_1,
+            AvgZ3_2 = avgZ3_2,
+            AvgZ3_3 = avgZ3_3,
+            AvgZ3_4 = avgZ3_4,
+            AvgZ4_1 = avgZ4_1,
+            AvgZ4_2 = avgZ4_2,
+            AvgZ4_3 = avgZ4_3,
+            AvgZ4_4 = avgZ4_4,
+            TempsZ1 = tempsZ1,
+            TempsZ2 = tempsZ2,
+            TempsZ3 = tempsZ3,
+            TempsZ4 = tempsZ4,
+            TempsTime = "[]" // или null – в данном варианте временные метки хранятся внутри каждого tempsZx, поэтому общее поле можно не заполнять
         };
-
         await repo.UpsertHeatingSessionAsync(parameters, ct);
 
-        
+    }
+    // Вспомогательные методы
+    private DateTime? GetNullableDateTime(object? value)
+    {
+        _log.LogDebug("GetNullableDateTime input: {Value} ({Type})", value, value?.GetType());
+        if (value == null || value == DBNull.Value) return null;
+        if (value is DateTime dt) return dt;
+        _log.LogWarning("Unexpected type: {Type}", value.GetType());
+        return null;
     }
 
+    private DateTime? ConvertToNullableDateTime(object? value)
+    {
+        if (value == null) return null;
+        if (value is DateTime dt) return dt;
+        return null;
+    }
+
+    private DateTime ToUtc(DateTime dt) => dt.Kind switch
+    {
+        DateTimeKind.Utc => dt,
+        DateTimeKind.Local => dt.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+    };
 
     // Вспомогательные методы для безопасного преобразования
     private int ConvertToInt(object? value)
