@@ -1,13 +1,16 @@
 // src/components/Furnace/FurnaceSessionsList.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, TextField, Button,
   Typography, Chip, CircularProgress, Grid, IconButton,
-  Tooltip, Alert,
+  Tooltip, Alert, Popover, InputAdornment,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { Visibility, Print, Refresh } from '@mui/icons-material';
+import {
+  Visibility, Print, Refresh, ArrowUpward, ArrowDownward,
+  FilterList, Close, Search, Clear,
+} from '@mui/icons-material';
 import { furnaceApi } from '../../api/furnaceApi';
 
 const fmtDate = (d) => d
@@ -19,44 +22,74 @@ const fmtDate = (d) => d
 
 const fmtMin = (v) => v != null ? `${Number(v).toFixed(1)} мин` : '—';
 
+// Конфигурация столбцов для сортировки и фильтрации
+const columns = [
+  { id: 'sheet', label: 'Лист', type: 'string' },
+  { id: 'slab', label: 'Сляб', type: 'string' },
+  { id: 'melt', label: 'Плавка', type: 'string' },
+  { id: 'partNo', label: 'Партия', type: 'string' },
+  { id: 'pack', label: 'Пачка', type: 'string' },
+  { id: 'reheatNum', label: '№ нагрева', type: 'number' },
+  { id: 'enteredAt', label: 'Вход', type: 'datetime' },
+  { id: 'exitedAt', label: 'Выход', type: 'datetime' },
+  { id: 'totalMin', label: 'Время', type: 'number' },
+  { id: 'f1Min', label: 'F1', type: 'number' },
+  { id: 'f2Min', label: 'F2', type: 'number' },
+  { id: 'f3Min', label: 'F3', type: 'number' },
+  { id: 'f4Min', label: 'F4', type: 'number' },
+  { id: 'zonesPath', label: 'Маршрут', type: 'string' },
+  { id: 'alloyCodeText', label: 'Сплав', type: 'string' },
+  { id: 'hadAlarm', label: 'Авария', type: 'boolean' },
+];
+
 const FurnaceSessionsList = () => {
   const navigate = useNavigate();
 
-  // Данные
-  const [sessions,    setSessions]    = useState([]);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(null);
-  const [total,       setTotal]       = useState(0);
+  // Данные с сервера
+  const [allSessions, setAllSessions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Пагинация (MUI TablePagination — 0-based)
-  const [page,        setPage]        = useState(0);
+  // Клиентская пагинация
+  const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
 
-  // Фильтры — черновик (до нажатия «Применить»)
+  // Сортировка
+  const [sortBy, setSortBy] = useState('enteredAt');
+  const [sortOrder, setSortOrder] = useState('desc');
+
+  // Фильтры для столбцов (клиентские)
+  const [columnFilters, setColumnFilters] = useState({});
+  const [filterAnchorEl, setFilterAnchorEl] = useState(null);
+  const [activeFilterColumn, setActiveFilterColumn] = useState(null);
+  const [filterTempValue, setFilterTempValue] = useState('');
+
+  // Глобальный поиск
+  const [globalSearch, setGlobalSearch] = useState('');
+
+  // ВАШИ ОРИГИНАЛЬНЫЕ ФИЛЬТРЫ (с серверной фильтрацией)
   const [draft, setDraft] = useState({
     slab: '', melt: '', alloyCode: '', dateFrom: '', dateTo: '',
   });
-
-  // Применённые фильтры (то что реально передаётся в запрос)
   const [applied, setApplied] = useState({
     slab: '', melt: '', alloyCode: '', dateFrom: '', dateTo: '',
   });
 
-  const fetchSessions = useCallback(async (pg, rpp, filters) => {
+  // Загрузка данных с учетом ВАШИХ фильтров
+  const fetchSessions = useCallback(async (filters) => {
     setLoading(true);
     setError(null);
     try {
       const res = await furnaceApi.getSessions({
-        page:      pg + 1,         // backend 1-based
-        pageSize:  rpp,
-        slab:      filters.slab      || undefined,
-        melt:      filters.melt      || undefined,
+        page: 1,
+        pageSize: 10000,
+        slab: filters.slab || undefined,
+        melt: filters.melt || undefined,
         alloyCode: filters.alloyCode || undefined,
-        from:      filters.dateFrom  || undefined,
-        to:        filters.dateTo    || undefined,
+        from: filters.dateFrom || undefined,
+        to: filters.dateTo || undefined,
       });
-      setSessions(res.data.items  ?? []);
-      setTotal(res.data.total     ?? 0);
+      setAllSessions(res.data.items ?? []);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Ошибка загрузки данных');
     } finally {
@@ -64,32 +97,187 @@ const FurnaceSessionsList = () => {
     }
   }, []);
 
-  // Загружаем при монтировании и при смене страницы/rowsPerPage
+  // Загружаем при изменении applied фильтров
   useEffect(() => {
-    fetchSessions(page, rowsPerPage, applied);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, rowsPerPage]);
+    fetchSessions(applied);
+  }, [applied, fetchSessions]);
 
+  // Применение ВАШИХ фильтров (с сервера)
   const handleApplyFilter = () => {
     setPage(0);
     setApplied({ ...draft });
-    fetchSessions(0, rowsPerPage, draft);
+    setColumnFilters({}); // Сбрасываем клиентские фильтры
+    setGlobalSearch('');   // Сбрасываем глобальный поиск
   };
 
-  const handleRefresh = () => fetchSessions(page, rowsPerPage, applied);
+  // Сброс ВАШИХ фильтров
+  const handleResetFilters = () => {
+    setDraft({ slab: '', melt: '', alloyCode: '', dateFrom: '', dateTo: '' });
+    setApplied({ slab: '', melt: '', alloyCode: '', dateFrom: '', dateTo: '' });
+    setColumnFilters({});
+    setGlobalSearch('');
+    setPage(0);
+  };
+
+  // ============ КЛИЕНТСКАЯ ФИЛЬТРАЦИЯ ============
+  const filteredSessions = useMemo(() => {
+    let result = [...allSessions];
+
+    // Применяем фильтры по столбцам (клиентские)
+    Object.entries(columnFilters).forEach(([columnId, filterValue]) => {
+      if (!filterValue || filterValue === '') return;
+      
+      result = result.filter(item => {
+        const itemValue = item[columnId];
+        if (itemValue == null) return false;
+        
+        const column = columns.find(c => c.id === columnId);
+        
+        switch (column?.type) {
+          case 'boolean':
+            return String(itemValue) === filterValue;
+          case 'number':
+            return Number(itemValue) === Number(filterValue);
+          case 'datetime':
+            // Фильтрация по дате (сравнение только по дате без времени)
+            const itemDate = new Date(itemValue).toLocaleDateString('ru-RU');
+            return itemDate.includes(filterValue);
+          case 'string':
+          default:
+            return String(itemValue).toLowerCase().includes(String(filterValue).toLowerCase());
+        }
+      });
+    });
+
+    // Глобальный поиск
+    if (globalSearch.trim()) {
+      const searchLower = globalSearch.toLowerCase();
+      result = result.filter(item => {
+        return columns.some(col => {
+          const value = item[col.id];
+          if (value == null) return false;
+          return String(value).toLowerCase().includes(searchLower);
+        });
+      });
+    }
+
+    return result;
+  }, [allSessions, columnFilters, globalSearch]);
+
+  // Сортировка
+  const sortedSessions = useMemo(() => {
+    const sorted = [...filteredSessions];
+    
+    sorted.sort((a, b) => {
+      let aVal = a[sortBy];
+      let bVal = b[sortBy];
+      
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      
+      const column = columns.find(c => c.id === sortBy);
+      
+      switch (column?.type) {
+        case 'number':
+          aVal = Number(aVal);
+          bVal = Number(bVal);
+          break;
+        case 'datetime':
+          aVal = new Date(aVal).getTime();
+          bVal = new Date(bVal).getTime();
+          break;
+        case 'boolean':
+          aVal = aVal ? 1 : 0;
+          bVal = bVal ? 1 : 0;
+          break;
+        default:
+          aVal = String(aVal).toLowerCase();
+          bVal = String(bVal).toLowerCase();
+      }
+      
+      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [filteredSessions, sortBy, sortOrder]);
+
+  // Пагинация
+  const paginatedSessions = useMemo(() => {
+    const start = page * rowsPerPage;
+    return sortedSessions.slice(start, start + rowsPerPage);
+  }, [sortedSessions, page, rowsPerPage]);
+
+  const totalFiltered = sortedSessions.length;
+
+  // Обработчики сортировки и фильтров
+  const handleSort = (columnId) => {
+    if (sortBy === columnId) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(columnId);
+      setSortOrder('asc');
+    }
+  };
+
+  const handleOpenFilter = (event, columnId) => {
+    setActiveFilterColumn(columnId);
+    setFilterTempValue(columnFilters[columnId] || '');
+    setFilterAnchorEl(event.currentTarget);
+  };
+
+  const handleCloseFilter = () => {
+    setFilterAnchorEl(null);
+    setActiveFilterColumn(null);
+    setFilterTempValue('');
+  };
+
+  const handleApplyColumnFilter = () => {
+    if (activeFilterColumn) {
+      setColumnFilters(prev => ({
+        ...prev,
+        [activeFilterColumn]: filterTempValue,
+      }));
+      setPage(0);
+    }
+    handleCloseFilter();
+  };
+
+  const handleClearColumnFilter = (columnId) => {
+    setColumnFilters(prev => {
+      const newFilters = { ...prev };
+      delete newFilters[columnId];
+      return newFilters;
+    });
+    setPage(0);
+  };
+
+  const handleClearAllClientFilters = () => {
+    setColumnFilters({});
+    setGlobalSearch('');
+    setPage(0);
+  };
+
+  const handleGlobalSearchChange = (e) => {
+    setGlobalSearch(e.target.value);
+    setPage(0);
+  };
+
+  const handleRefresh = () => {
+    fetchSessions(applied);
+  };
 
   const handleChangePage = (_, newPage) => setPage(newPage);
-
   const handleChangeRowsPerPage = (e) => {
     setRowsPerPage(parseInt(e.target.value, 10));
     setPage(0);
   };
 
-  // ✅ ИСПРАВЛЕНО: передача key через query-параметр, как в AnnealingBatchPlanPage
   const handleViewReport = (businessKey) =>
     navigate(`/furnace/report?key=${encodeURIComponent(businessKey)}`);
 
-  // ✅ ИСПРАВЛЕНО: печать тоже через query-параметр
   const handlePrint = (businessKey) => {
     const w = window.open(
       `/furnace/report?key=${encodeURIComponent(businessKey)}&print=true`,
@@ -97,6 +285,17 @@ const FurnaceSessionsList = () => {
     );
     w?.focus();
   };
+
+  const getSortIcon = (columnId) => {
+    if (sortBy !== columnId) return null;
+    return sortOrder === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />;
+  };
+
+  const isFilterActive = (columnId) => {
+    return columnFilters[columnId] && columnFilters[columnId] !== '';
+  };
+
+  const hasActiveClientFilters = Object.keys(columnFilters).length > 0 || globalSearch;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -110,11 +309,11 @@ const FurnaceSessionsList = () => {
           </IconButton>
         </Tooltip>
         <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-          Всего: {total}
+          Всего: {allSessions.length} | Отфильтровано: {totalFiltered}
         </Typography>
       </Box>
 
-      {/* Фильтры */}
+      {/* ВАШИ ОРИГИНАЛЬНЫЕ ФИЛЬТРЫ (с сервера) */}
       <Paper sx={{ p: 2, mb: 2, borderRadius: 2 }}>
         <Grid container spacing={1.5} alignItems="flex-end">
           <Grid item xs={6} sm={2}>
@@ -156,6 +355,65 @@ const FurnaceSessionsList = () => {
               Применить
             </Button>
           </Grid>
+          <Grid item xs={6} sm={2}>
+            <Button variant="outlined" onClick={handleResetFilters} fullWidth>
+              Сбросить
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {/* Дополнительная фильтрация (клиентская) */}
+      <Paper sx={{ p: 2, mb: 2, borderRadius: 2, bgcolor: '#f8f9fa' }}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} sm={4}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Глобальный поиск по таблице..."
+              value={globalSearch}
+              onChange={handleGlobalSearchChange}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: globalSearch && (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setGlobalSearch('')}>
+                      <Close fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={8}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography variant="caption" color="text.secondary">
+                Фильтр по столбцам:
+              </Typography>
+              {hasActiveClientFilters && (
+                <Button size="small" onClick={handleClearAllClientFilters} startIcon={<Clear />}>
+                  Сбросить все фильтры
+                </Button>
+              )}
+              {Object.entries(columnFilters).map(([key, value]) => {
+                const column = columns.find(c => c.id === key);
+                return (
+                  <Chip
+                    key={key}
+                    label={`${column?.label}: ${value}`}
+                    onDelete={() => handleClearColumnFilter(key)}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                );
+              })}
+            </Box>
+          </Grid>
         </Grid>
       </Paper>
 
@@ -166,46 +424,79 @@ const FurnaceSessionsList = () => {
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell><b>Лист</b></TableCell>
-              <TableCell><b>Сляб</b></TableCell>
-              <TableCell><b>Плавка</b></TableCell>
-              <TableCell><b>Партия</b></TableCell>
-              <TableCell><b>Пачка</b></TableCell>
-              <TableCell><b>№ нагрева</b></TableCell>
-              <TableCell><b>Вход</b></TableCell>
-              <TableCell><b>Выход</b></TableCell>
-              <TableCell><b>Время</b></TableCell>
-              <TableCell><b>F1</b></TableCell>
-              <TableCell><b>F2</b></TableCell>
-              <TableCell><b>F3</b></TableCell>
-              <TableCell><b>F4</b></TableCell>
-              <TableCell><b>Маршрут</b></TableCell>
-              <TableCell><b>Сплав</b></TableCell>
-              <TableCell><b>Авария</b></TableCell>
-              <TableCell align="center"><b>Действия</b></TableCell>
+              {columns.map((col) => (
+                <TableCell
+                  key={col.id}
+                  sx={{ 
+                    fontWeight: 600,
+                    backgroundColor: '#fafafa',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Button
+                      size="small"
+                      onClick={() => handleSort(col.id)}
+                      sx={{ 
+                        minWidth: 'auto', 
+                        p: 0.5, 
+                        fontWeight: 600,
+                        textTransform: 'none',
+                        color: 'text.primary',
+                        '&:hover': { backgroundColor: 'transparent' },
+                      }}
+                    >
+                      {col.label}
+                      {getSortIcon(col.id)}
+                    </Button>
+                    
+                    <Tooltip title="Фильтр по столбцу">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => handleOpenFilter(e, col.id)}
+                        sx={{ 
+                          p: 0.5,
+                          color: isFilterActive(col.id) ? 'primary.main' : 'action.active',
+                        }}
+                      >
+                        <FilterList fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
+              ))}
+              <TableCell 
+                sx={{ 
+                  fontWeight: 600, 
+                  backgroundColor: '#fafafa',
+                  whiteSpace: 'nowrap',
+                }}
+                align="center"
+              >
+                Действия
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={17} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={columns.length + 1} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={32} />
                 </TableCell>
               </TableRow>
-            ) : sessions.length === 0 ? (
+            ) : paginatedSessions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={17} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={columns.length + 1} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                   Нет данных
                 </TableCell>
               </TableRow>
             ) : (
-              sessions.map(s => (
+              paginatedSessions.map(s => (
                 <TableRow
                   key={s.businessKey ?? s.id}
                   hover
                   sx={{
-                    // Повторный нагрев — лёгкий жёлтый фон
-                    bgcolor: s.reheatNum > 0 ? 'warning.50' : 'inherit',
+                    bgcolor: s.reheatNum > 0 ? '#fff8e1' : 'inherit',
                   }}
                 >
                   <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
@@ -276,7 +567,7 @@ const FurnaceSessionsList = () => {
         <TablePagination
           rowsPerPageOptions={[10, 20, 50, 100]}
           component="div"
-          count={total}
+          count={totalFiltered}
           rowsPerPage={rowsPerPage}
           page={page}
           onPageChange={handleChangePage}
@@ -285,6 +576,50 @@ const FurnaceSessionsList = () => {
           labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
         />
       </TableContainer>
+
+      {/* Popover для фильтрации столбца */}
+      <Popover
+        open={Boolean(filterAnchorEl)}
+        anchorEl={filterAnchorEl}
+        onClose={handleCloseFilter}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'left',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'left',
+        }}
+      >
+        <Box sx={{ p: 2, minWidth: 250 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Фильтр: {columns.find(c => c.id === activeFilterColumn)?.label}
+          </Typography>
+          
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Введите значение..."
+            value={filterTempValue}
+            onChange={(e) => setFilterTempValue(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleApplyColumnFilter()}
+            autoFocus
+          />
+          
+          <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+            <Button size="small" onClick={handleCloseFilter}>
+              Отмена
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleApplyColumnFilter}
+            >
+              Применить
+            </Button>
+          </Box>
+        </Box>
+      </Popover>
     </Box>
   );
 };
