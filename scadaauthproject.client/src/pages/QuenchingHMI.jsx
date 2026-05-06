@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useOpcUa, useOpcTag } from '../hooks/useOpcUa';
 import api from '../api';
 
 const C = {
@@ -101,9 +102,26 @@ export default function QuenchingHMI() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [plans, setPlans]               = useState([]);
 // --- Новое состояние для реальных температур ---
-    const [realTemps, setRealTemps] = useState([0, 0, 0, 0]); // Инициализируем нулями или значениями по умолчанию
+   // const [realTemps, setRealTemps] = useState([0, 0, 0, 0]); // Инициализируем нулями или значениями по умолчанию
 // --- Новая функция для загрузки реальных температур ---
-    const fetchRealTemps = async () => {
+const { values, connected, write } = useOpcUa([
+    'T_F1_MedAct', 'T_F2_MedAct', 'T_F3_MedAct', 'T_F4_MedAct',
+    
+  ]);
+// Создаем массив realTemps из полученных значений
+const realTemps = [
+  Math.round(values['T_F1_MedAct']?.value ?? 0),
+  Math.round(values['T_F2_MedAct']?.value ?? 0),
+  Math.round(values['T_F3_MedAct']?.value ?? 0),
+  Math.round(values['T_F4_MedAct']?.value ?? 0),
+];
+const setZoneTemp = async (zone, temp) => {
+    const ok = await write(`z${zone}_setpoint`, temp);
+    console.log('Write result:', ok);
+  };
+
+// ---Через restapi чтение с базы, но это жопа ---
+  /*  const fetchRealTemps = async () => {
         try {
             console.log("Загрузка реальных температур...");
             const response = await api.get('/quenchinghmi/zonetemperatures');
@@ -122,7 +140,7 @@ export default function QuenchingHMI() {
             // Опционально: setError(err.message); - если хотите показывать ошибку температуры отдельно
             // Для простоты, оставим старые значения или установим 0, если ошибка
         }
-    };
+    };*/
    // Функция для загрузки списка планов
   const fetchPlans = async () => {
         try {
@@ -188,7 +206,7 @@ export default function QuenchingHMI() {
     useEffect(() => {
       const id = setInterval(() => {
         setTime(new Date());
-         fetchRealTemps();
+        // fetchRealTemps();
        // setTemps(t => t.map(v => Math.round((v + (Math.random() - 0.5) * 2) * 10) / 10));
         setCoolT(t => Math.round((t + (Math.random() - 0.5) * 0.4) * 10) / 10);
       }, 10000);

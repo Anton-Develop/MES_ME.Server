@@ -1,5 +1,6 @@
 
 using MES_ME.Server.Data;
+using MES_ME.Server.Hubs;
 using MES_ME.Server.OpcUa;
 using MES_ME.Server.Repositories;
 using MES_ME.Server.Workers;
@@ -75,7 +76,9 @@ namespace MES_ME.Server
                     {
                         policy.WithOrigins("http://localhost:3000") ///192.168.9.200
                               .AllowAnyHeader()
-                              .AllowAnyMethod();
+                              .AllowAnyMethod()
+                              .SetIsOriginAllowed(_ => true)
+                              .AllowCredentials();
                     });
             });
             builder.Services.AddSingleton<NpgsqlDataSource>(sp =>
@@ -116,6 +119,7 @@ namespace MES_ME.Server
             app.UseCors("AllowSpecificOrigin");
             app.UseAuthentication();
             app.UseAuthorization();
+            app.MapHub<OpcUaHub>("/hubs/opc");
 
             app.MapControllers();
 

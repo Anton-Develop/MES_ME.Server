@@ -38,6 +38,7 @@
     <Folder Include="Middleware\" />
     <Folder Include="Models\Tracking\" />
     <Folder Include="Repositories\" />
+    <Folder Include="scadaauthproject.client\src\hooks\" />
     <Folder Include="Workers\" />
   </ItemGroup>
 
