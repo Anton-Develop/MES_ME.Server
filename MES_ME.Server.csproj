@@ -27,11 +27,13 @@
     <PackageReference Include="MiniExcel" Version="1.42.0" />
     <PackageReference Include="Npgsql" Version="10.0.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua" Version="1.5.378.134" />
     <PackageReference Include="Polly" Version="8.6.6" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="Attributes\" />
+    <Folder Include="Hubs\" />
     <Folder Include="Infrastructure\" />
     <Folder Include="Middleware\" />
     <Folder Include="Models\Tracking\" />
