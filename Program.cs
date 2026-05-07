@@ -74,7 +74,7 @@ namespace MES_ME.Server
                 options.AddPolicy("AllowSpecificOrigin",
                     policy =>
                     {
-                        policy.WithOrigins("http://localhost:3000") ///192.168.9.200
+                        policy.WithOrigins("http://localhost:3000","http://192.168.9.64:3000") ///192.168.9.200
                               .AllowAnyHeader()
                               .AllowAnyMethod()
                               .SetIsOriginAllowed(_ => true)
@@ -91,7 +91,7 @@ namespace MES_ME.Server
             builder.Services.AddSignalR(opts =>
             {
                 opts.EnableDetailedErrors = builder.Environment.IsDevelopment();
-                opts.MaximumReceiveMessageSize = 64 * 1024; // 64 KB
+                opts.MaximumReceiveMessageSize = 128 * 1024; // 64 KB
             });
             //Configurate OPC UA and registration
             var opcOpts = builder.Configuration
@@ -102,8 +102,8 @@ namespace MES_ME.Server
             builder.Services.AddSingleton<IOpcUaService, OpcUaService>();
             builder.Services.AddHostedService<OpcUaBackgroundService>();
             ///Worker для запси таблицы временно закомментим для отладки остального
-           // builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
-           // builder.Services.AddHostedService<HeatingSessionWorker>();
+            builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
+            builder.Services.AddHostedService<HeatingSessionWorker>();
             builder.Services.AddControllers();
 
             var app = builder.Build();

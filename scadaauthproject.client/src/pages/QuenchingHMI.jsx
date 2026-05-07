@@ -120,27 +120,7 @@ const setZoneTemp = async (zone, temp) => {
     console.log('Write result:', ok);
   };
 
-// ---Через restapi чтение с базы, но это жопа ---
-  /*  const fetchRealTemps = async () => {
-        try {
-            console.log("Загрузка реальных температур...");
-            const response = await api.get('/quenchinghmi/zonetemperatures');
-            
-            const data = response.data; // Ожидаем { Zone1: val, Zone2: val, Zone3: val, Zone4: val }
-            console.log("Полученные реальные температуры:", data);
-            // Обновляем состояние с температурами по зонам
-            setRealTemps([
-               Math.round( parseFloat(data.zone1)) || 0, // Используем parseFloat и fallback к 0
-               Math.round (parseFloat(data.zone2)) || 0,
-               Math.round( parseFloat(data.zone3)) || 0,
-               Math.round( parseFloat(data.zone4)) || 0
-            ]);
-        } catch (err) {
-            console.error("Ошибка при загрузке реальных температур:", err);
-            // Опционально: setError(err.message); - если хотите показывать ошибку температуры отдельно
-            // Для простоты, оставим старые значения или установим 0, если ошибка
-        }
-    };*/
+
    // Функция для загрузки списка планов
   const fetchPlans = async () => {
         try {
@@ -202,7 +182,7 @@ const setZoneTemp = async (zone, temp) => {
         setSelSheet(null); // сброс выбранного листа при смене плана
     };
 
-     // --- Таймер для обновления часов и  температур ---
+     // --- Таймер для обновления часов  ---
     useEffect(() => {
       const id = setInterval(() => {
         setTime(new Date());
