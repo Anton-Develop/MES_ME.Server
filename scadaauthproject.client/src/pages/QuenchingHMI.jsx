@@ -106,7 +106,13 @@ export default function QuenchingHMI() {
 // --- Новая функция для загрузки реальных температур ---
 const { values, connected, write } = useOpcUa([
     'T_F1_MedAct', 'T_F2_MedAct', 'T_F3_MedAct', 'T_F4_MedAct',
-    
+    'E1_Ocp','E1_Melt', 'E1_PartNo', 'E1_Pack', 'E1_Sheet',
+    'F1_ZoneOccup','F1_InArrow','F1_OutArrow', 'F1_Melt', 'F1_PartNo', 'F1_Pack', 'F1_Sheet',
+    'F2_ZoneOccup','F2_OutArrow', 'F2_Melt', 'F2_PartNo', 'F2_Pack', 'F2_Sheet',
+    'F3_ZoneOccup','F3_OutArrow', 'F3_Melt', 'F3_PartNo', 'F3_Pack', 'F3_Sheet',
+    'F4_ZoneOccup','F4_OutArrow', 'F4_Melt', 'F4_PartNo', 'F4_Pack', 'F4_Sheet',
+    'X1_ZoneOccup','X1_Melt', 'X1_PartNo', 'X1_Pack', 'X1_Sheet',
+    'X2_ZoneOccup','X2_Melt', 'X2_PartNo', 'X2_Pack', 'X2_Sheet',
   ]);
 // Создаем массив realTemps из полученных значений
 const realTemps = [
