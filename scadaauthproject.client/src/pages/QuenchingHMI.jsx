@@ -226,7 +226,33 @@ export default function QuenchingHMI() {
   useEffect(() => { fetchPlans(); }, []);
 
 
-
+ const addToConveyor = async () => {
+    if (!canAdd || submitting) return;
+    setsubmitting(true);
+    try {
+      await api.post('quenchinghmi/write-entry', {
+        melt: selSheet.melt,
+        partNo: selSheet.batch,
+        pack: selSheet.pack,
+        sheet: selSheet.sheet,
+        UniqueId: selSheet.UniqueId,
+      });
+      setInputSheet(selSheet);
+      setSelectedPlan(prev => ({
+      ...prev,
+      sheets: prev.sheets.map(s =>
+        s.id === selSheetId ? {...s, status:'На рольганге', loc:'Вход'} : s
+      ),
+    }));
+    setSelSheet(null);
+    } catch (err) {
+      setError ('Ошибка подачи листа: ${err.message}');
+      
+    }
+    finally {
+      setsubmitting(false)
+    }   
+  };
 
 
   // ── Clock + coolant temp sim ─────────────────────────────────────────────
@@ -257,32 +283,7 @@ export default function QuenchingHMI() {
   const cS        = liveData.cool    ?? inLoc('Охл.');
   const svgEntry  = liveData.entry   ?? inputSheet;  // вход рольганг
 
-  const addToConveyor = async () => {
-    if (!canAdd || submitting) return;
-    setsubmitting(true);
-    try {
-      await api.post('quenchinghmi/write-entry', {
-        melt: selSheet.melt,
-        partNo: selSheet.batch,
-        pack: selSheet.pack,
-        sheet: selSheet.sheet,
-      });
-      setInputSheet(selSheet);
-      setSelectedPlan(prev => ({
-      ...prev,
-      sheets: prev.sheets.map(s =>
-        s.id === selSheetId ? {...s, status:'На рольганге', loc:'Вход'} : s
-      ),
-    }));
-    setSelSheet(null);
-    } catch (err) {
-      setError ('Ошибка подачи листа: ${err.message}');
-      
-    }
-    finally {
-      setsubmitting(false)
-    }   
-  };
+ 
 
   const loadToFurnace = () => {
     if (!inputSheet) return;
@@ -771,7 +772,7 @@ export default function QuenchingHMI() {
                           opacity: row.status==='Завершён' ? 0.4 : 1,
                         }}
                       >
-                        <td style={{padding:'3px 7px', color:C.dim}}>{i+1}</td>
+                        <td style={{padding:'3px 7px', color:C.dim}}>{i+1}</td> 
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.melt}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.batch}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.pack}</td>
