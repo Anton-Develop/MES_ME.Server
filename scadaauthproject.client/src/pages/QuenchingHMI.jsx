@@ -113,6 +113,7 @@ export default function QuenchingHMI() {
   const [error, setError]                 = useState(null);
   const [selectedPlan, setSelectedPlan]   = useState(null);
   const [plans, setPlans]                 = useState([]);
+  const [submitting , setsubmitting]      = useState(false);
 
   // ── Live tracking state (derived from OPC, triggers re-render properly) ──
   const [liveData, setLiveData] = useState({
@@ -224,6 +225,10 @@ export default function QuenchingHMI() {
 
   useEffect(() => { fetchPlans(); }, []);
 
+
+
+
+
   // ── Clock + coolant temp sim ─────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => {
@@ -252,16 +257,31 @@ export default function QuenchingHMI() {
   const cS        = liveData.cool    ?? inLoc('Охл.');
   const svgEntry  = liveData.entry   ?? inputSheet;  // вход рольганг
 
-  const addToConveyor = () => {
-    if (!canAdd) return;
-    setInputSheet(selSheet);
-    setSelectedPlan(prev => ({
+  const addToConveyor = async () => {
+    if (!canAdd || submitting) return;
+    setsubmitting(true);
+    try {
+      await api.post('quenchinghmi/write-entry', {
+        melt: selSheet.melt,
+        partNo: selSheet.batch,
+        pack: selSheet.pack,
+        sheet: selSheet.sheet,
+      });
+      setInputSheet(selSheet);
+      setSelectedPlan(prev => ({
       ...prev,
       sheets: prev.sheets.map(s =>
         s.id === selSheetId ? {...s, status:'На рольганге', loc:'Вход'} : s
       ),
     }));
     setSelSheet(null);
+    } catch (err) {
+      setError ('Ошибка подачи листа: ${err.message}');
+      
+    }
+    finally {
+      setsubmitting(false)
+    }   
   };
 
   const loadToFurnace = () => {
@@ -710,14 +730,20 @@ export default function QuenchingHMI() {
                   ? `СОСТАВ: ${selectedPlan.planName} — ${planSheets.length} листов`
                   : 'ВЫБЕРИТЕ ПЛАН ИЗ СПИСКА'}
             </div>
-            <button onClick={addToConveyor} disabled={!canAdd} style={{
+            <button 
+              onClick={addToConveyor} 
+              disabled={!canAdd} 
+              style={{
               background: canAdd ? '#1a4731' : '#21262d',
               color: canAdd ? C.green : C.dim,
               border: `1px solid ${canAdd ? C.green : C.panelBd}`,
               borderRadius:4, padding:'6px 14px', fontSize:14,
-              cursor: canAdd ? 'pointer' : 'default',
+              cursor: canAdd && !submitting ? 'pointer' : 'default',
               fontFamily:'monospace', fontWeight:700,
-            }}>▶ Подать на входной рольганг</button>
+            }}
+            >
+              
+              {submitting ? '⏳ Запись....': '▶  Подать на входной рольганг'}</button>
           </div>
 
           {selectedPlan ? (
