@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useOpcUa, useOpcTag } from '../hooks/useOpcUa';
+import { useOpcUa } from '../hooks/useOpcUa';
 import api from '../api';
 
 const C = {
@@ -17,7 +17,10 @@ const statusColor = s => ({
   'Завершён':'#7d8590','Ожидание':'#d29922','Создан':'#8b949e',
 }[s] ?? '#f85149');
 
-// ── Primitives ────────────────────────────────────────────────────────────────
+const toBool = v => v === true || v === 1 || v === '1' || v === 'true';
+const toStr  = v => (v === null || v === undefined) ? '—' : String(v);
+
+// ── Primitives ─────────────────────────────────────────────────────────────
 const Led = ({on, color='#3fb950', size=10}) => (
   <span style={{
     display:'inline-block', width:size, height:size, borderRadius:'50%',
@@ -37,7 +40,6 @@ const Seg = ({value, unit='', width=70}) => (
   </div>
 );
 
-// Compact segment for pressure display in SVG (rendered as foreignObject alternative — pure SVG rects)
 const SvgSeg = ({x, y, value, unit='', w=46, h=18}) => (
   <g>
     <rect x={x} y={y} width={w} height={h} rx={2} fill={C.display} stroke="#1c6ca8" strokeWidth={1}/>
@@ -47,8 +49,7 @@ const SvgSeg = ({x, y, value, unit='', w=46, h=18}) => (
   </g>
 );
 
-
-// ── SVG helpers ───────────────────────────────────────────────────────────────
+// ── SVG helpers ─────────────────────────────────────────────────────────────
 const Rollers = ({x, y, count, w=16, gap=5, h=30}) => (
   <>{Array.from({length:count}).map((_,i) => (
     <g key={i}>
@@ -71,7 +72,7 @@ const SheetRect = ({x, y, w, h=16, label, color}) => (
 
 const Nozzles9 = ({x, y, active, side}) => (
   <>{Array.from({length:9}).map((_,i) => {
-    const cx = x + i*13 + 6;
+    const cx  = x + i*13 + 6;
     const tipY = side==='top' ? y+10 : y-10;
     return (
       <g key={i}>
@@ -88,126 +89,168 @@ const Nozzles9 = ({x, y, active, side}) => (
   })}</>
 );
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Animated flow arrow ─────────────────────────────────────────────────────
+const FlowArrow = ({x1, y1, x2, y2, active}) => (
+  <line
+    x1={x1} y1={y1} x2={x2} y2={y2}
+    stroke={active ? '#3fb950' : '#58a6ff'}
+    strokeWidth={active ? 2.5 : 1.5}
+    strokeDasharray={active ? '6 4' : 'none'}
+    markerEnd="url(#arr)"
+    style={active ? {animation:'dashMove 0.4s linear infinite'} : {}}
+  />
+);
+
+// ── Main ────────────────────────────────────────────────────────────────────
 export default function QuenchingHMI() {
-  const [time, setTime]                 = useState(new Date());
-  const [selSheetId, setSelSheet]       = useState(null);
-  const [inputSheet, setInputSheet]     = useState(null);
-  const [temps, setTemps]               = useState([852, 920, 922, 905]);
-  const [coolT, setCoolT]               = useState(19.1);
-  const [running, setRunning]           = useState(true);  // setRunning используется в панели управления (раскомментировать блок УПРАВЛЕНИЕ) // eslint-disable-line no-unused-vars
-  const [loading, setLoading]           = useState(true);
+  const [time, setTime]                   = useState(new Date());
+  const [selSheetId, setSelSheet]         = useState(null);
+  const [inputSheet, setInputSheet]       = useState(null);
+  const [coolT, setCoolT]                 = useState(19.1);
+  const [running, setRunning]             = useState(true); // eslint-disable-line no-unused-vars
+  const [loading, setLoading]             = useState(true);
   const [sheetsLoading, setSheetsLoading] = useState(false);
-  const [error, setError]               = useState(null);
-  const [selectedPlan, setSelectedPlan] = useState(null);
-  const [plans, setPlans]               = useState([]);
-// --- Новое состояние для реальных температур ---
-   // const [realTemps, setRealTemps] = useState([0, 0, 0, 0]); // Инициализируем нулями или значениями по умолчанию
-// --- Новая функция для загрузки реальных температур ---
-const { values, connected, write } = useOpcUa([
-    'T_F1_MedAct', 'T_F2_MedAct', 'T_F3_MedAct', 'T_F4_MedAct',
-    'E1_Ocp','E1_Melt', 'E1_PartNo', 'E1_Pack', 'E1_Sheet',
-    'F1_ZoneOccup','F1_InArrow','F1_OutArrow', 'F1_Melt', 'F1_PartNo', 'F1_Pack', 'F1_Sheet',
-    'F2_ZoneOccup','F2_OutArrow', 'F2_Melt', 'F2_PartNo', 'F2_Pack', 'F2_Sheet',
-    'F3_ZoneOccup','F3_OutArrow', 'F3_Melt', 'F3_PartNo', 'F3_Pack', 'F3_Sheet',
-    'F4_ZoneOccup','F4_OutArrow', 'F4_Melt', 'F4_PartNo', 'F4_Pack', 'F4_Sheet',
-    'X1_ZoneOccup','X1_Melt', 'X1_PartNo', 'X1_Pack', 'X1_Sheet',
-    'X2_ZoneOccup','X2_Melt', 'X2_PartNo', 'X2_Pack', 'X2_Sheet',
+  const [error, setError]                 = useState(null);
+  const [selectedPlan, setSelectedPlan]   = useState(null);
+  const [plans, setPlans]                 = useState([]);
+
+  // ── Live tracking state (derived from OPC, triggers re-render properly) ──
+  const [liveData, setLiveData] = useState({
+    entry:   null,
+    furnace: [null, null, null, null],
+    quench:  null,   // X1
+    cool:    null,   // X1 (тот же лист)
+    output:  null,   // X2
+    arrows: {
+      toFurnace: false,
+      zones: [false, false, false, false],
+    },
+  });
+
+  // ── OPC UA ──────────────────────────────────────────────────────────────
+  const { values, connected, write } = useOpcUa([
+    'T_F1_MedAct','T_F2_MedAct','T_F3_MedAct','T_F4_MedAct',
+    'E1_Ocp','E1_Melt','E1_PartNo','E1_Pack','E1_Sheet',
+    'F1_ZoneOccup','F1_InArrow','F1_OutArrow','F1_Melt','F1_PartNo','F1_Pack','F1_Sheet',
+    'F2_ZoneOccup','F2_OutArrow','F2_Melt','F2_PartNo','F2_Pack','F2_Sheet',
+    'F3_ZoneOccup','F3_OutArrow','F3_Melt','F3_PartNo','F3_Pack','F3_Sheet',
+    'F4_ZoneOccup','F4_OutArrow','F4_Melt','F4_PartNo','F4_Pack','F4_Sheet',
+    'X1_ZoneOccup','X1_Melt','X1_PartNo','X1_Pack','X1_Sheet',
+    'X2_ZoneOccup','X2_Melt','X2_PartNo','X2_Pack','X2_Sheet',
   ]);
-// Создаем массив realTemps из полученных значений
-const realTemps = [
-  Math.round(values['T_F1_MedAct']?.value ?? 0),
-  Math.round(values['T_F2_MedAct']?.value ?? 0),
-  Math.round(values['T_F3_MedAct']?.value ?? 0),
-  Math.round(values['T_F4_MedAct']?.value ?? 0),
-];
-const setZoneTemp = async (zone, temp) => {
+
+  // ── Пересчёт liveData при любом изменении values ─────────────────────
+  // Создаём новый объект → React видит изменение → ре-рендер
+  useEffect(() => {
+    const makeSheet = (prefix) => {
+      const occ = toBool(values[`${prefix}_ZoneOccup`]?.value ?? values[`${prefix}_Ocp`]?.value);
+      if (!occ) return null;
+      return {
+        melt:  toStr(values[`${prefix}_Melt`]?.value),
+        sheet: toStr(values[`${prefix}_Sheet`]?.value),
+        pack:  toStr(values[`${prefix}_Pack`]?.value),
+        batch: toStr(values[`${prefix}_PartNo`]?.value),
+      };
+    };
+
+    const entryOcc = toBool(values['E1_Ocp']?.value);
+    const entrySheet = entryOcc ? {
+      melt:  toStr(values['E1_Melt']?.value),
+      sheet: toStr(values['E1_Sheet']?.value),
+      pack:  toStr(values['E1_Pack']?.value),
+      batch: toStr(values['E1_PartNo']?.value),
+    } : null;
+
+    const x1Sheet = makeSheet('X1');  // X1 = закалка + охлаждение
+
+    setLiveData({
+      entry:   entrySheet,
+      furnace: [1,2,3,4].map(i => makeSheet(`F${i}`)),
+      quench:  x1Sheet,   // закалка
+      cool:    x1Sheet,   // охлаждение (тот же лист в секции X1)
+      output:  makeSheet('X2'),  // X2 = выдача рольганг
+      arrows: {
+        toFurnace: toBool(values['F1_InArrow']?.value),
+        zones: [1,2,3,4].map(i => toBool(values[`F${i}_OutArrow`]?.value)),
+      },
+    });
+  }, [values]);
+
+  // ── Temperatures ─────────────────────────────────────────────────────────
+  const realTemps = [
+    Math.round(values['T_F1_MedAct']?.value ?? 0),
+    Math.round(values['T_F2_MedAct']?.value ?? 0),
+    Math.round(values['T_F3_MedAct']?.value ?? 0),
+    Math.round(values['T_F4_MedAct']?.value ?? 0),
+  ];
+
+  const setZoneTemp = async (zone, temp) => {
     const ok = await write(`z${zone}_setpoint`, temp);
     console.log('Write result:', ok);
+  }; // eslint-disable-line no-unused-vars
+
+  // ── API ──────────────────────────────────────────────────────────────────
+  const fetchPlans = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/quenchinghmi/plans');
+      setPlans(response.data);
+      setError(null);
+    } catch (err) {
+      console.error('Ошибка при загрузке планов:', err);
+      setError(err.message);
+      setPlans([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const fetchPlanSheets = async (planId) => {
+    try {
+      setSheetsLoading(true);
+      const response = await api.get(`/quenchinghmi/plans/${planId}/sheets`);
+      if (response.status < 200 || response.status >= 300)
+        throw new Error(`Ошибка загрузки листов плана ${planId}: ${response.status}`);
+      const basePlan = plans.find(p => p.id === planId);
+      setSelectedPlan({ ...basePlan, sheets: response.data });
+    } catch (err) {
+      console.error('Ошибка при загрузке листов плана:', err);
+      setError(err.message);
+      setSelectedPlan(null);
+    } finally {
+      setSheetsLoading(false);
+    }
+  };
 
-   // Функция для загрузки списка планов
-  const fetchPlans = async () => {
-        try {
-            setLoading(true);
-            console.log("Загрузка списка планов с бэкенда...");
-            const response = await api.get('/quenchinghmi/plans');
-            //console.log("Полученные response:", response); 
-           
-            //if (!response.ok) {
-              //  throw new Error(`Ошибка загрузки планов: ${response.status}`); 
-            //}
-            
-            const data = response.data;//await response.json();
-            //console.log("Полученные планы:", response.data);
-            setPlans(data);
-            setError(null); // Сбросить ошибку при успешной загрузке
-        } catch (err) {
-            console.error("Ошибка при загрузке планов:", err);
-            setError(err.message);
-            setPlans([]); // Очистить список в случае ошибки
-        } finally {
-            setLoading(false);
-        }
-    };
+  useEffect(() => { fetchPlans(); }, []);
 
-  // Функция для загрузки листов конкретного плана
-    const fetchPlanSheets = async (planId) => {
-        try {
-            setSheetsLoading(true);
-            console.log(`Загрузка листов для плана ${planId} с бэкенда...`);
-            const response = await api.get(`/quenchinghmi/plans/${planId}/sheets`);
-            if (response.status < 200 || response.status >= 300) {
-            // Бросаем ошибку, если статус неуспешный
-            throw new Error(`Ошибка загрузки листов плана ${planId}: ${response.status}`);
-        }
-            const sheets = response.data;
-            console.log(`Полученные листы для плана ${planId}:`, sheets);
+  // ── Clock + coolant temp sim ─────────────────────────────────────────────
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTime(new Date());
+      setCoolT(t => Math.round((t + (Math.random() - 0.5) * 0.4) * 10) / 10);
+    }, 10000);
+    return () => clearInterval(id);
+  }, []);
 
-            const basePlan = plans.find(p => p.id === planId);
-            setSelectedPlan({ ...basePlan, sheets });
-        } catch (err) {
-            console.error("Ошибка при загрузке листов плана:", err);
-            setError(err.message);
-            setSelectedPlan(null);
-        } finally {
-            setSheetsLoading(false);
-        }
-    };
-  
-    // Загрузка списка планов при первом рендере компонента
-    useEffect(() => {
-        fetchPlans();
-    }, []);
+  // ── Plan / sheet helpers ─────────────────────────────────────────────────
+  const handleSelectPlan = (plan) => {
+    setSelectedPlan(plan);
+    fetchPlanSheets(plan.id);
+    setSelSheet(null);
+  };
 
-    const handleSelectPlan = (plan) => {
-        console.log("Выбран план:", plan);
-        setSelectedPlan(plan);
-        fetchPlanSheets(plan.id);
-        setSelSheet(null); // сброс выбранного листа при смене плана
-    };
-
-     // --- Таймер для обновления часов  ---
-    useEffect(() => {
-      const id = setInterval(() => {
-        setTime(new Date());
-        // fetchRealTemps();
-       // setTemps(t => t.map(v => Math.round((v + (Math.random() - 0.5) * 2) * 10) / 10));
-        setCoolT(t => Math.round((t + (Math.random() - 0.5) * 0.4) * 10) / 10);
-      }, 10000);
-      return () => clearInterval(id);
-    }, []);
-
-
-  const allSheets  = selectedPlan ? selectedPlan.sheets : [];// plans.flatMap(p => p.sheets);
-  const inLoc      = loc => Array.isArray(allSheets) ? allSheets.find(s => s.loc === loc) : undefined;//loc => allSheets.find(s => s.loc === loc);
-  const zones      = [1,2,3,4].map(i => inLoc(`Зона ${i}`));
-  const qS         = inLoc('Закалка');
-  const cS         = inLoc('Охл.');
-  const planSheets = selectedPlan?.sheets || [];//plans.find(p => p.id === selectedPlan?.id)?.sheets ?? [];
+  const allSheets  = selectedPlan?.sheets ?? [];
+  const inLoc      = loc => allSheets.find(s => s.loc === loc);
+  const planSheets = selectedPlan?.sheets ?? [];
   const selSheet   = planSheets.find(s => s.id === selSheetId);
   const canAdd     = !!selSheetId && selSheet?.status === 'Ожидание' && !inputSheet;
+
+  // SVG-источник: OPC live имеет приоритет, план — fallback
+  const zones     = liveData.furnace.map((live, i) => live ?? inLoc(`Зона ${i+1}`));
+  const qS        = liveData.quench  ?? inLoc('Закалка');
+  const cS        = liveData.cool    ?? inLoc('Охл.');
+  const svgEntry  = liveData.entry   ?? inputSheet;  // вход рольганг
 
   const addToConveyor = () => {
     if (!canAdd) return;
@@ -236,14 +279,11 @@ const setZoneTemp = async (zone, temp) => {
 
   const fmt = d => d.toTimeString().slice(0,8);
 
-  // ── SVG layout ─────────────────────────────────────────────────────────────
-  // SVG is purely the process diagram. No legends. No overlap.
+  // ── SVG layout constants ─────────────────────────────────────────────────
   const VW = 1000, VH = 230;
-  // Vertical: rY is centre of rollers
   const rY = 110, rH = 30, rW = 16, rGap = 5;
 
-  // Horizontal positions
-  const inX  = 10, inN = 5;
+  const inX  = 10,  inN = 5;
   const fX   = inX + inN*(rW+rGap) + 22;
   const zW   = 118, zGap = 2, furnW = 4*zW + 3*zGap;
   const qX   = fX + furnW + 20;
@@ -255,10 +295,10 @@ const setZoneTemp = async (zone, temp) => {
 
   const zoneX = i => fX + i*(zW+zGap);
 
-  // Pressure display position — above cooling section
   const presX = outX - 4;
-  const presY = rY - 56; // above rollers
+  const presY = rY - 56;
 
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{
       background:C.bg, color:C.text, fontFamily:"'Courier New',monospace",
@@ -272,13 +312,13 @@ const setZoneTemp = async (zone, temp) => {
         borderRadius:6, padding:'7px 12px', marginBottom:8,
       }}>
 
-        {/* 1. LED indicators — fixed compact block */}
+        {/* 1. LED indicators */}
         <div style={{display:'flex', flexDirection:'column', gap:4, flexShrink:0, minWidth:155}}>
           {[
-            {on:false,  color:C.red,    label:'Аварийный останов'},
-            {on:false,  color:C.red,    label:'Блокировка нагрева'},
-            {on:running,color:C.green,  label:'Готовность к запуску'},
-            {on:!!inputSheet,color:C.accent,label:'Лист на рольганге'},
+            {on:false,           color:C.red,    label:'Аварийный останов'},
+            {on:false,           color:C.red,    label:'Блокировка нагрева'},
+            {on:running,         color:C.green,  label:'Готовность к запуску'},
+            {on:!!svgEntry,      color:C.accent, label:'Лист на рольганге'},
           ].map(({on,color,label}) => (
             <div key={label} style={{display:'flex', alignItems:'center', gap:6}}>
               <Led on={on} color={color}/>
@@ -289,11 +329,11 @@ const setZoneTemp = async (zone, temp) => {
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 2. Zone temps temps  */}
+        {/* 2. Zone temps */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, letterSpacing:1, marginBottom:3}}>ТЕМП. ЗОН</div>
           <div style={{display:'flex', gap:5}}>
-            {realTemps.map((t,i) => (  
+            {realTemps.map((t,i) => (
               <div key={i} style={{textAlign:'center'}}>
                 <div style={{fontSize:14, color:ZONE_LABEL[i], marginBottom:2}}>З{i+1}</div>
                 <Seg value={t} unit="°C" width={62}/>
@@ -304,7 +344,7 @@ const setZoneTemp = async (zone, temp) => {
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 3. Current sheet info */}
+        {/* 3. Current sheet info (зона 1) */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, letterSpacing:1, marginBottom:3}}>ЛИСТ В ЗОНЕ 1</div>
           <div style={{display:'grid', gridTemplateColumns:'repeat(4,auto)', gap:'2px 8px', alignItems:'center'}}>
@@ -319,7 +359,7 @@ const setZoneTemp = async (zone, temp) => {
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 4. Grade + thick — compact */}
+        {/* 4. Grade + thick */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, marginBottom:3}}>Марка / Толщ.</div>
           <Seg value={zones[0]?.grade||'──'} width={52}/>
@@ -329,7 +369,7 @@ const setZoneTemp = async (zone, temp) => {
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 5. Speed / Temp / Len — compact vertical */}
+        {/* 5. Параметры */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, marginBottom:3}}>Параметры</div>
           <div style={{display:'flex', flexDirection:'column', gap:3}}>
@@ -342,246 +382,257 @@ const setZoneTemp = async (zone, temp) => {
           </div>
         </div>
 
-        {/* 6. Clock — pushed right */}
+        {/* 6. OPC status + clock */}
         <div style={{marginLeft:'auto', textAlign:'right', flexShrink:0}}>
-          <div style={{fontSize:14, color:C.dim}}>Время</div>
+          <div style={{display:'flex', alignItems:'center', gap:5, justifyContent:'flex-end', marginBottom:2}}>
+            <Led on={connected} color={C.green} size={8}/>
+            <span style={{fontSize:10, color: connected ? C.green : C.red}}>
+            {/*  {connected ? 'OPC подключён' : 'OPC отключён'}*/}
+            </span>
+          </div>
           <div style={{fontSize:24, color:C.accent, fontWeight:700, letterSpacing:3}}>{fmt(time)}</div>
           <div style={{fontSize:14, color:C.dim}}>{new Date().toLocaleDateString('ru-RU')}</div>
         </div>
       </div>
 
-      {/* ══ PROCESS + RIGHT BUTTONS ROW ═══════════════════════════════════ */}
-      <div style={{display:'flex', gap:8, marginBottom:8}}>
-
-        {/* ── Process panel ──────────────────────────────────────────────── */}
-        <div style={{
-          background:C.panel, border:`1px solid ${C.panelBd}`,
-          borderRadius:6, padding:'8px 10px', flex:1, minWidth:0,
-          display:'flex', flexDirection:'column', gap:5,
-        }}>
-          <div style={{fontSize:14, color:C.dim, letterSpacing:1}}>
-            ТЕХНОЛОГИЧЕСКАЯ СХЕМА — ЛИНИЯ ЗАКАЛКИ
-          </div>
-
-          {/* Zone strip */}
-          <div style={{display:'flex', gap:5, flexWrap:'wrap'}}>
-            {[
-              {label:'Вход. рольганг', sheet:inputSheet, color:C.accent},
-              {label:'Зона 1',          sheet:zones[0],   color:'#f87171'},
-              {label:'Зона 2',          sheet:zones[1],   color:'#fb923c'},
-              {label:'Зона 3',          sheet:zones[2],   color:'#fbbf24'},
-              {label:'Зона 4',          sheet:zones[3],   color:'#a3e635'},
-              {label:'Закалка',         sheet:qS,         color:'#60a5fa'},
-              {label:'Охлаждение',      sheet:cS,         color:'#34d399'},
-            ].map(({label, sheet, color}) => (
-              <div key={label} style={{
-                display:'flex', alignItems:'center', gap:5,
-                background:'#0d1117', border:`1px solid ${C.panelBd}`,
-                borderRadius:4, padding:'2px 7px', whiteSpace:'nowrap',
-              }}>
-                <span style={{
-                  width:7, height:7, borderRadius:'50%', flexShrink:0,
-                  display:'inline-block',
-                  background: sheet ? color : '#252a30',
-                  boxShadow: sheet ? `0 0 4px ${color}` : 'none',
-                }}/>
-                <span style={{fontSize:14, color:C.dim}}>{label}:</span>
-                <span style={{fontSize:14, color: sheet ? C.text : C.dim, fontFamily:'monospace'}}>
-                  {sheet ? `${sheet.melt} / ${sheet.sheet}` : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* ── SVG ──────────────────────────────────────────────────────── */}
-          <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} style={{display:'block'}}>
-            <defs>
-              {ZONE_FILL.map((_,i) => (
-                <linearGradient key={i} id={`gz${i}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={ZONE_FILL[i]} stopOpacity={0.85}/>
-                  <stop offset="100%" stopColor={ZONE_FILL[i]}/>
-                </linearGradient>
-              ))}
-              <linearGradient id="gq" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#1e3a5f"/>
-                <stop offset="100%" stopColor="#1e40af"/>
-              </linearGradient>
-              <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill={C.accent}/>
-              </marker>
-            </defs>
-
-            {/* Ground */}
-            <line x1={0} y1={rY+rH+6} x2={VW} y2={rY+rH+6}
-              stroke={C.panelBd} strokeWidth={1}/>
-
-            {/* ── INPUT CONVEYOR ── */}
-            <text x={inX+inN*(rW+rGap)/2} y={rY-14} textAnchor="middle"
-              fill={C.dim} fontSize={9}>Вход. рольганг</text>
-            <Rollers x={inX} y={rY} count={inN} w={rW} gap={rGap} h={rH}/>
-            {inputSheet && (
-              <SheetRect x={inX+1} y={rY-13} w={inN*(rW+rGap)-4} h={13}
-                label={`${inputSheet.melt}/${inputSheet.sheet}`} color={C.accent}/>
-            )}
-            {/* В ПЕЧЬ button below input conveyor */}
-            {inputSheet && (
-              <g style={{cursor:'pointer'}} onClick={loadToFurnace}>
-                <rect x={inX} y={rY+rH+12} width={inN*(rW+rGap)} height={16}
-                  rx={3} fill="#145a32" stroke={C.green} strokeWidth={1}/>
-                <text x={inX+inN*(rW+rGap)/2} y={rY+rH+23} textAnchor="middle"
-                  fill={C.green} fontSize={9} fontWeight={700}>▶ В ПЕЧЬ</text>
-              </g>
-            )}
-            {!inputSheet && (
-              <text x={inX+inN*(rW+rGap)/2} y={rY+rH+22} textAnchor="middle"
-                fill="#333" fontSize={9}>▶ В ПЕЧЬ</text>
-            )}
-
-            {/* arrow → furnace */}
-            <line x1={inX+inN*(rW+rGap)+2} y1={rY+rH/2}
-                  x2={fX-4}              y2={rY+rH/2}
-              stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
-
-            {/* ── 4 FURNACE ZONES ── */}
-            {[0,1,2,3].map(i => {
-              const zx = zoneX(i), sh = zones[i];
-              return (
-                <g key={i}>
-                  <rect x={zx} y={rY-42} width={zW} height={rH+46} rx={3}
-                    fill={`url(#gz${i})`} stroke={ZONE_STROKE[i]} strokeWidth={1.5}/>
-                  <text x={zx+zW/2} y={rY-30} textAnchor="middle"
-                    fill={ZONE_LABEL[i]} fontSize={9} fontWeight={700}>ЗОНА {i+1} НАГРЕВА</text>
-                  <text x={zx+zW/2} y={rY-14} textAnchor="middle"
-                    fill={ZONE_LABEL[i]} fontSize={13} fontWeight={700}>{realTemps[i]} °C</text>
-                  {sh
-                    ? <SheetRect x={zx+5} y={rY-1} w={zW-10} h={rH-4}
-                        label={`${sh.melt} / ${sh.sheet}`} color={ZONE_FILL[i]}/>
-                    : <text x={zx+zW/2} y={rY+rH/2+4} textAnchor="middle"
-                        fill="#333" fontSize={9}>— пусто —</text>
-                  }
-                </g>
-              );
-            })}
-            {/* Furnace outer border */}
-            <rect x={fX-3} y={rY-46} width={furnW+6} height={rH+54} rx={4}
-              fill="none" stroke="#3a3a3a" strokeWidth={1} strokeDasharray="5,3"/>
-            <text x={fX+furnW/2} y={rY+rH+26} textAnchor="middle"
-              fill="#3a3a3a" fontSize={9} letterSpacing={5}>П Е Ч Ь   З А К А Л К И</text>
-
-            {/* arrow furnace → quench */}
-            <line x1={fX+furnW+4} y1={rY+rH/2}
-                  x2={qX-4}       y2={rY+rH/2}
-              stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
-
-            {/* ── QUENCHING ── */}
-            <rect x={qX} y={rY-42} width={qW} height={rH+46} rx={3}
-              fill="url(#gq)" stroke="#3b82f6" strokeWidth={1.5}/>
-            <text x={qX+qW/2} y={rY-30} textAnchor="middle"
-              fill="#93c5fd" fontSize={9} fontWeight={700}>ЗАКАЛКА</text>
-            <text x={qX+qW/2} y={rY-19} textAnchor="middle"
-              fill="#60a5fa" fontSize={8}>9 × 9 клапанов</text>
-            <Nozzles9 x={qX+5} y={rY-10} active={running && !!qS} side="top"/>
-            <Nozzles9 x={qX+5} y={rY+rH+6} active={running && !!qS} side="bottom"/>
-            {qS
-              ? <SheetRect x={qX+5} y={rY-1} w={qW-10} h={rH-4}
-                  label={`${qS.melt} / ${qS.sheet}`} color="#1e3a8a"/>
-              : <text x={qX+qW/2} y={rY+rH/2+4} textAnchor="middle"
-                  fill="#252a50" fontSize={9}>— пусто —</text>
-            }
-            {/* В ЗАКАЛКУ button below quenching — same style as В ПЕЧЬ */}
-            <g style={{cursor:'default'}} >
-              <rect x={qX} y={rY+rH+12} width={qW} height={16}
-                rx={3} fill="#1a2a4a" stroke="#3b82f6" strokeWidth={1}/>
-              <text x={qX+qW/2} y={rY+rH+23} textAnchor="middle"
-                fill="#60a5fa" fontSize={9} fontWeight={700}>▶ В ЗАКАЛКУ</text>
-            </g>
-
-            {/* arrow quench → cooling */}
-            <line x1={qX+qW+4} y1={rY+rH/2}
-                  x2={outX-4}   y2={rY+rH/2}
-              stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
-
-            {/* ── НАПОРНЫЕ КЛАПАНА — above cooling section ── */}
-            {/* Header */}
-            <text x={presX+35} y={presY-35} fill={C.dim} fontSize={14} letterSpacing={0.5}>НАПОРНЫЕ КЛАПАНА</text>
-            {/* Column headers */}
-            {['Скор.','Лам.1','Лам.2'].map((l,i) => (
-              <text key={l} x={presX+i*54+22+30} y={presY-20} textAnchor="middle"
-                fill={C.dim} fontSize={14}>{l}</text>
-            ))}
-            {/* Верх row */}
-            <text x={presX+25} y={presY} fill={C.dim} fontSize={14} textAnchor="end">Верх</text>
-            {[2.00,3.00,3.00].map((v,i) => (
-              <SvgSeg key={i} x={presX+i*54+30} y={presY-12} value={v.toFixed(2)} w={46} h={15}/>
-            ))}
-            {/* Низ row */}
-            <text x={presX+25} y={presY+20} fill={C.dim} fontSize={14} textAnchor="end">Низ</text>
-            {[10.00,10.00,10.00].map((v,i) => (
-              <SvgSeg key={i} x={presX+i*54+30} y={presY+10} value={v.toFixed(2)} w={46} h={15}/>
-            ))}
-
-            {/* ── COOLING CONVEYOR ── */}
-            <text x={outX+outN*(rW+rGap)/2} y={rY-14} textAnchor="middle"
-              fill={C.dim} fontSize={14}>Охлаждение</text>
-            <Rollers x={outX} y={rY} count={outN} w={rW} gap={rGap} h={rH}/>
-            {cS && <SheetRect x={outX+1} y={rY-13} w={outN*(rW+rGap)-4} h={13}
-              label={`${cS.melt}/${cS.sheet}`} color="#0e4a6b"/>}
-            <text x={outX+outN*(rW+rGap)/2} y={rY+rH+22} textAnchor="middle"
-              fill={C.dim} fontSize={14}>{coolT} °C</text>
-
-            {/* arrow cooling → output */}
-            <line x1={outX-8+outN*(rW+rGap)+4} y1={rY+rH/2}
-                  x2={finX-10}                y2={rY+rH/2}
-              stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
-
-            {/* ── OUTPUT ── */}
-            <text x={(finX+finN*(rW+rGap)/2)-10} y={rY-14} textAnchor="middle"
-              fill={C.dim} fontSize={14}>Выдача</text>
-            <Rollers x={finX-10} y={rY} count={finN} w={rW} gap={rGap} h={rH}/>
-          </svg>
+      {/* ══ PROCESS PANEL ═════════════════════════════════════════════════ */}
+      <div style={{
+        background:C.panel, border:`1px solid ${C.panelBd}`,
+        borderRadius:6, padding:'8px 10px', marginBottom:8,
+        display:'flex', flexDirection:'column', gap:5,
+      }}>
+        <div style={{fontSize:14, color:C.dim, letterSpacing:1}}>
+          ТЕХНОЛОГИЧЕСКАЯ СХЕМА — ЛИНИЯ ЗАКАЛКИ
         </div>
 
-        {/* ── Right control panel ────────────────────────────────────────── */}
-       {/* <div style={{
-          background:C.panel, border:`1px solid ${C.panelBd}`,
-          borderRadius:6, padding:10, width:160,
-          display:'flex', flexDirection:'column', gap:5, flexShrink:0,
-        }}>
-		 
-          <div style={{fontSize:14, color:C.dim, letterSpacing:1, borderBottom:`1px solid ${C.panelBd}`, paddingBottom:4}}>
-            УПРАВЛЕНИЕ
-          </div>
-		 
-          <div style={{display:'flex', flexDirection:'column', gap:4}}>
-            <Btn label="Все в АВТО"     color="#1a4731" full/>
-            <Btn label="▶  СТАРТ"       color="#145a32" onClick={()=>setRunning(true)}  disabled={running} full/>
-            <Btn label="■  Стоп нагрев" color="#5a1414" onClick={()=>setRunning(false)} disabled={!running} full/>
-            <Btn label="Стоп охл."      color="#1a3a5a" full/>
-          </div>
+        {/* Zone strip */}
+        <div style={{display:'flex', gap:5, flexWrap:'wrap'}}>
+          {[
+            {label:'Вход. рольганг', sheet:svgEntry,  color:C.accent},
+            {label:'Зона 1',         sheet:zones[0],  color:'#f87171'},
+            {label:'Зона 2',         sheet:zones[1],  color:'#fb923c'},
+            {label:'Зона 3',         sheet:zones[2],  color:'#fbbf24'},
+            {label:'Зона 4',         sheet:zones[3],  color:'#a3e635'},
+            {label:'Закалка',        sheet:qS,         color:'#60a5fa'},
+            {label:'Охлаждение',     sheet:cS,         color:'#34d399'},
+            {label:'Выдача',         sheet:liveData.output, color:'#a78bfa'},
+          ].map(({label, sheet, color}) => (
+            <div key={label} style={{
+              display:'flex', alignItems:'center', gap:5,
+              background:'#0d1117', border:`1px solid ${C.panelBd}`,
+              borderRadius:4, padding:'2px 7px', whiteSpace:'nowrap',
+            }}>
+              <span style={{
+                width:7, height:7, borderRadius:'50%', flexShrink:0,
+                display:'inline-block',
+                background: sheet ? color : '#252a30',
+                boxShadow: sheet ? `0 0 4px ${color}` : 'none',
+              }}/>
+              <span style={{fontSize:14, color:C.dim}}>{label}:</span>
+              <span style={{fontSize:14, color: sheet ? C.text : C.dim, fontFamily:'monospace'}}>
+                {sheet ? `${sheet.melt} / ${sheet.sheet}` : '—'}
+              </span>
+            </div>
+          ))}
+        </div>
 
-          <div style={{borderTop:`1px solid ${C.panelBd}`, paddingTop:4, display:'flex', flexDirection:'column', gap:4}}>
-            <Btn label="▶ В ПЕЧЬ"
-              color={inputSheet ? '#1e3a6e' : '#21262d'}
-              disabled={!inputSheet}
-              onClick={loadToFurnace}
-              full/>
-            <Btn label="▶ В ЗАКАЛКУ"
-              color="#1a2a4a"
-              disabled
-              full/>
-            <Btn label="Рольганги" color="#252a30" full/>
-          </div>
+        {/* ── SVG ───────────────────────────────────────────────────────── */}
+        <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} style={{display:'block'}}>
+          <defs>
+            <style>{`
+              @keyframes dashMove { to { stroke-dashoffset: -20; } }
+              .flow-active { animation: dashMove 0.4s linear infinite; }
+            `}</style>
+            {ZONE_FILL.map((_,i) => (
+              <linearGradient key={i} id={`gz${i}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={ZONE_FILL[i]} stopOpacity={0.85}/>
+                <stop offset="100%" stopColor={ZONE_FILL[i]}/>
+              </linearGradient>
+            ))}
+            <linearGradient id="gq" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#1e3a5f"/>
+              <stop offset="100%" stopColor="#1e40af"/>
+            </linearGradient>
+            <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill={C.accent}/>
+            </marker>
+            <marker id="arrGreen" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill={C.green}/>
+            </marker>
+          </defs>
 
-          <div style={{borderTop:`1px solid ${C.panelBd}`, paddingTop:4, display:'flex', gap:4}}>
-            <Btn label="КИП"    color="#1a2a4a"/>
-            <Btn label="Тренды" color="#1a2a4a"/>
-          </div>
+          {/* Ground */}
+          <line x1={0} y1={rY+rH+6} x2={VW} y2={rY+rH+6}
+            stroke={C.panelBd} strokeWidth={1}/>
 
-          <div style={{borderTop:`1px solid ${C.panelBd}`, paddingTop:4}}>
-            <Btn label="Сброс ошибок" color="#4a2a0a" full/>
-          </div>
-		 
-        </div> */}
+          {/* ── INPUT CONVEYOR ── */}
+          <text x={inX+inN*(rW+rGap)/2} y={rY-14} textAnchor="middle"
+            fill={C.dim} fontSize={9}>Вход. рольганг</text>
+          <Rollers x={inX} y={rY} count={inN} w={rW} gap={rGap} h={rH}/>
+          {svgEntry && (
+            <SheetRect x={inX+1} y={rY-13} w={inN*(rW+rGap)-4} h={13}
+              label={`${svgEntry.melt}/${svgEntry.sheet}`} color={C.accent}/>
+          )}
+          {inputSheet && (
+            <g style={{cursor:'pointer'}} onClick={loadToFurnace}>
+              <rect x={inX} y={rY+rH+12} width={inN*(rW+rGap)} height={16}
+                rx={3} fill="#145a32" stroke={C.green} strokeWidth={1}/>
+              <text x={inX+inN*(rW+rGap)/2} y={rY+rH+23} textAnchor="middle"
+                fill={C.green} fontSize={9} fontWeight={700}>▶ В ПЕЧЬ</text>
+            </g>
+          )}
+          {!inputSheet && (
+            <text x={inX+inN*(rW+rGap)/2} y={rY+rH+22} textAnchor="middle"
+              fill="#333" fontSize={9}>▶ В ПЕЧЬ</text>
+          )}
+
+          {/* Arrow input → furnace */}
+          <line
+            x1={inX+inN*(rW+rGap)+2} y1={rY+rH/2}
+            x2={fX-4}                 y2={rY+rH/2}
+            stroke={liveData.arrows.toFurnace ? C.green : C.accent}
+            strokeWidth={liveData.arrows.toFurnace ? 2.5 : 1.5}
+            strokeDasharray={liveData.arrows.toFurnace ? '6 4' : 'none'}
+            className={liveData.arrows.toFurnace ? 'flow-active' : ''}
+            markerEnd={liveData.arrows.toFurnace ? 'url(#arrGreen)' : 'url(#arr)'}
+          />
+
+          {/* ── 4 FURNACE ZONES ── */}
+          {[0,1,2,3].map(i => {
+            const zx = zoneX(i);
+            const sh = zones[i];
+            const moving = liveData.arrows.zones[i];
+            return (
+              <g key={i}>
+                <rect x={zx} y={rY-42} width={zW} height={rH+46} rx={3}
+                  fill={`url(#gz${i})`}
+                  stroke={sh ? ZONE_STROKE[i] : '#2a2a2a'}
+                  strokeWidth={sh ? 2 : 1}
+                  style={sh ? {filter:`drop-shadow(0 0 3px ${ZONE_STROKE[i]}55)`} : {}}
+                />
+                <text x={zx+zW/2} y={rY-30} textAnchor="middle"
+                  fill={ZONE_LABEL[i]} fontSize={9} fontWeight={700}>ЗОНА {i+1} НАГРЕВА</text>
+                <text x={zx+zW/2} y={rY-14} textAnchor="middle"
+                  fill={ZONE_LABEL[i]} fontSize={13} fontWeight={700}>{realTemps[i]} °C</text>
+                {sh
+                  ? <SheetRect x={zx+5} y={rY-1} w={zW-10} h={rH-4}
+                      label={`${sh.melt} / ${sh.sheet}`} color={ZONE_FILL[i]}/>
+                  : <text x={zx+zW/2} y={rY+rH/2+4} textAnchor="middle"
+                      fill="#333" fontSize={9}>— пусто —</text>
+                }
+                {/* Arrow out of this zone */}
+                {i < 3 && (
+                  <line
+                    x1={zx+zW+1} y1={rY+rH/2}
+                    x2={zoneX(i+1)-2} y2={rY+rH/2}
+                    stroke={moving ? C.green : '#2a2a2a'}
+                    strokeWidth={moving ? 2 : 1}
+                    strokeDasharray={moving ? '5 3' : 'none'}
+                    className={moving ? 'flow-active' : ''}
+                    markerEnd={moving ? 'url(#arrGreen)' : ''}
+                  />
+                )}
+              </g>
+            );
+          })}
+
+          {/* Furnace outer border */}
+          <rect x={fX-3} y={rY-46} width={furnW+6} height={rH+54} rx={4}
+            fill="none" stroke="#3a3a3a" strokeWidth={1} strokeDasharray="5,3"/>
+          <text x={fX+furnW/2} y={rY+rH+26} textAnchor="middle"
+            fill="#3a3a3a" fontSize={9} letterSpacing={5}>П Е Ч Ь   З А К А Л К И</text>
+
+          {/* Arrow furnace → quench */}
+          {(() => {
+            const moving = liveData.arrows.zones[3];
+            return (
+              <line
+                x1={fX+furnW+4} y1={rY+rH/2}
+                x2={qX-4}       y2={rY+rH/2}
+                stroke={moving ? C.green : C.accent}
+                strokeWidth={moving ? 2.5 : 1.5}
+                strokeDasharray={moving ? '6 4' : 'none'}
+                className={moving ? 'flow-active' : ''}
+                markerEnd={moving ? 'url(#arrGreen)' : 'url(#arr)'}
+              />
+            );
+          })()}
+
+          {/* ── QUENCHING ── */}
+          <rect x={qX} y={rY-42} width={qW} height={rH+46} rx={3}
+            fill="url(#gq)"
+            stroke={qS ? '#3b82f6' : '#1e2a3a'}
+            strokeWidth={qS ? 2 : 1}
+            style={qS ? {filter:'drop-shadow(0 0 3px #3b82f655)'} : {}}
+          />
+          <text x={qX+qW/2} y={rY-30} textAnchor="middle"
+            fill="#93c5fd" fontSize={9} fontWeight={700}>ЗАКАЛКА</text>
+          <text x={qX+qW/2} y={rY-19} textAnchor="middle"
+            fill="#60a5fa" fontSize={8}>9 × 9 клапанов</text>
+          <Nozzles9 x={qX+5} y={rY-10} active={running && !!qS} side="top"/>
+          <Nozzles9 x={qX+5} y={rY+rH+6} active={running && !!qS} side="bottom"/>
+          {qS
+            ? <SheetRect x={qX+5} y={rY-1} w={qW-10} h={rH-4}
+                label={`${qS.melt} / ${qS.sheet}`} color="#1e3a8a"/>
+            : <text x={qX+qW/2} y={rY+rH/2+4} textAnchor="middle"
+                fill="#252a50" fontSize={9}>— пусто —</text>
+          }
+          <g style={{cursor:'default'}}>
+            <rect x={qX} y={rY+rH+12} width={qW} height={16}
+              rx={3} fill="#1a2a4a" stroke="#3b82f6" strokeWidth={1}/>
+            <text x={qX+qW/2} y={rY+rH+23} textAnchor="middle"
+              fill="#60a5fa" fontSize={9} fontWeight={700}>▶ В ЗАКАЛКУ</text>
+          </g>
+
+          {/* Arrow quench → cooling */}
+          <line x1={qX+qW+4} y1={rY+rH/2} x2={outX-4} y2={rY+rH/2}
+            stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
+
+          {/* ── НАПОРНЫЕ КЛАПАНА ── */}
+          <text x={presX+35} y={presY-35} fill={C.dim} fontSize={14} letterSpacing={0.5}>НАПОРНЫЕ КЛАПАНА</text>
+          {['Скор.','Лам.1','Лам.2'].map((l,i) => (
+            <text key={l} x={presX+i*54+22+30} y={presY-20} textAnchor="middle"
+              fill={C.dim} fontSize={14}>{l}</text>
+          ))}
+          <text x={presX+25} y={presY} fill={C.dim} fontSize={14} textAnchor="end">Верх</text>
+          {[2.00,3.00,3.00].map((v,i) => (
+            <SvgSeg key={i} x={presX+i*54+30} y={presY-12} value={v.toFixed(2)} w={46} h={15}/>
+          ))}
+          <text x={presX+25} y={presY+20} fill={C.dim} fontSize={14} textAnchor="end">Низ</text>
+          {[10.00,10.00,10.00].map((v,i) => (
+            <SvgSeg key={i} x={presX+i*54+30} y={presY+10} value={v.toFixed(2)} w={46} h={15}/>
+          ))}
+
+          {/* ── COOLING CONVEYOR (X1) ── */}
+          <text x={outX+outN*(rW+rGap)/2} y={rY-14} textAnchor="middle"
+            fill={C.dim} fontSize={14}>Охлаждение</text>
+          <Rollers x={outX} y={rY} count={outN} w={rW} gap={rGap} h={rH}/>
+          {cS && (
+            <SheetRect x={outX+1} y={rY-13} w={outN*(rW+rGap)-4} h={13}
+              label={`${cS.melt}/${cS.sheet}`} color="#0e4a6b"/>
+          )}
+          <text x={outX+outN*(rW+rGap)/2} y={rY+rH+22} textAnchor="middle"
+            fill={C.dim} fontSize={14}>{coolT} °C</text>
+
+          {/* Arrow cooling → output */}
+          <line
+            x1={outX+outN*(rW+rGap)+4} y1={rY+rH/2}
+            x2={finX-10}               y2={rY+rH/2}
+            stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
+
+          {/* ── OUTPUT CONVEYOR (X2) ── */}
+          <text x={(finX+finN*(rW+rGap)/2)-10} y={rY-14} textAnchor="middle"
+            fill={C.dim} fontSize={14}>Выдача </text>
+          <Rollers x={finX-10} y={rY} count={finN} w={rW} gap={rGap} h={rH}/>
+          {liveData.output && (
+            <SheetRect
+              x={finX-10+1} y={rY-13}
+              w={finN*(rW+rGap)-4} h={13}
+              label={`${liveData.output.melt}/${liveData.output.sheet}`}
+              color="#2d1f4a"
+            />
+          )}
+        </svg>
       </div>
 
       {/* ══ PLANS + SHEETS ════════════════════════════════════════════════ */}
