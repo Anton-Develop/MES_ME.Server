@@ -86,24 +86,27 @@ namespace MES_ME.Server
                     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
                     return NpgsqlDataSource.Create(connectionString);
                 });
-
+            ///Worker для запси таблицы временно закомментим для отладки остального до builder.Services.AddControllers();
             // SignalR
             builder.Services.AddSignalR(opts =>
-            {
-                opts.EnableDetailedErrors = builder.Environment.IsDevelopment();
-                opts.MaximumReceiveMessageSize = 128 * 1024; // 64 KB
-            });
-            //Configurate OPC UA and registration
-            var opcOpts = builder.Configuration
-                                                .GetSection("OpcUa")
-                                                .Get<OpcUaOptions>() ?? new OpcUaOptions();
-            
-            builder.Services.AddSingleton(opcOpts);
-            builder.Services.AddSingleton<IOpcUaService, OpcUaService>();
-            builder.Services.AddHostedService<OpcUaBackgroundService>();
-            ///Worker для запси таблицы временно закомментим для отладки остального
-            builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
-            builder.Services.AddHostedService<HeatingSessionWorker>();
+              {
+                  opts.EnableDetailedErrors = builder.Environment.IsDevelopment();
+                  opts.MaximumReceiveMessageSize = 128 * 1024; // 64 KB
+              });
+              //Configurate OPC UA and registration
+              var opcOpts = builder.Configuration
+                                                  .GetSection("OpcUa")
+                                                  .Get<OpcUaOptions>() ?? new OpcUaOptions();
+
+              builder.Services.AddSingleton(opcOpts);
+              builder.Services.AddSingleton<IOpcUaService, OpcUaService>();
+              builder.Services.AddHostedService<OpcUaBackgroundService>();
+              
+              builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
+              builder.Services.AddHostedService<HeatingSessionWorker>();
+            builder.Services.AddScoped<IQuenchingRepository, QuenchingRepository>();
+            builder.Services.AddHostedService<QuenchingSessionWorker>();
+
             builder.Services.AddControllers();
 
             var app = builder.Build();

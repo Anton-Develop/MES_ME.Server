@@ -234,90 +234,123 @@ const ZoneChart = ({ title, tempsObj, seriesDef, refKey, height = 260 }) => {
   );
 };
 
+// Обрезает начальный тепловой удар — стартует с минимума
+const trimToRecovery = (avgData, minDropDeg = 5) => {
+  if (!avgData || avgData.length < 4) return avgData;
+  let minIdx = 0;
+  for (let i = 1; i < avgData.length; i++) {
+    if (avgData[i][1] != null && avgData[i][1] < avgData[minIdx][1]) minIdx = i;
+  }
+  const drop = (avgData[0][1] ?? 0) - (avgData[minIdx][1] ?? 0);
+  return drop < minDropDeg ? avgData : avgData.slice(minIdx);
+};
+
+// Склеивает зоны в один непрерывный ряд с цветовыми сегментами Highcharts
+const buildContinuousSeries = (zonesDef) => {
+  const allPoints = [];
+
+  zonesDef.forEach(({ tempsObj, seriesDef, color }, zIdx) => {
+    const normalized = normalizeKeys(tempsObj);
+    if (!normalized) return;
+    const avgData = computeZoneAvg(normalized, seriesDef);
+    if (!avgData) return;
+    const trimmed = trimToRecovery(avgData);
+    trimmed?.forEach(([ts, val]) => {
+      if (val != null) allPoints.push({ ts, val, color, zIdx });
+    });
+  });
+
+  if (!allPoints.length) return null;
+
+  // При одинаковом timestamp — берём зону дальше по печи (больший zIdx)
+  const tsMap = new Map();
+  for (const p of allPoints) {
+    //if (!tsMap.has(p.ts) || p.zIdx > tsMap.get(p.ts).zIdx) tsMap.set(p.ts, p);
+    if (!tsMap.has(p.ts) || p.val > tsMap.get(p.ts).val) tsMap.set(p.ts, p);
+
+  }
+
+  const sorted = Array.from(tsMap.values()).sort((a, b) => a.ts - b.ts);
+  const data = sorted.map(p => [p.ts, p.val]);
+
+  // Highcharts zones — границы смены цвета
+  const hcZones = [];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].color !== sorted[i - 1].color) {
+      hcZones.push({ value: sorted[i].ts, color: sorted[i - 1].color });
+    }
+  }
+
+  return { data, hcZones, lastColor: sorted.at(-1)?.color };
+};
+
 // ---------------------------------------------------------------------------
 // Общий нижний график — среднее по каждой зоне + задание
 // ---------------------------------------------------------------------------
 const CombinedChart = ({ zones }) => {
   const options = useMemo(() => {
-    const series = [];
+    const profile = buildContinuousSeries(zones);
+    if (!profile) return null;
 
-    for (const { zKey, label, color, tempsObj, seriesDef, refKey } of zones) {
-      const normalized = normalizeKeys(tempsObj);
-      if (!normalized) continue;
-      const avgData = computeZoneAvg(normalized, seriesDef);
-      if (!avgData) continue;
-
-      series.push({
-        name:      label,
-        color,
-        lineWidth: 2,
-        dashStyle: 'Solid',
-        data:      avgData,
+    const series = [
+      {
+        name:      'Средняя температура',
+        lineWidth: 2.5,
+        color:     profile.lastColor,
+        zones:     profile.hcZones,
+        zoneAxis:  'x',
+        data:      profile.data,
         marker:    { enabled: false },
         tooltip:   { valueSuffix: ' °C', valueDecimals: 1 },
         zIndex:    5,
-      });
+      },
+    ];
 
-      // Добавляем задание только один раз (от первой доступной зоны)
-   //   if (!series.find(s => s.name === 'Задание')) {
-        const timestamps = getTimestamps(normalized);
-        const refData = normalized[refKey];
-        if (refData?.length) {
-          series.push({
-            name:      'Задание',
-            color:     '#212121',
-            lineWidth: 2,
-            dashStyle: 'ShortDash',
-            zIndex:    10,
-            data:      timestamps.map((ts, i) => [ts, refData[i] ?? null]),
-            marker:    { enabled: false },
-            tooltip:   { valueSuffix: ' °C', valueDecimals: 0 },
-            linkedTo: ':previos',
-          });
-        }
-     // }
-    }
+    // Собираем ref-данные из ВСЕХ зон в единую карту
+const refMap = new Map();
+for (const { tempsObj, refKey } of zones) {
+  const normalized = normalizeKeys(tempsObj);
+  if (!normalized) continue;
+  const timestamps = getTimestamps(normalized);
+  const refData = normalized[refKey];
+  if (!refData?.length) continue;
+  timestamps.forEach((ts, i) => {
+    if (refData[i] != null) refMap.set(ts, refData[i]);
+  });
+}
 
-    if (!series.length) return null;
+if (refMap.size) {
+  const profileStart = profile.data[0][0]; // ← начало с позиции обрезанного профиля
+  const refSorted = Array.from(refMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .filter(([ts]) => ts >= profileStart); // ← убираем пустоту слева
+
+  if (refSorted.length) {
+    series.push({
+      name:      'Задание',
+      color:     '#212121',
+      lineWidth: 2,
+      dashStyle: 'ShortDash',
+      zIndex:    10,
+      data:      refSorted,
+      marker:    { enabled: false },
+      tooltip:   { valueSuffix: ' °C', valueDecimals: 0 },
+    });
+  }
+}
+
 
     return {
-      chart: {
-        type:            'line',
-        height:          320,
-        zoomType:        'x',
-        animation:       false,
-        backgroundColor: '#fff',
-        style:           { fontFamily: '"Roboto","Helvetica","Arial",sans-serif' },
-      },
-      title:   { text: null },
-      credits: { enabled: false },
-      xAxis: {
-        type:       'datetime',
-        crosshair:  true,
-        labels:     { format: '{value:%H:%M}', style: { fontSize: '11px' } },
-      },
-      yAxis: {
-        title:         { text: '°C', style: { color: '#555' } },
-        gridLineColor: '#e0e0e0',
-        labels:        { style: { fontSize: '11px' } },
-      },
-      tooltip: {
-        shared:      true,
-        xDateFormat: '%d.%m.%Y %H:%M:%S',
-        style:       { fontSize: '12px' },
-      },
-      legend: {
-        enabled:   true,
-        itemStyle: { fontSize: '12px', color: '#333' },
-      },
-      plotOptions: {
-        series: {
-          boostThreshold: 300,
-          turboThreshold:  0,
-          animation:       false,
-          connectNulls:    false,
-        },
-      },
+      chart:    { type: 'line', height: 320, zoomType: 'x', animation: false,
+                  backgroundColor: '#fff', style: { fontFamily: '"Roboto","Helvetica","Arial",sans-serif' } },
+      title:    { text: null },
+      credits:  { enabled: false },
+      xAxis:    { type: 'datetime', crosshair: true, labels: { format: '{value:%H:%M}', style: { fontSize: '11px' } } },
+      yAxis:    { title: { text: '°C', style: { color: '#555' } }, gridLineColor: '#e0e0e0',
+                  labels: { style: { fontSize: '11px' } } },
+      tooltip:  { shared: true, xDateFormat: '%d.%m.%Y %H:%M:%S', style: { fontSize: '12px' } },
+      legend:   { enabled: true, itemStyle: { fontSize: '12px', color: '#333' } },
+      plotOptions: { series: { boostThreshold: 300, turboThreshold: 0, animation: false, connectNulls: false } },
       boost:     { enabled: true, useGPUTranslations: true, seriesThreshold: 1 },
       exporting: { enabled: true, buttons: EXPORT_BUTTONS },
       series,
@@ -325,13 +358,9 @@ const CombinedChart = ({ zones }) => {
   }, [zones]);
 
   if (!options) return null;
-
   return (
-    <HighchartsReact
-      highcharts={Highcharts}
-      options={options}
-      containerProps={{ style: { height: '320px' } }}
-    />
+    <HighchartsReact highcharts={Highcharts} options={options}
+      containerProps={{ style: { height: '320px' } }} />
   );
 };
 

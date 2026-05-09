@@ -389,4 +389,286 @@ WHERE business_key = @Key
         temps_time = EXCLUDED.temps_time
     """;
 
+
+
+
+
+    // -----------------------------------------------------------------------
+    // quenching_sessions
+    // -----------------------------------------------------------------------
+
+    public const string FindCompletedQuenchingSheets = """
+WITH
+presence AS (
+    SELECT
+        sheet, melt, part_no, pack,
+        time, alarm_exist,
+        time - LAG(time) OVER (
+            PARTITION BY sheet, melt, part_no, pack
+            ORDER BY time
+        ) AS gap
+    FROM plc.furnace_zone_data
+    WHERE zone = 'X1'
+      AND zone_occup = TRUE
+      AND sheet > 0 AND part_no > 0 AND pack > 0
+),
+with_flag AS (
+    SELECT *,
+        CASE WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1 ELSE 0 END AS is_new_session
+    FROM presence
+),
+with_session AS (
+    SELECT *,
+        SUM(is_new_session) OVER (
+            PARTITION BY sheet, melt, part_no, pack
+            ORDER BY time ROWS UNBOUNDED PRECEDING
+        ) - 1 AS reheat_num
+    FROM with_flag
+),
+agg AS (
+    SELECT
+        sheet, melt, part_no, pack,
+        MIN(reheat_num) AS reheat_num,
+        MIN(time) AS entered_at,
+        MAX(time) AS exited_at,
+        EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS total_sec,
+        BOOL_OR(alarm_exist) AS had_alarm
+    FROM with_session
+    GROUP BY sheet, melt, part_no, pack
+)
+SELECT
+    a.sheet, a.melt, a.part_no, a.pack,
+    a.reheat_num, a.entered_at, a.exited_at,
+    a.total_sec, a.had_alarm,
+    MAX(fzd.slab) AS slab,
+    MAX(fzd.alloy_code) AS alloy_code,
+    MAX(fzd.alloy_code_text) AS alloy_code_text,
+    MAX(fzd.thickness) AS thickness
+FROM agg a
+JOIN plc.furnace_zone_data fzd
+    ON fzd.sheet = a.sheet
+    AND fzd.melt = a.melt
+    AND fzd.part_no = a.part_no
+    AND fzd.pack = a.pack
+    AND fzd.zone = 'X1'
+    AND fzd.time = a.entered_at
+LEFT JOIN plc.quenching_sessions qs
+    ON qs.sheet = a.sheet
+    AND qs.melt = a.melt
+    AND qs.part_no = a.part_no
+    AND qs.pack = a.pack
+    AND qs.reheat_num = a.reheat_num
+WHERE qs.id IS NULL
+  AND a.exited_at IS NOT NULL
+  AND a.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
+GROUP BY a.sheet, a.melt, a.part_no, a.pack,
+         a.reheat_num, a.entered_at, a.exited_at,
+         a.total_sec, a.had_alarm
+ORDER BY a.entered_at
+""";
+
+    public const string FindMissedQuenchingSheets = """
+WITH
+presence AS (
+    SELECT
+        sheet, melt, part_no, pack,
+        time, alarm_exist,
+        time - LAG(time) OVER (
+            PARTITION BY sheet, melt, part_no, pack
+            ORDER BY time
+        ) AS gap
+    FROM plc.furnace_zone_data
+    WHERE zone = 'X1'
+      AND zone_occup = TRUE
+      AND sheet > 0 AND part_no > 0 AND pack > 0
+      AND time > NOW() - (@DaysBack || ' days')::INTERVAL
+),
+with_flag AS (
+    SELECT *,
+        CASE WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1 ELSE 0 END AS is_new_session
+    FROM presence
+),
+with_session AS (
+    SELECT *,
+        SUM(is_new_session) OVER (
+            PARTITION BY sheet, melt, part_no, pack
+            ORDER BY time ROWS UNBOUNDED PRECEDING
+        ) - 1 AS reheat_num
+    FROM with_flag
+),
+agg AS (
+    SELECT
+        sheet, melt, part_no, pack,
+        MIN(reheat_num) AS reheat_num,
+        MIN(time) AS entered_at,
+        MAX(time) AS exited_at,
+        EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS total_sec,
+        BOOL_OR(alarm_exist) AS had_alarm
+    FROM with_session
+    GROUP BY sheet, melt, part_no, pack
+),
+enriched AS (
+    SELECT
+        a.sheet, a.melt, a.part_no, a.pack,
+        a.reheat_num, a.entered_at, a.exited_at,
+        a.total_sec, a.had_alarm,
+        MAX(fzd.slab) AS slab,
+        MAX(fzd.alloy_code) AS alloy_code,
+        MAX(fzd.alloy_code_text) AS alloy_code_text,
+        MAX(fzd.thickness) AS thickness
+    FROM agg a
+    JOIN plc.furnace_zone_data fzd
+        ON fzd.sheet = a.sheet
+        AND fzd.melt = a.melt
+        AND fzd.part_no = a.part_no
+        AND fzd.pack = a.pack
+        AND fzd.zone = 'X1'
+        AND fzd.time = a.entered_at
+    GROUP BY a.sheet, a.melt, a.part_no, a.pack,
+             a.reheat_num, a.entered_at, a.exited_at,
+             a.total_sec, a.had_alarm
+)
+SELECT e.*
+FROM enriched e
+LEFT JOIN plc.quenching_sessions qs
+    ON qs.sheet = e.sheet
+    AND qs.melt = e.melt
+    AND qs.part_no = e.part_no
+    AND qs.pack = e.pack
+    AND qs.reheat_num = e.reheat_num
+WHERE qs.id IS NULL
+  AND e.exited_at IS NOT NULL
+  AND e.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
+ORDER BY e.entered_at
+""";
+
+    public const string GetQuenchingArrays = """
+SELECT
+    -- unlock
+    JSONB_AGG(valve_1x1_unlock  ORDER BY time) AS V1_U1, JSONB_AGG(valve_1x2_unlock  ORDER BY time) AS V1_U2,
+    JSONB_AGG(valve_1x3_unlock  ORDER BY time) AS V1_U3, JSONB_AGG(valve_1x4_unlock  ORDER BY time) AS V1_U4,
+    JSONB_AGG(valve_1x5_unlock  ORDER BY time) AS V1_U5, JSONB_AGG(valve_1x6_unlock  ORDER BY time) AS V1_U6,
+    JSONB_AGG(valve_1x7_unlock  ORDER BY time) AS V1_U7, JSONB_AGG(valve_1x8_unlock  ORDER BY time) AS V1_U8,
+    JSONB_AGG(valve_1x9_unlock  ORDER BY time) AS V1_U9, JSONB_AGG(valve_1x10_unlock ORDER BY time) AS V1_U10,
+    JSONB_AGG(valve_2x1_unlock  ORDER BY time) AS V2_U1, JSONB_AGG(valve_2x2_unlock  ORDER BY time) AS V2_U2,
+    JSONB_AGG(valve_2x3_unlock  ORDER BY time) AS V2_U3, JSONB_AGG(valve_2x4_unlock  ORDER BY time) AS V2_U4,
+    JSONB_AGG(valve_2x5_unlock  ORDER BY time) AS V2_U5, JSONB_AGG(valve_2x6_unlock  ORDER BY time) AS V2_U6,
+    JSONB_AGG(valve_2x7_unlock  ORDER BY time) AS V2_U7, JSONB_AGG(valve_2x8_unlock  ORDER BY time) AS V2_U8,
+    JSONB_AGG(valve_2x9_unlock  ORDER BY time) AS V2_U9, JSONB_AGG(valve_2x10_unlock ORDER BY time) AS V2_U10,
+    -- mnat
+    JSONB_AGG(valve_1x1_mnat    ORDER BY time) AS V1_M1, JSONB_AGG(valve_1x2_mnat    ORDER BY time) AS V1_M2,
+    JSONB_AGG(valve_1x3_mnat    ORDER BY time) AS V1_M3, JSONB_AGG(valve_1x4_mnat    ORDER BY time) AS V1_M4,
+    JSONB_AGG(valve_1x5_mnat    ORDER BY time) AS V1_M5, JSONB_AGG(valve_1x6_mnat    ORDER BY time) AS V1_M6,
+    JSONB_AGG(valve_1x7_mnat    ORDER BY time) AS V1_M7, JSONB_AGG(valve_1x8_mnat    ORDER BY time) AS V1_M8,
+    JSONB_AGG(valve_1x9_mnat    ORDER BY time) AS V1_M9, JSONB_AGG(valve_1x10_mnat   ORDER BY time) AS V1_M10,
+    JSONB_AGG(valve_2x1_mnat    ORDER BY time) AS V2_M1, JSONB_AGG(valve_2x2_mnat    ORDER BY time) AS V2_M2,
+    JSONB_AGG(valve_2x3_mnat    ORDER BY time) AS V2_M3, JSONB_AGG(valve_2x4_mnat    ORDER BY time) AS V2_M4,
+    JSONB_AGG(valve_2x5_mnat    ORDER BY time) AS V2_M5, JSONB_AGG(valve_2x6_mnat    ORDER BY time) AS V2_M6,
+    JSONB_AGG(valve_2x7_mnat    ORDER BY time) AS V2_M7, JSONB_AGG(valve_2x8_mnat    ORDER BY time) AS V2_M8,
+    JSONB_AGG(valve_2x9_mnat    ORDER BY time) AS V2_M9, JSONB_AGG(valve_2x10_mnat   ORDER BY time) AS V2_M10,
+    -- давления
+    JSONB_AGG(press9              ORDER BY time) AS Press9,
+    JSONB_AGG(press10             ORDER BY time) AS Press10,
+    JSONB_AGG(press11             ORDER BY time) AS Press11,
+    JSONB_AGG(press12             ORDER BY time) AS Press12,
+    JSONB_AGG(press_top_lamin1    ORDER BY time) AS PressTopLamin1,
+    JSONB_AGG(press_bot_lamin1    ORDER BY time) AS PressBotLamin1,
+    JSONB_AGG(press_top_lamin2    ORDER BY time) AS PressTopLamin2,
+    JSONB_AGG(press_bot_lamin2    ORDER BY time) AS PressBotLamin2,
+    JSONB_AGG(press_top_zak       ORDER BY time) AS PressTopZak,
+    JSONB_AGG(press_bot_zak       ORDER BY time) AS PressBotZak,
+    -- уровни и воздух
+    JSONB_AGG(level_haccum        ORDER BY time) AS LevelHaccum,
+    JSONB_AGG(level_tank          ORDER BY time) AS LevelTank,
+    JSONB_AGG(air_prs             ORDER BY time) AS AirPrs,
+    -- температуры
+    JSONB_AGG(temp_grad           ORDER BY time) AS TempGrad,
+    JSONB_AGG(temp_top_lam1       ORDER BY time) AS TempTopLam1,
+    JSONB_AGG(temp_bot_lam1       ORDER BY time) AS TempBotLam1,
+    JSONB_AGG(temp_top_lam2       ORDER BY time) AS TempTopLam2,
+    JSONB_AGG(temp_bot_lam2       ORDER BY time) AS TempBotLam2,
+    JSONB_AGG(temp_haccum         ORDER BY time) AS TempHaccum,
+    -- позиции
+    JSONB_AGG(valve_x1_up_pos_ref    ORDER BY time) AS ValveX1UpPosRef,
+    JSONB_AGG(valve_x1_up_pos_fbk    ORDER BY time) AS ValveX1UpPosFbk,
+    JSONB_AGG(valve_x1_down_pos_ref  ORDER BY time) AS ValveX1DownPosRef,
+    JSONB_AGG(valve_x1_down_pos_fbk  ORDER BY time) AS ValveX1DownPosFbk,
+    JSONB_AGG(valve_x2_1_up_pos_ref   ORDER BY time) AS ValveX2_1UpPosRef,
+    JSONB_AGG(valve_x2_1_up_pos_fbk   ORDER BY time) AS ValveX2_1UpPosFbk,
+    JSONB_AGG(valve_x2_1_down_pos_ref ORDER BY time) AS ValveX2_1DownPosRef,
+    JSONB_AGG(valve_x2_1_down_pos_fbk ORDER BY time) AS ValveX2_1DownPosFbk,
+    JSONB_AGG(valve_x2_2_up_pos_ref   ORDER BY time) AS ValveX2_2UpPosRef,
+    JSONB_AGG(valve_x2_2_up_pos_fbk   ORDER BY time) AS ValveX2_2UpPosFbk,
+    JSONB_AGG(valve_x2_2_down_pos_ref ORDER BY time) AS ValveX2_2DownPosRef,
+    JSONB_AGG(valve_x2_2_down_pos_fbk ORDER BY time) AS ValveX2_2DownPosFbk,
+    JSONB_AGG(time                ORDER BY time) AS Times
+FROM plc.quenching_data
+WHERE time BETWEEN @From AND @To
+""";
+
+    public const string UpsertQuenchingSession = """
+INSERT INTO plc.quenching_sessions (
+    sheet, slab, melt, part_no, pack, reheat_num,
+    alloy_code, alloy_code_text, thickness,
+    entered_at, exited_at, total_sec,
+    valves_1_unlock, valves_2_unlock,
+    valves_1_mnat, valves_2_mnat,
+    press9, press10, press11, press12,
+    press_top_lamin1, press_bot_lamin1, press_top_lamin2, press_bot_lamin2,
+    press_top_zak, press_bot_zak,
+    level_haccum, level_tank, air_prs,
+    temp_grad, temp_top_lam1, temp_bot_lam1, temp_top_lam2, temp_bot_lam2, temp_haccum,
+    valve_x1_up_pos_ref, valve_x1_up_pos_fbk, valve_x1_down_pos_ref, valve_x1_down_pos_fbk,
+    valve_x2_1_up_pos_ref, valve_x2_1_up_pos_fbk, valve_x2_1_down_pos_ref, valve_x2_1_down_pos_fbk,
+    valve_x2_2_up_pos_ref, valve_x2_2_up_pos_fbk, valve_x2_2_down_pos_ref, valve_x2_2_down_pos_fbk,
+    had_alarm
+) VALUES (
+    @Sheet, @Slab, @Melt, @PartNo, @Pack, @ReheatNum,
+    @AlloyCode, @AlloyCodeText, @Thickness,
+    @EnteredAt, @ExitedAt, @TotalSec,
+    @Valves1Unlock, @Valves2Unlock,
+    @Valves1Mnat::jsonb, @Valves2Mnat::jsonb,
+    @Press9, @Press10, @Press11, @Press12,
+    @PressTopLamin1, @PressBotLamin1, @PressTopLamin2, @PressBotLamin2,
+    @PressTopZak, @PressBotZak,
+    @LevelHaccum, @LevelTank, @AirPrs,
+    @TempGrad, @TempTopLam1, @TempBotLam1, @TempTopLam2, @TempBotLam2, @TempHaccum,
+    @ValveX1UpPosRef, @ValveX1UpPosFbk, @ValveX1DownPosRef, @ValveX1DownPosFbk,
+    @ValveX2_1UpPosRef, @ValveX2_1UpPosFbk, @ValveX2_1DownPosRef, @ValveX2_1DownPosFbk,
+    @ValveX2_2UpPosRef, @ValveX2_2UpPosFbk, @ValveX2_2DownPosRef, @ValveX2_2DownPosFbk,
+    @HadAlarm
+)
+ON CONFLICT (business_key) DO UPDATE SET
+    exited_at          = EXCLUDED.exited_at,
+    total_sec          = EXCLUDED.total_sec,
+    valves_1_unlock    = EXCLUDED.valves_1_unlock,
+    valves_2_unlock    = EXCLUDED.valves_2_unlock,
+    valves_1_mnat      = EXCLUDED.valves_1_mnat,
+    valves_2_mnat      = EXCLUDED.valves_2_mnat,
+    press9 = EXCLUDED.press9, press10 = EXCLUDED.press10,
+    press11 = EXCLUDED.press11, press12 = EXCLUDED.press12,
+    press_top_lamin1 = EXCLUDED.press_top_lamin1, press_bot_lamin1 = EXCLUDED.press_bot_lamin1,
+    press_top_lamin2 = EXCLUDED.press_top_lamin2, press_bot_lamin2 = EXCLUDED.press_bot_lamin2,
+    press_top_zak = EXCLUDED.press_top_zak, press_bot_zak = EXCLUDED.press_bot_zak,
+    level_haccum = EXCLUDED.level_haccum, level_tank = EXCLUDED.level_tank,
+    air_prs = EXCLUDED.air_prs,
+    temp_grad = EXCLUDED.temp_grad,
+    temp_top_lam1 = EXCLUDED.temp_top_lam1, temp_bot_lam1 = EXCLUDED.temp_bot_lam1,
+    temp_top_lam2 = EXCLUDED.temp_top_lam2, temp_bot_lam2 = EXCLUDED.temp_bot_lam2,
+    temp_haccum = EXCLUDED.temp_haccum,
+    valve_x1_up_pos_ref = EXCLUDED.valve_x1_up_pos_ref,
+    valve_x1_up_pos_fbk = EXCLUDED.valve_x1_up_pos_fbk,
+    valve_x1_down_pos_ref = EXCLUDED.valve_x1_down_pos_ref,
+    valve_x1_down_pos_fbk = EXCLUDED.valve_x1_down_pos_fbk,
+    valve_x2_1_up_pos_ref = EXCLUDED.valve_x2_1_up_pos_ref,
+    valve_x2_1_up_pos_fbk = EXCLUDED.valve_x2_1_up_pos_fbk,
+    valve_x2_1_down_pos_ref = EXCLUDED.valve_x2_1_down_pos_ref,
+    valve_x2_1_down_pos_fbk = EXCLUDED.valve_x2_1_down_pos_fbk,
+    valve_x2_2_up_pos_ref = EXCLUDED.valve_x2_2_up_pos_ref,
+    valve_x2_2_up_pos_fbk = EXCLUDED.valve_x2_2_up_pos_fbk,
+    valve_x2_2_down_pos_ref = EXCLUDED.valve_x2_2_down_pos_ref,
+    valve_x2_2_down_pos_fbk = EXCLUDED.valve_x2_2_down_pos_fbk,
+    had_alarm          = EXCLUDED.had_alarm
+""";
+
 }
