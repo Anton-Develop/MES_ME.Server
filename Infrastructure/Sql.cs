@@ -671,4 +671,103 @@ ON CONFLICT (business_key) DO UPDATE SET
     had_alarm          = EXCLUDED.had_alarm
 """;
 
+
+    // -----------------------------------------------------------------------
+    // quenching_sessions
+    // -----------------------------------------------------------------------
+
+    public const string QuenchingSessionCount = """
+    SELECT COUNT(*)
+    FROM plc.quenching_sessions
+    WHERE (@From      IS NULL OR entered_at >= @From)
+      AND (@To        IS NULL OR entered_at <= @To)
+      AND (@Slab      IS NULL OR slab       = @Slab)
+      AND (@Melt      IS NULL OR melt       = @Melt)
+      AND (@AlloyCode IS NULL OR alloy_code = @AlloyCode)
+    """;
+
+    public const string QuenchingSessionList = """
+SELECT
+    id AS Id, sheet AS Sheet, business_key AS BusinessKey,
+    slab AS Slab, melt AS Melt, part_no AS PartNo, pack AS Pack, reheat_num AS ReheatNum,
+    alloy_code AS AlloyCode, alloy_code_text AS AlloyCodeText, thickness AS Thickness,
+    entered_at AS EnteredAt, exited_at AS ExitedAt, total_sec AS TotalSec,
+    valves_1_unlock AS Valves1Unlock, valves_2_unlock AS Valves2Unlock,
+    valves_1_mnat AS Valves1Mnat, valves_2_mnat AS Valves2Mnat,
+    press9 AS Press9, press10 AS Press10, press11 AS Press11, press12 AS Press12,
+    press_top_lamin1 AS PressTopLamin1, press_bot_lamin1 AS PressBotLamin1,
+    press_top_lamin2 AS PressTopLamin2, press_bot_lamin2 AS PressBotLamin2,
+    press_top_zak AS PressTopZak, press_bot_zak AS PressBotZak,
+    level_haccum AS LevelHaccum, level_tank AS LevelTank, air_prs AS AirPrs,
+    temp_grad AS TempGrad, temp_top_lam1 AS TempTopLam1, temp_bot_lam1 AS TempBotLam1,
+    temp_top_lam2 AS TempTopLam2, temp_bot_lam2 AS TempBotLam2, temp_haccum AS TempHaccum,
+    valve_x1_up_pos_ref AS ValveX1UpPosRef, valve_x1_up_pos_fbk AS ValveX1UpPosFbk,
+    valve_x1_down_pos_ref AS ValveX1DownPosRef, valve_x1_down_pos_fbk AS ValveX1DownPosFbk,
+    valve_x2_1_up_pos_ref AS ValveX2_1UpPosRef, valve_x2_1_up_pos_fbk AS ValveX2_1UpPosFbk,
+    valve_x2_1_down_pos_ref AS ValveX2_1DownPosRef, valve_x2_1_down_pos_fbk AS ValveX2_1DownPosFbk,
+    valve_x2_2_up_pos_ref AS ValveX2_2UpPosRef, valve_x2_2_up_pos_fbk AS ValveX2_2UpPosFbk,
+    valve_x2_2_down_pos_ref AS ValveX2_2DownPosRef, valve_x2_2_down_pos_fbk AS ValveX2_2DownPosFbk,
+    had_alarm AS HadAlarm, created_at AS CreatedAt
+FROM plc.quenching_sessions
+WHERE (@From IS NULL OR entered_at >= @From)
+  AND (@To IS NULL OR entered_at <= @To)
+  AND (@Slab IS NULL OR slab = @Slab)
+  AND (@Melt IS NULL OR melt = @Melt)
+  AND (@AlloyCode IS NULL OR alloy_code = @AlloyCode)
+ORDER BY entered_at DESC
+LIMIT @PageSize OFFSET @Offset
+""";
+
+    public const string QuenchingSessionByKey = """
+SELECT
+    id AS Id, sheet AS Sheet, business_key AS BusinessKey,
+    slab AS Slab, melt AS Melt, part_no AS PartNo, pack AS Pack, reheat_num AS ReheatNum,
+    alloy_code AS AlloyCode, alloy_code_text AS AlloyCodeText, thickness AS Thickness,
+    entered_at AS EnteredAt, exited_at AS ExitedAt, total_sec AS TotalSec,
+    valves_1_unlock AS Valves1Unlock, valves_2_unlock AS Valves2Unlock,
+    valves_1_mnat AS Valves1Mnat, valves_2_mnat AS Valves2Mnat,
+    press9 AS Press9, press10 AS Press10, press11 AS Press11, press12 AS Press12,
+    press_top_lamin1 AS PressTopLamin1, press_bot_lamin1 AS PressBotLamin1,
+    press_top_lamin2 AS PressTopLamin2, press_bot_lamin2 AS PressBotLamin2,
+    press_top_zak AS PressTopZak, press_bot_zak AS PressBotZak,
+    level_haccum AS LevelHaccum, level_tank AS LevelTank, air_prs AS AirPrs,
+    temp_grad AS TempGrad, temp_top_lam1 AS TempTopLam1, temp_bot_lam1 AS TempBotLam1,
+    temp_top_lam2 AS TempTopLam2, temp_bot_lam2 AS TempBotLam2, temp_haccum AS TempHaccum,
+    valve_x1_up_pos_ref AS ValveX1UpPosRef, valve_x1_up_pos_fbk AS ValveX1UpPosFbk,
+    valve_x1_down_pos_ref AS ValveX1DownPosRef, valve_x1_down_pos_fbk AS ValveX1DownPosFbk,
+    valve_x2_1_up_pos_ref AS ValveX2_1UpPosRef, valve_x2_1_up_pos_fbk AS ValveX2_1UpPosFbk,
+    valve_x2_1_down_pos_ref AS ValveX2_1DownPosRef, valve_x2_1_down_pos_fbk AS ValveX2_1DownPosFbk,
+    valve_x2_2_up_pos_ref AS ValveX2_2UpPosRef, valve_x2_2_up_pos_fbk AS ValveX2_2UpPosFbk,
+    valve_x2_2_down_pos_ref AS ValveX2_2DownPosRef, valve_x2_2_down_pos_fbk AS ValveX2_2DownPosFbk,
+    had_alarm AS HadAlarm, created_at AS CreatedAt
+FROM plc.quenching_sessions
+WHERE business_key = @Key
+""";
+
+    public const string QuenchingSessionsBySheet = """
+SELECT
+    id AS Id, sheet AS Sheet, business_key AS BusinessKey,
+    slab AS Slab, melt AS Melt, part_no AS PartNo, pack AS Pack, reheat_num AS ReheatNum,
+    alloy_code AS AlloyCode, alloy_code_text AS AlloyCodeText, thickness AS Thickness,
+    entered_at AS EnteredAt, exited_at AS ExitedAt, total_sec AS TotalSec,
+    valves_1_unlock AS Valves1Unlock, valves_2_unlock AS Valves2Unlock,
+    valves_1_mnat AS Valves1Mnat, valves_2_mnat AS Valves2Mnat,
+    press9 AS Press9, press10 AS Press10, press11 AS Press11, press12 AS Press12,
+    press_top_lamin1 AS PressTopLamin1, press_bot_lamin1 AS PressBotLamin1,
+    press_top_lamin2 AS PressTopLamin2, press_bot_lamin2 AS PressBotLamin2,
+    press_top_zak AS PressTopZak, press_bot_zak AS PressBotZak,
+    level_haccum AS LevelHaccum, level_tank AS LevelTank, air_prs AS AirPrs,
+    temp_grad AS TempGrad, temp_top_lam1 AS TempTopLam1, temp_bot_lam1 AS TempBotLam1,
+    temp_top_lam2 AS TempTopLam2, temp_bot_lam2 AS TempBotLam2, temp_haccum AS TempHaccum,
+    valve_x1_up_pos_ref AS ValveX1UpPosRef, valve_x1_up_pos_fbk AS ValveX1UpPosFbk,
+    valve_x1_down_pos_ref AS ValveX1DownPosRef, valve_x1_down_pos_fbk AS ValveX1DownPosFbk,
+    valve_x2_1_up_pos_ref AS ValveX2_1UpPosRef, valve_x2_1_up_pos_fbk AS ValveX2_1UpPosFbk,
+    valve_x2_1_down_pos_ref AS ValveX2_1DownPosRef, valve_x2_1_down_pos_fbk AS ValveX2_1DownPosFbk,
+    valve_x2_2_up_pos_ref AS ValveX2_2UpPosRef, valve_x2_2_up_pos_fbk AS ValveX2_2UpPosFbk,
+    valve_x2_2_down_pos_ref AS ValveX2_2DownPosRef, valve_x2_2_down_pos_fbk AS ValveX2_2DownPosFbk,
+    had_alarm AS HadAlarm, created_at AS CreatedAt
+FROM plc.quenching_sessions
+WHERE sheet = @Sheet
+ORDER BY entered_at DESC
+""";
 }
