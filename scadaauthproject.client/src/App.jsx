@@ -32,6 +32,8 @@ import HMI from './pages/QuenchingHMI';
 import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
 import FurnaceReport from './components/Furnace/FurnaceReport';
 
+import QuenchingReport from './components/Furnace/QuenchingReport';
+
 
 const Unauthorized = () => (
     <div style={{ padding: 32, textAlign: 'center' }}>
@@ -205,7 +207,7 @@ const App = () => (
 
                             <Route path="furnace/sessions" element={<ProtectedRoute><FurnaceSessionsList /></ProtectedRoute>} />
                             <Route path="furnace/report" element={<ProtectedRoute><FurnaceReport /></ProtectedRoute>} />
-
+                            <Route path="quenching/report" element={<ProtectedRoute><QuenchingReport /></ProtectedRoute>} />        
                             {/* Фолбэк — любой неизвестный путь */}
                             <Route path="*" element={<Navigate to="/unauthorized" replace />} />
                         </Route>

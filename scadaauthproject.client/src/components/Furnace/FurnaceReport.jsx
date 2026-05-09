@@ -266,7 +266,7 @@ const buildContinuousSeries = (zonesDef) => {
   const tsMap = new Map();
   for (const p of allPoints) {
     //if (!tsMap.has(p.ts) || p.zIdx > tsMap.get(p.ts).zIdx) tsMap.set(p.ts, p);
-    if (!tsMap.has(p.ts) || p.val > tsMap.get(p.ts).val) tsMap.set(p.ts, p);
+      if (!tsMap.has(p.ts) || p.val > tsMap.get(p.ts).val) tsMap.set(p.ts, p);
 
   }
 

@@ -9,9 +9,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   Visibility, Print, Refresh, ArrowUpward, ArrowDownward,
-  FilterList, Close, Search, Clear,
+  FilterList, Close, Search, Clear, WaterDrop,
 } from '@mui/icons-material';
 import { furnaceApi } from '../../api/furnaceApi';
+import { quenchingApi } from '../../api/quenchingApi';
 
 const fmtDate = (d) => d
   ? new Date(d).toLocaleString('ru-RU', {
@@ -548,7 +549,7 @@ const FurnaceSessionsList = () => {
                         <Visibility fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Печать">
+                    {/*<Tooltip title="Печать">
                       <IconButton
                         size="small"
                         onClick={() => handlePrint(s.businessKey)}
@@ -556,8 +557,23 @@ const FurnaceSessionsList = () => {
                       >
                         <Print fontSize="small" />
                       </IconButton>
-                    </Tooltip>
-                  </TableCell>
+                    </Tooltip>*/}
+                    <Tooltip title="Отчёт по закалке">
+                    <IconButton
+                      size="small"
+                      color="info"
+                      onClick={() => {
+                        quenchingApi.getSessionsBySheet(s.sheet)
+                          .then(res => {
+                            const key = res.data?.[0]?.businessKey;
+                            if (key) navigate(`/quenching/report?key=${encodeURIComponent(key)}`);
+                          });
+                      }}
+                    >
+                      <WaterDrop fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                                    </TableCell>
                 </TableRow>
               ))
             )}
