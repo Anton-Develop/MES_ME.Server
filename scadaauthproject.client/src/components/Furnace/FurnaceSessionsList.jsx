@@ -9,7 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   Visibility, Print, Refresh, ArrowUpward, ArrowDownward,
-  FilterList, Close, Search, Clear, WaterDrop,
+  FilterList, Close, Search, Clear, WaterDrop,Assessment,
 } from '@mui/icons-material';
 import { furnaceApi } from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
@@ -539,6 +539,23 @@ const FurnaceSessionsList = () => {
                       <Chip label="АВАРИЯ" size="small" color="error" />
                     )}
                   </TableCell>
+                  <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                 <Tooltip title="Сводный отчёт по листу">
+                  <IconButton
+                    size="small"
+                    color="secondary"
+                    onClick={() => {
+                          const furnaceKey   = `${s.melt}-${s.partNo}-${s.pack}-${s.sheet}-${s.reheatNum ?? 0}`;
+                          const quenchingKey = `${s.sheet}|${s.melt}|${s.partNo}|${s.pack}|${s.reheatNum ?? 0}`;
+                          navigate(`/sheet-report?furnaceKey=${encodeURIComponent(furnaceKey)}&quenchingKey=${encodeURIComponent(quenchingKey)}`);
+                        }}
+
+                     
+                  >
+                    <Assessment fontSize="small" /> {/* или другая иконка */}
+                  </IconButton>
+                </Tooltip>
+                </TableCell>
                   <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                     <Tooltip title="Открыть отчёт">
                       <IconButton

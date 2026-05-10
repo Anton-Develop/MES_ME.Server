@@ -400,7 +400,9 @@ const QuenchingReport = () => {
             <Divider sx={{ my: 1 }} />
             <MetricRow label="Уровень — гидроакк."    value={fmtVal(s.levelHaccum, 1, '%')} />
             <MetricRow label="Уровень — приёмный бак" value={fmtVal(s.levelTank,   1, '%')} />
-          </Paper>
+
+            </Paper>
+            
         </Grid>
       </Grid>
 
