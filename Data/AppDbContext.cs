@@ -33,6 +33,10 @@ namespace MES_ME.Server.Data
         public DbSet<AnnealingPlan> AnnealingPlans { get; set; }
         public DbSet<CassettePlanLink> CassettePlanLinks { get; set; }
 
+        public DbSet<SheetMeasurement> SheetMeasurements => Set<SheetMeasurement>();
+
+
+
         public DbSet<ActualTemperatureAVG> ActualTemperatureAVG_HMI {get;set;}
 
 
@@ -110,6 +114,14 @@ namespace MES_ME.Server.Data
                     entity.HasNoKey();
                 });
 
+
+            modelBuilder.Entity<SheetMeasurement>(entity =>
+                    {
+                        entity.ToTable("sheet_measurements", "plc");
+                        entity.HasKey(e => e.Id);
+                        entity.HasIndex(e => new { e.Sheet, e.Melt, e.PartNo, e.Pack }).IsUnique();
+                        entity.HasIndex(e => e.EnteredX2At).HasDatabaseName("idx_sm_entered_x2");
+                    });
 
             modelBuilder.Entity<RoutePermission>(entity =>
                  {
