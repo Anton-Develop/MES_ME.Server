@@ -3,6 +3,7 @@ using MES_ME.Server.DTOs;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MES_ME.Server.OpcUa; 
 
 namespace MES_ME.Server.Controllers
 {
@@ -11,9 +12,15 @@ namespace MES_ME.Server.Controllers
     public class QuenchingHmiController : ControllerBase
     {      
         private readonly AppDbContext _context;  
-        public QuenchingHmiController(AppDbContext context)
+        private readonly IOpcUaService _opcService;
+        private readonly ILogger<QuenchingHmiController> _logger;
+
+        public QuenchingHmiController(AppDbContext context,IOpcUaService opcService,
+        ILogger<QuenchingHmiController> logger)
         {
             _context = context;
+            _opcService = opcService;
+            _logger = logger;
         }
 
         // Вспомогательный метод для парсинга строки размеров из inputdata
@@ -188,5 +195,61 @@ namespace MES_ME.Server.Controllers
             }
 
         }
+
+
+        [HttpPost("write-entry")]
+    public async Task<IActionResult> WriteEntry([FromBody] WriteEntryRequest request)
+    {
+        if (request == null || string.IsNullOrEmpty(request.UniqueId))
+        {
+            return BadRequest(new { message = "Не указан UniqueId листа." });
+        }
+
+        // 1. Найти лист в БД
+        var sheet = await _context.InputData.FindAsync(request.UniqueId);
+        if (sheet == null)
+        {
+            return NotFound(new { message = $"Лист с ID {request.UniqueId} не найден." });
+        }
+
+        // 2. Проверить, что лист находится в статусе, допускающем подачу на рольганг
+        //    (например, "В плане закалки ..." или "Ожидание")
+        if (!sheet.Status.StartsWith("В плане закалки") && sheet.Status != "Ожидание")
+        {
+            return BadRequest(new { message = $"Лист {request.UniqueId} имеет статус '{sheet.Status}', подача невозможна." });
+        }
+
+        // 3. Записать данные в OPC UA (теги E1)
+        bool success = true;
+        try
+        {
+            // Используем WriteByAliasAsync, если алиасы заданы в конфигурации
+            // или WriteAsync с прямыми NodeId.
+            // В вашем appsettings.json есть алиасы: E1_Melt, E1_PartNo, E1_Pack, E1_Sheet
+          //  success &= await _opcService.WriteByAliasAsync("E1_Melt", request.Melt);
+          //  success &= await _opcService.WriteByAliasAsync("E1_PartNo", request.PartNo);
+          //  success &= await _opcService.WriteByAliasAsync("E1_Pack", request.Pack);
+          //  success &= await _opcService.WriteByAliasAsync("E1_Sheet", request.Sheet);
+            // Устанавливаем признак присутствия листа (E1_Ocp = true)
+         //   success &= await _opcService.WriteByAliasAsync("E1_Ocp", true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Ошибка записи в OPC UA при подаче листа {MatId}", request.UniqueId);
+            return StatusCode(500, new { message = "Ошибка связи с OPC-сервером." });
+        }
+
+        if (!success)
+        {
+            return StatusCode(500, new { message = "Не удалось записать данные в OPC UA." });
+        }
+
+        // 4. Обновить статус листа в БД
+        sheet.Status = "На рольганге";
+        // sheet.UpdatedAt = DateTimeOffset.UtcNow; // если есть поле
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = $"Лист {request.UniqueId} подан на входной рольганг." });
+    }
     }
 }

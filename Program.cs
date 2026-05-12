@@ -101,12 +101,12 @@ namespace MES_ME.Server
               builder.Services.AddSingleton(opcOpts);
               builder.Services.AddSingleton<IOpcUaService, OpcUaService>();
               builder.Services.AddHostedService<OpcUaBackgroundService>();
-              /*
+              
               builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
               builder.Services.AddHostedService<HeatingSessionWorker>();
               builder.Services.AddScoped<IQuenchingRepository, QuenchingRepository>();
               builder.Services.AddHostedService<QuenchingSessionWorker>();
-              */
+              
             builder.Services.AddControllers();
 
             var app = builder.Build();
