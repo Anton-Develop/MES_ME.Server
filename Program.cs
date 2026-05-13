@@ -88,7 +88,7 @@ namespace MES_ME.Server
                 });
             ///Worker для запси таблицы временно закомментим для отладки остального до builder.Services.AddControllers();
             // SignalR
-            builder.Services.AddSignalR(opts =>
+           /* builder.Services.AddSignalR(opts =>
               {
                   opts.EnableDetailedErrors = builder.Environment.IsDevelopment();
                   opts.MaximumReceiveMessageSize = 128 * 1024; // 64 KB
@@ -106,7 +106,7 @@ namespace MES_ME.Server
               builder.Services.AddHostedService<HeatingSessionWorker>();
               builder.Services.AddScoped<IQuenchingRepository, QuenchingRepository>();
               builder.Services.AddHostedService<QuenchingSessionWorker>();
-              
+              */
             builder.Services.AddControllers();
 
             var app = builder.Build();
@@ -122,7 +122,7 @@ namespace MES_ME.Server
             app.UseCors("AllowSpecificOrigin");
             app.UseAuthentication();
             app.UseAuthorization();
-            app.MapHub<OpcUaHub>("/hubs/opc");
+          //  app.MapHub<OpcUaHub>("/hubs/opc");
 
             app.MapControllers();
 

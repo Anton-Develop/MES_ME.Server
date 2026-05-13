@@ -231,10 +231,10 @@ export default function QuenchingHMI() {
     setsubmitting(true);
     try {
       await api.post('quenchinghmi/write-entry', {
-        melt: selSheet.melt,
-        partNo: selSheet.batch,
-        pack: selSheet.pack,
-        sheet: selSheet.sheet,
+        EntrPlateData_Melt: selSheet.melt,
+        EntrPlateData_PartNo: selSheet.batch,
+        EntrPlateData_Pack: selSheet.pack,
+        EntrPlateData_Sheet: selSheet.sheet,
         UniqueId: selSheet.UniqueId,
       });
       setInputSheet(selSheet);
