@@ -230,12 +230,12 @@ export default function QuenchingHMI() {
     if (!canAdd || submitting) return;
     setsubmitting(true);
     try {
-      await api.post('quenchinghmi/write-entry', {
+      await api.post('/quenchinghmi/write-entry', {
         EntrPlateData_Melt: selSheet.melt,
         EntrPlateData_PartNo: selSheet.batch,
         EntrPlateData_Pack: selSheet.pack,
         EntrPlateData_Sheet: selSheet.sheet,
-        UniqueId: selSheet.UniqueId,
+        UniqueId: selSheet.uniqueId,
       });
       setInputSheet(selSheet);
       setSelectedPlan(prev => ({
@@ -775,7 +775,7 @@ export default function QuenchingHMI() {
                         <td style={{padding:'3px 7px', color:C.dim}}>{i+1}</td> 
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.melt}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.batch}</td>
-                        <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.pack}</td>
+                        <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.pack}</td> 
                         <td style={{padding:'3px 7px', fontFamily:'monospace', color:C.accent, fontWeight:700}}>{row.sheet}</td>
                         <td style={{padding:'3px 7px', color:C.yellow}}>{row.grade}</td>
                         <td style={{padding:'3px 7px', textAlign:'left'}}>{row.thick}</td>
