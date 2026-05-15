@@ -8,6 +8,7 @@ using Polly;
 using Polly.Retry;
 using System.Data;
 using System.Text.Json;
+using static MES_ME.Server.DTOs.TemperingSessionDTO;
 
 
 namespace MES_ME.Server.Repositories;
@@ -29,6 +30,12 @@ public interface IFurnaceRepository
     Task<HeatingSession?> GetSessionByKeyAsync(string key, CancellationToken ct = default);
 
     Task UpsertHeatingSessionAsync(object parameters, CancellationToken ct = default);
+
+
+    //For RelFirn
+    Task<TemperingSessionDto?> GetTemperingSessionByIdAsync(long id, CancellationToken ct = default);
+    Task<PagedResult<TemperingSessionDto>> GetTemperingSessionsAsync(TemperingSessionFilter filter, CancellationToken ct = default);
+    Task<IEnumerable<TemperingDetailDto>> GetTemperingSessionDetailsAsync(int furnaceNo, DateTime startedAt, DateTime endedAt, CancellationToken ct = default);
 }
 
 public sealed class FurnaceRepository : IFurnaceRepository
@@ -256,5 +263,108 @@ public sealed class FurnaceRepository : IFurnaceRepository
             await con.ExecuteAsync(cmd);
         });
 
+    }
+
+    //For RelFurn - отпускные печки для worker TemperingSessionWorker
+    public async Task<TemperingSessionDto?> GetTemperingSessionByIdAsync(long id, CancellationToken ct = default)
+    {
+        return await _retry.ExecuteAsync(async () =>
+        {
+            await using var con = await OpenAsync(ct);
+            const string sql = @"
+                SELECT 
+                    id, furnace_no AS FurnaceNo, started_at AS StartedAt, ended_at AS EndedAt,
+                    duration_min AS DurationMin,
+                    temp_min AS TempMin, temp_max AS TempMax, temp_avg AS TempAvg,
+                    temp_ref AS TempRef, target_temp AS TargetTemp, target_time AS TargetTime,
+                    point_ref_1 AS PointRef1, point_time_1 AS PointTime1, point_dtime_2 AS PointDtime2,
+                    cassette_no AS CassetteNo, cass_day AS CassDay, cass_month AS CassMonth,
+                    cass_year AS CassYear, cass_hour AS CassHour,
+                    cass1_no AS Cass1No, cass1_day AS Cass1Day, cass1_month AS Cass1Month,
+                    cass1_year AS Cass1Year, cass1_hour AS Cass1Hour,
+                    cass2_no AS Cass2No, cass2_day AS Cass2Day, cass2_month AS Cass2Month,
+                    cass2_year AS Cass2Year, cass2_hour AS Cass2Hour,
+                    had_fault AS HadFault
+                FROM plc.tempering_sessions
+                WHERE id = @Id";
+            return await con.QuerySingleOrDefaultAsync<TemperingSessionDto>(sql, new { Id = id });
+        });
+    }
+
+    public async Task<PagedResult<TemperingSessionDto>> GetTemperingSessionsAsync(TemperingSessionFilter filter, CancellationToken ct = default)
+    {
+        return await _retry.ExecuteAsync(async () =>
+        {
+            await using var con = await OpenAsync(ct);
+
+            var where = "WHERE 1=1";
+            if (filter.FurnaceNo.HasValue)
+                where += " AND furnace_no = @FurnaceNo";
+            if (filter.From.HasValue)
+                where += " AND started_at >= @From";
+            if (filter.To.HasValue)
+                where += " AND started_at <= @To";
+
+            var countSql = $"SELECT COUNT(*) FROM plc.tempering_sessions {where}";
+            var total = await con.ExecuteScalarAsync<int>(countSql, filter);
+
+            var listSql = $@"
+                SELECT 
+                    id, furnace_no AS FurnaceNo, started_at AS StartedAt, ended_at AS EndedAt,
+                    duration_min AS DurationMin,
+                    temp_min AS TempMin, temp_max AS TempMax, temp_avg AS TempAvg,
+                    temp_ref AS TempRef, target_temp AS TargetTemp, target_time AS TargetTime,
+                    point_ref_1 AS PointRef1, point_time_1 AS PointTime1, point_dtime_2 AS PointDtime2,
+                    cassette_no AS CassetteNo, cass_day AS CassDay, cass_month AS CassMonth,
+                    cass_year AS CassYear, cass_hour AS CassHour,
+                    cass1_no AS Cass1No, cass1_day AS Cass1Day, cass1_month AS Cass1Month,
+                    cass1_year AS Cass1Year, cass1_hour AS Cass1Hour,
+                    cass2_no AS Cass2No, cass2_day AS Cass2Day, cass2_month AS Cass2Month,
+                    cass2_year AS Cass2Year, cass2_hour AS Cass2Hour,
+                    had_fault AS HadFault
+                FROM plc.tempering_sessions
+                {where}
+                ORDER BY started_at DESC
+                LIMIT @PageSize OFFSET @Offset";
+
+            var items = await con.QueryAsync<TemperingSessionDto>(listSql, new
+            {
+                filter.FurnaceNo,
+                filter.From,
+                filter.To,
+                filter.PageSize,
+                Offset = (filter.Page - 1) * filter.PageSize
+            });
+
+            return new PagedResult<TemperingSessionDto>
+            {
+                Items = items,
+                Total = total,
+                Page = filter.Page,
+                PageSize = filter.PageSize
+            };
+        });
+    }
+
+    public async Task<IEnumerable<TemperingDetailDto>> GetTemperingSessionDetailsAsync(int furnaceNo, DateTime startedAt, DateTime endedAt, CancellationToken ct = default)
+    {
+        return await _retry.ExecuteAsync(async () =>
+        {
+            await using var con = await OpenAsync(ct);
+            const string sql = @"
+                SELECT 
+                    time, 
+                    temp_act AS TempAct, 
+                    temp_ref AS TempRef, 
+                    t1, t2, 
+                    t_average_furn AS TAverageFurn,
+                    act_time_total AS ActTimeTotal, 
+                    time_to_proc_end AS TimeToProcEnd
+                FROM plc.tempering_data
+                WHERE furnace_no = @FurnaceNo
+                AND time BETWEEN @StartedAt AND @EndedAt
+                ORDER BY time ASC";
+            return await con.QueryAsync<TemperingDetailDto>(sql, new { FurnaceNo = furnaceNo, StartedAt = startedAt, EndedAt = endedAt });
+        });
     }
 }

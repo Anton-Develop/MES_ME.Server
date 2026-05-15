@@ -12,9 +12,7 @@ import {
     Download as DownloadIcon,
     History as HistoryIcon,
     ShowChart as ChartIcon,
-    TableChart as TableIcon,
-    Print as PrintIcon,
-    LocalFireDepartment as FireIcon
+    TableChart as TableIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -22,7 +20,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { ru } from 'date-fns/locale';
 import { furnaceApi } from '../api/furnaceApi';
 import {
-    LineChart, Line, AreaChart, Area, XAxis, YAxis,
+    LineChart, Line, XAxis, YAxis,
     CartesianGrid, Tooltip as RechartsTooltip, Legend,
     ResponsiveContainer, ReferenceLine
 } from 'recharts';
@@ -40,21 +38,22 @@ function TabPanel({ children, value, index }) {
 }
 
 function SessionCard({ session, onClick }) {
-    const isDouble = session.cass1_no && session.cass1_no > 0;
+    // Поля из DTO: cassetteNo, cass1No, cass2No и т.д.
+    const isDouble = session.cass1No && session.cass1No > 0;
     const cassetteInfo = isDouble 
-        ? `Кассеты: ${session.cass1_no} / ${session.cass2_no}`
-        : `Кассета: ${session.cassette_no || '—'}`;
+        ? `Кассеты: ${session.cass1No} / ${session.cass2No}`
+        : `Кассета: ${session.cassetteNo || '—'}`;
     
     return (
         <Card 
-            sx={{ mb: 1, cursor: 'pointer', '&:hover': { bgcolor: '#1a2a3a' } }}
-            onClick={() => onClick(session)}
+            sx={{ mb: 1, cursor: 'pointer', '&:hover': { bgcolor: '#1a2a3a' }, bgcolor: '#1e1e1e' }}
+            onClick={() => onClick(session.id)}   // передаём id сессии
         >
             <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Box>
                         <Typography variant="body2" color="primary" sx={{ fontFamily: 'monospace' }}>
-                            {fmtDateTime(session.session_start)}
+                            {fmtDateTime(session.startedAt)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                             {cassetteInfo}
@@ -62,13 +61,13 @@ function SessionCard({ session, onClick }) {
                     </Box>
                     <Stack direction="row" spacing={2}>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                            {fmtTemp(session.temp_avg)} ∅
+                            {fmtTemp(session.tempAvg)} ∅
                         </Typography>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', color: session.temp_max > session.target_temp ? '#ffa726' : '#81c784' }}>
-                            ↑ {fmtTemp(session.temp_max)}
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', color: session.tempMax > session.targetTemp ? '#ffa726' : '#81c784' }}>
+                            ↑ {fmtTemp(session.tempMax)}
                         </Typography>
                         <Chip 
-                            label={fmtMin(session.target_time_min)} 
+                            label={fmtMin(session.targetTime)} 
                             size="small" 
                             variant="outlined"
                         />
@@ -94,12 +93,16 @@ export default function TemperingHeatReport() {
         setLoading(true);
         setError(null);
         try {
-            const response = await furnaceApi.getHeatReport({
+            // Используем новый метод с пагинацией (пока page=1, pageSize=100)
+            const result = await furnaceApi.getTemperingSessions({
                 furnaceNo,
                 from: fromDate.toISOString(),
-                to: toDate.toISOString()
+                to: toDate.toISOString(),
+                page: 1,
+                pageSize: 100
             });
-            setSessions(response.data || []);
+            // result = { items, total, page, pageSize }
+            setSessions(result.items || []);
         } catch (err) {
             setError(err.response?.data?.error || err.message);
             console.error(err);
@@ -108,23 +111,20 @@ export default function TemperingHeatReport() {
         }
     }, [furnaceNo, fromDate, toDate]);
 
-    const loadSessionDetails = useCallback(async (session) => {
+    const loadSessionDetails = useCallback(async (sessionId) => {
         setLoading(true);
         try {
-            const response = await furnaceApi.getHeatReportDetails({
-                furnaceNo,
-                from: session.session_start,
-                to: session.session_end || toDate.toISOString()
-            });
-            setDetailsData(response.data || []);
-            setSelectedSession(session);
+            const data = await furnaceApi.getTemperingSessionById(sessionId);
+            // data = { session, details }
+            setSelectedSession(data.session);
+            setDetailsData(data.details || []);
             setTabValue(1);
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
         }
-    }, [furnaceNo, toDate]);
+    }, []);
 
     useEffect(() => {
         loadSessions();
@@ -147,13 +147,13 @@ export default function TemperingHeatReport() {
 
     const chartData = detailsData.map(d => ({
         time: new Date(d.time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-        temp_act: d.temp_act,
-        temp_ref: d.temp_ref,
+        temp_act: d.tempAct,
+        temp_ref: d.tempRef,
         t1: d.t1,
         t2: d.t2,
-        t_average_furn: d.t_average_furn,
-        act_time_total: d.act_time_total,
-        progress: d.time_proc_set ? (d.act_time_total / d.time_proc_set) * 100 : 0
+        t_average_furn: d.tAverageFurn,
+        act_time_total: d.actTimeTotal,
+        progress: d.actTimeTotal && selectedSession?.targetTime ? (d.actTimeTotal / selectedSession.targetTime) * 100 : 0
     }));
 
     return (
@@ -244,9 +244,9 @@ export default function TemperingHeatReport() {
                                     Нет данных за выбранный период
                                 </Typography>
                             ) : (
-                                sessions.map((s, idx) => (
+                                sessions.map((s) => (
                                     <SessionCard 
-                                        key={idx} 
+                                        key={s.id} 
                                         session={s} 
                                         onClick={loadSessionDetails}
                                     />
@@ -261,7 +261,7 @@ export default function TemperingHeatReport() {
                             <Paper sx={{ p: 2, bgcolor: '#1a1e23', height: 'calc(100vh - 280px)', overflow: 'auto' }}>
                                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
                                     <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                        Детали цикла от {fmtDateTime(selectedSession.session_start)}
+                                        Детали цикла от {fmtDateTime(selectedSession.startedAt)}
                                     </Typography>
                                     <Stack direction="row" spacing={1}>
                                         <Tooltip title="Экспорт CSV">
@@ -281,19 +281,19 @@ export default function TemperingHeatReport() {
                                 <Grid container spacing={1} sx={{ mb: 2 }}>
                                     <Grid item xs={6} sm={3}>
                                         <Typography variant="caption" color="text.secondary">Целевая T</Typography>
-                                        <Typography variant="body2" fontFamily="monospace">{fmtTemp(selectedSession.target_temp)}</Typography>
+                                        <Typography variant="body2" fontFamily="monospace">{fmtTemp(selectedSession.targetTemp)}</Typography>
                                     </Grid>
                                     <Grid item xs={6} sm={3}>
                                         <Typography variant="caption" color="text.secondary">Средняя T</Typography>
-                                        <Typography variant="body2" fontFamily="monospace">{fmtTemp(selectedSession.temp_avg)}</Typography>
+                                        <Typography variant="body2" fontFamily="monospace">{fmtTemp(selectedSession.tempAvg)}</Typography>
                                     </Grid>
                                     <Grid item xs={6} sm={3}>
                                         <Typography variant="caption" color="text.secondary">Макс. T</Typography>
-                                        <Typography variant="body2" fontFamily="monospace" color="#ffa726">{fmtTemp(selectedSession.temp_max)}</Typography>
+                                        <Typography variant="body2" fontFamily="monospace" color="#ffa726">{fmtTemp(selectedSession.tempMax)}</Typography>
                                     </Grid>
                                     <Grid item xs={6} sm={3}>
                                         <Typography variant="caption" color="text.secondary">Время цикла</Typography>
-                                        <Typography variant="body2" fontFamily="monospace">{fmtMin(selectedSession.target_time_min)}</Typography>
+                                        <Typography variant="body2" fontFamily="monospace">{fmtMin(selectedSession.targetTime)}</Typography>
                                     </Grid>
                                 </Grid>
 
@@ -313,7 +313,7 @@ export default function TemperingHeatReport() {
                                             <YAxis yAxisId="progress" orientation="right" label={{ value: '%', angle: 90, position: 'insideRight', fill: '#8a99a8' }} stroke="#8a99a8" />
                                             <RechartsTooltip contentStyle={{ backgroundColor: '#1a1e23', borderColor: '#37474f' }} />
                                             <Legend />
-                                            <ReferenceLine y={selectedSession.target_temp} stroke="#64b5f6" strokeDasharray="3 3" yAxisId="temp" label="Цель" />
+                                            <ReferenceLine y={selectedSession.targetTemp} stroke="#64b5f6" strokeDasharray="3 3" yAxisId="temp" label="Цель" />
                                             <Line yAxisId="temp" type="monotone" dataKey="temp_act" stroke="#ffa726" strokeWidth={2} dot={false} name="Температура факт" />
                                             <Line yAxisId="temp" type="monotone" dataKey="temp_ref" stroke="#42a5f5" strokeWidth={1.5} dot={false} name="Задание" strokeDasharray="4 4" />
                                             <Line yAxisId="progress" type="monotone" dataKey="progress" stroke="#66bb6a" strokeWidth={1.5} dot={false} name="Прогресс" />
@@ -340,12 +340,14 @@ export default function TemperingHeatReport() {
                                                         <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
                                                             {new Date(row.time).toLocaleTimeString('ru-RU')}
                                                         </TableCell>
-                                                        <TableCell align="right">{fmtTemp(row.temp_act)}</TableCell>
-                                                        <TableCell align="right">{fmtTemp(row.temp_ref)}</TableCell>
+                                                        <TableCell align="right">{fmtTemp(row.tempAct)}</TableCell>
+                                                        <TableCell align="right">{fmtTemp(row.tempRef)}</TableCell>
                                                         <TableCell align="right">{fmtTemp(row.t1)}</TableCell>
                                                         <TableCell align="right">{fmtTemp(row.t2)}</TableCell>
                                                         <TableCell align="right">
-                                                            {row.time_proc_set ? ((row.act_time_total / row.time_proc_set) * 100).toFixed(0) : 0}%
+                                                            {row.actTimeTotal && selectedSession?.targetTime 
+                                                                ? ((row.actTimeTotal / selectedSession.targetTime) * 100).toFixed(0) 
+                                                                : 0}%
                                                         </TableCell>
                                                     </TableRow>
                                                 ))}

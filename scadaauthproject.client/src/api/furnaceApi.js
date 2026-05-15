@@ -38,23 +38,30 @@ export const furnaceApi = {
 
 
     // Отпускные печи
-    getTemperingCurrent: () =>
+      getTemperingCurrent: () =>
         api.get('/tempering/current').then(r => r.data),
 
-    getTemperingHistory: ({ furnaceNo, from, to, intervalMin = 1 }) =>
+      getTemperingHistory: ({ furnaceNo, from, to, intervalMin = 1 }) =>
         api.get('/tempering/history', {
             params: { furnaceNo, from, to, intervalMin }
         }).then(r => r.data),
 
-    getTemperingSessions: ({ furnaceNo, from, to, page = 1, pageSize = 50 }) =>
+      getTemperingSessions: ({ furnaceNo, from, to, page = 1, pageSize = 50 }) =>
         api.get('/tempering/sessions', {
             params: { furnaceNo, from, to, page, pageSize }
         }).then(r => r.data),
 		
-	getHeatReport: ({ furnaceNo, from, to }) =>
-    api.get('/tempering/report/heat', { params: { furnaceNo, from, to } }),
+      getHeatReport: ({ furnaceNo, from, to }) =>
+          api.get('/tempering/report/heat', { params: { furnaceNo, from, to } }),
 
-getHeatReportDetails: ({ furnaceNo, from, to, intervalMin = 1 }) =>
-    api.get('/tempering/report/heat/details', { params: { furnaceNo, from, to, intervalMin } }),
+      getHeatReportDetails: ({ furnaceNo, from, to, intervalMin = 1 }) =>
+          api.get('/tempering/report/heat/details', { params: { furnaceNo, from, to, intervalMin } }),
+
+      getTemperingSessions: ({ furnaceNo, from, to, page = 1, pageSize = 20 }) =>
+          api.get('/tempering/sessions', { params: { furnaceNo, from, to, page, pageSize } }),
+
+      getTemperingSessionDetails: (id) =>
+          api.get(`/tempering/sessions/${id}`),
+
 
 };

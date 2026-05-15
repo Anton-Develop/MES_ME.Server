@@ -1,7 +1,9 @@
 ﻿using Dapper;
+using MES_ME.Server.Repositories;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using static MES_ME.Server.DTOs.TemperingSessionDTO;
 
 namespace MES_ME.Server.Controllers
 {
@@ -9,6 +11,7 @@ namespace MES_ME.Server.Controllers
     [Route("api/tempering")]
     public sealed class TemperingController : ControllerBase
     {
+         private readonly IFurnaceRepository _furnaceRepo;
         private readonly NpgsqlDataSource _ds;
         public TemperingController(NpgsqlDataSource ds) => _ds = ds;
 
@@ -229,36 +232,57 @@ namespace MES_ME.Server.Controllers
             [FromQuery] int intervalMin = 1,
             CancellationToken ct = default)
         {
-            if (from >= to)
-                return BadRequest(new { error = "from должен быть меньше to" });
+                if (from >= to)
+                    return BadRequest(new { error = "from должен быть меньше to" });
 
-            await using var con = await _ds.OpenConnectionAsync(ct);
+                await using var con = await _ds.OpenConnectionAsync(ct);
 
-            var data = await con.QueryAsync("""
-        SELECT 
-            time,
-            temp_act,
-            temp_ref,
-            t1,
-            t2,
-            t_average_furn,
-            act_time_total,
-            act_time_heat_acc,
-            act_time_heat_wait,
-            time_to_proc_end,
-            proc_run,
-            proc_end,
-            proc_fault,
-            cassette_no,
-            cass1_no,
-            cass2_no
-        FROM plc.tempering_data
-        WHERE furnace_no = @FurnaceNo
-          AND time BETWEEN @From AND @To
-        ORDER BY time ASC
-        """, new { FurnaceNo = furnaceNo, From = from, To = to });
+                var data = await con.QueryAsync("""
+            SELECT 
+                time,
+                temp_act,
+                temp_ref,
+                t1,
+                t2,
+                t_average_furn,
+                act_time_total,
+                act_time_heat_acc,
+                act_time_heat_wait,
+                time_to_proc_end,
+                proc_run,
+                proc_end,
+                proc_fault,
+                cassette_no,
+                cass1_no,
+                cass2_no
+            FROM plc.tempering_data
+            WHERE furnace_no = @FurnaceNo
+            AND time BETWEEN @From AND @To
+            ORDER BY time ASC
+            """, new { FurnaceNo = furnaceNo, From = from, To = to });
 
-            return Ok(data);
+                return Ok(data);
         }
-    }
+
+        [HttpGet("sessions")]
+        public async Task<IActionResult> GetSessions([FromQuery] TemperingSessionFilter filter, CancellationToken ct)
+        {
+             var result = await _furnaceRepo.GetTemperingSessionsAsync(filter, ct);
+             return Ok(result);
+        }
+
+        [HttpGet("sessions/{id:long}")]
+        public async Task<IActionResult> GetSessionById(long id, CancellationToken ct)
+        {
+            var session = await _furnaceRepo.GetTemperingSessionByIdAsync(id, ct);
+            if (session == null)
+                return NotFound();
+
+            var details = session.EndedAt.HasValue
+                ? await _furnaceRepo.GetTemperingSessionDetailsAsync(session.FurnaceNo, session.StartedAt, session.EndedAt.Value, ct)
+                : Enumerable.Empty<TemperingDetailDto>();
+
+            return Ok(new { Session = session, Details = details });
+        }
+            }
 }

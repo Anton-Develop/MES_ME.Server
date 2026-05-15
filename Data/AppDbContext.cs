@@ -37,24 +37,24 @@ namespace MES_ME.Server.Data
 
 
 
-        public DbSet<ActualTemperatureAVG> ActualTemperatureAVG_HMI {get;set;}
+    /*      public DbSet<ActualTemperatureAVG> ActualTemperatureAVG_HMI {get;set;}
 
 
         //
-        public DbSet<TermokouplerRefTemp> TermokouplerRefTemp { get; set; }
+      public DbSet<TermokouplerRefTemp> TermokouplerRefTemp { get; set; }
         public DbSet<MasterPlcTrackingE1> MasterPlcTrackingE1 { get; set; }
         public DbSet<MasterPlcTrackingF1> MasterPlcTrackingF1 { get; set; }
         public DbSet<MasterPlcTrackingF2> MasterPlcTrackingF2 { get; set; }
         public DbSet<MasterPlcTrackingF3> MasterPlcTrackingF3 { get; set; }
         public DbSet<MasterPlcTrackingX1> MasterPlcTrackingX1 { get; set; }
-        public DbSet<MasterPlcTrackingX2> MasterPlcTrackingX2 { get; set; }
+        public DbSet<MasterPlcTrackingX2> MasterPlcTrackingX2 { get; set; }*/
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
              base.OnModelCreating(modelBuilder);
 
 
-
+/*
               modelBuilder.Entity<ActualTemperatureAVG>(entity =>
             {
                 entity.ToTable("termokoupler_reftemp_actual_avg", "telegraf");                 
@@ -114,7 +114,7 @@ namespace MES_ME.Server.Data
                     entity.HasNoKey();
                 });
 
-
+*/
             modelBuilder.Entity<SheetMeasurement>(entity =>
                     {
                         entity.ToTable("sheet_measurements", "plc");
