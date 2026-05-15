@@ -33,5 +33,28 @@ export const furnaceApi = {
     api.get(`/furnace/report/key/${encodeURIComponent(key)}`),
 
   getReportBySheet: (sheet, { melt, partNo, pack, reheatNum = 0 } = {}) =>
-    api.get(`/furnace/report/sheet/${sheet}`, { params: { melt, partNo, pack, reheatNum } }),
+        api.get(`/furnace/report/sheet/${sheet}`, { params: { melt, partNo, pack, reheatNum } }),
+
+
+
+    // Отпускные печи
+    getTemperingCurrent: () =>
+        api.get('/tempering/current').then(r => r.data),
+
+    getTemperingHistory: ({ furnaceNo, from, to, intervalMin = 1 }) =>
+        api.get('/tempering/history', {
+            params: { furnaceNo, from, to, intervalMin }
+        }).then(r => r.data),
+
+    getTemperingSessions: ({ furnaceNo, from, to, page = 1, pageSize = 50 }) =>
+        api.get('/tempering/sessions', {
+            params: { furnaceNo, from, to, page, pageSize }
+        }).then(r => r.data),
+		
+	getHeatReport: ({ furnaceNo, from, to }) =>
+    api.get('/tempering/report/heat', { params: { furnaceNo, from, to } }),
+
+getHeatReportDetails: ({ furnaceNo, from, to, intervalMin = 1 }) =>
+    api.get('/tempering/report/heat/details', { params: { furnaceNo, from, to, intervalMin } }),
+
 };

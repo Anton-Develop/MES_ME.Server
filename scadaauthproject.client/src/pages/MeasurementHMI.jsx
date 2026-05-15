@@ -192,8 +192,8 @@ export default function MeasurementHMI() {
         if (res.data) {
           const b = {}, a = {};
           for (let i = 1; i <= 8; i++) {
-            b[`h${i}`] = res.data[`h${i}_before`] ?? null;
-            a[`h${i}`] = res.data[`h${i}_after`]  ?? null;
+            b[`h${i}`] = res.data[`h${i}Before`] ?? null;
+            a[`h${i}`] = res.data[`h${i}After`]  ?? null;
           }
           setBefore(b);
           setAfter(a);
@@ -209,7 +209,8 @@ export default function MeasurementHMI() {
               pack:          currentSheet.pack,
               sheet:         currentSheet.sheet,
               sheetInPack:   currentSheet.sheetInPack,
-              thickness:     currentSheet.thickness,
+              sheetsInPack:  currentSheet.sheetsInPack,
+              thickness:     toNum(currentSheet.thickness),
               alloyCodeText: currentSheet.alloyCodeText,
               enteredX2At:   new Date().toISOString(),
             });
@@ -267,7 +268,7 @@ export default function MeasurementHMI() {
     return true;
   };
 
-  const alreadyMeasured = dbRecord?.measured_at != null;
+  const alreadyMeasured = dbRecord?.measuredAt != null;
 
   // ── Рендер ────────────────────────────────────────────────────────────
   const s = currentSheet;
@@ -383,7 +384,7 @@ export default function MeasurementHMI() {
           ) : (
             <Alert severity="success" sx={{ display: 'inline-flex' }}>
               Измерения сохранены —{' '}
-              {new Date(dbRecord.measured_at).toLocaleString('ru-RU')}
+              {new Date(dbRecord.measuredAt).toLocaleString('ru-RU')}
             </Alert>
           )}
         </Box>
@@ -400,10 +401,10 @@ export default function MeasurementHMI() {
           <Grid container spacing={1}>
             {[
               ['ID записи',   dbRecord.id],
-              ['Создана',     dbRecord.created_at ? new Date(dbRecord.created_at).toLocaleString('ru-RU') : '—'],
-              ['Вход в X2',   dbRecord.entered_x2_at ? new Date(dbRecord.entered_x2_at).toLocaleString('ru-RU') : '—'],
-              ['Измерена',    dbRecord.measured_at ? new Date(dbRecord.measured_at).toLocaleString('ru-RU') : '—'],
-              ['Оператор',    dbRecord.measured_by ?? '—'],
+              ['Создана',     dbRecord.createdAt   ? new Date(dbRecord.createdAt).toLocaleString('ru-RU')   : '—'],
+              ['Вход в X2',   dbRecord.enteredX2At ? new Date(dbRecord.enteredX2At).toLocaleString('ru-RU') : '—'],
+              ['Измерена',    dbRecord.measuredAt  ? new Date(dbRecord.measuredAt).toLocaleString('ru-RU')  : '—'],
+              ['Оператор',    dbRecord.measuredBy  ?? '—'],
             ].map(([label, val]) => (
               <Grid item xs={6} sm={4} key={label}>
                 <Typography variant="caption" sx={{ opacity: 0.6 }}>{label}</Typography>

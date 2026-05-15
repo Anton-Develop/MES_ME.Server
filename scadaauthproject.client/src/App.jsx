@@ -29,13 +29,15 @@ import AnnealingReportPage from './pages/AnnealingReportPage';
 import AnnealingPlanPage from './pages/AnnealingPlanPage';
 import HMI from './pages/QuenchingHMI';
 import MeasurementHMI from './pages/MeasurementHMI';
-
+import TemperingHMI from './pages/TemperingHMI';
+import TemperingHeatReport from './pages/TemperingHeatReport';
 
 import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
 import FurnaceReport from './components/Furnace/FurnaceReport';
 
 import QuenchingReport from './components/Furnace/QuenchingReport';
 import SheetCustomerReport from './components/Furnace/SheetCustomerReport';
+
 
 
 
@@ -219,7 +221,9 @@ const App = () => (
                             <Route path="furnace/report" element={<ProtectedRoute><FurnaceReport /></ProtectedRoute>} />
                             <Route path="quenching/report" element={<ProtectedRoute><QuenchingReport /></ProtectedRoute>} />   
                             <Route path="sheet-report" element={<ProtectedRoute><SheetCustomerReport /></ProtectedRoute>} />  
-
+                            <Route path="tempering-hmi" element={<ProtectedRoute><TemperingHMI /></ProtectedRoute>} />
+							<Route path="TemperingHeatReport" element={<ProtectedRoute><TemperingHeatReport /></ProtectedRoute>} />
+							
                             {/* Фолбэк — любой неизвестный путь */}
                             <Route path="*" element={<Navigate to="/unauthorized" replace />} />
                         </Route>
