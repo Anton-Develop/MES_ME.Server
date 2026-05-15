@@ -10,15 +10,17 @@
     "@mui/icons-material": "^7.3.8",
     "@mui/material": "^7.3.8",
     "@mui/x-data-grid": "^8.27.3",
-    "@mui/x-date-pickers": "^8.27.2",
+    "@mui/x-date-pickers": "^8.28.5",
     "axios": "^1.7.0",
+    "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "highcharts": "^12.6.0",
     "highcharts-react-official": "^3.2.3",
     "react": "^18",
     "react-dom": "^18",
     "react-router-dom": "^6",
-    "react-to-print": "^2.14.15"
+    "react-to-print": "^2.14.15",
+    "recharts": "^3.8.1"
   },
   "scripts": {
     "start": "react-scripts start",
