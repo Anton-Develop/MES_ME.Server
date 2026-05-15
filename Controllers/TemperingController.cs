@@ -264,7 +264,7 @@ namespace MES_ME.Server.Controllers
                 return Ok(data);
         }
 
-        [HttpGet("sessions")]
+        [HttpGet("sessions-legacy")]
         public async Task<IActionResult> GetSessions([FromQuery] TemperingSessionFilter filter, CancellationToken ct)
         {
              var result = await _furnaceRepo.GetTemperingSessionsAsync(filter, ct);
