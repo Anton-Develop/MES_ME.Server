@@ -13,7 +13,11 @@ namespace MES_ME.Server.Controllers
     {
          private readonly IFurnaceRepository _furnaceRepo;
         private readonly NpgsqlDataSource _ds;
-        public TemperingController(NpgsqlDataSource ds) => _ds = ds;
+        public TemperingController(NpgsqlDataSource ds, IFurnaceRepository furnaceRepo) 
+        {
+            _ds = ds;
+            _furnaceRepo = furnaceRepo;
+        }
 
         // GET /api/tempering/current — текущее состояние всех 4 печей
         [HttpGet("current")]
