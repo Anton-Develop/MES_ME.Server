@@ -34,6 +34,14 @@ public sealed class OpcUaHub : Hub
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"tag:{alias}");
     }
 
+    // Запрос снимка текущих значений — нужен компонентам,
+    // которые монтируются ПОСЛЕ установки синглтон-соединения
+    // Вызов: connection.invoke("GetSnapshot")
+    public async Task GetSnapshot()
+    {
+        await Clients.Caller.SendAsync("Snapshot", _opc.GetAllValues());
+    }
+
     // Запись значения в тег прямо из браузера
     // Вызов: connection.invoke("Write", "alias", 925)
     public async Task<bool> Write(string alias, object value)
