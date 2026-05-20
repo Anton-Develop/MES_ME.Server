@@ -63,6 +63,7 @@ namespace MES_ME.Server.Controllers
                     return NotFound(new { message = $"Лист с ID {matId} не найден." });
                 }
 
+                
                 // Проверяем, не входит ли лист уже в *другой* активный план (опционально)
                 var existingActiveLink = await _context.AnnealingBatchPlanSheets
                                                        .Include(l => l.BatchPlan) // Подгружаем план
@@ -81,6 +82,15 @@ namespace MES_ME.Server.Controllers
             }
 
             _context.AnnealingBatchPlanSheets.AddRange(linksToAdd);
+            ///Для обновления статусов листов
+            foreach (var matId in request.MatIds.Distinct())
+            {
+                var sheet = await _context.InputData.FindAsync(matId);
+                if (sheet != null)
+                {
+                    sheet.Status = $"В плане закалки \"{plan.PlanName}\"";
+                }
+            }
 
             try
             {

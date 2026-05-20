@@ -57,8 +57,8 @@ public sealed class TemperingSessionWorker : BackgroundService
         const string sql = @"
 WITH params AS (
     SELECT
-        35.0 AS start_threshold,
-        35.0 AS end_threshold,
+        40.0 AS start_threshold,         -- начало цикла: выше 40°C
+        34.0 AS end_threshold,           -- конец цикла: ниже 34°C (печь 2 остывает до ~38.7°C)
         30   AS min_duration_min,
         (@GracePeriodMinutes || ' minutes')::INTERVAL AS grace_interval
 ),
@@ -66,13 +66,19 @@ temp_data AS (
     SELECT
         furnace_no, time, temp_act, temp_ref,
         point_ref_1, point_time_1, point_dtime_2, time_proc_set, proc_fault,
-        cassette_no, cass_day, cass_month, cass_year, cass_hour,
-        cass1_no, cass1_day, cass1_month, cass1_year, cass1_hour,
-        cass2_no, cass2_day, cass2_month, cass2_year, cass2_hour
+        cassette_no, cass_day, cass_month,
+        CASE WHEN cass_year < 100 THEN 2000 + cass_year ELSE cass_year END AS cass_year,
+        cass_hour,
+        cass1_no, cass1_day, cass1_month,
+        CASE WHEN cass1_year < 100 THEN 2000 + cass1_year ELSE cass1_year END AS cass1_year,
+        cass1_hour,
+        cass2_no, cass2_day, cass2_month,
+        CASE WHEN cass2_year < 100 THEN 2000 + cass2_year ELSE cass2_year END AS cass2_year,
+        cass2_hour
     FROM plc.tempering_data
     WHERE time > NOW() - (@LookbackDays || ' days')::INTERVAL
       AND temp_act IS NOT NULL
-      AND furnace_no IN (1,2,3,4)   -- если у вас только 4 печи
+      AND furnace_no IN (1,2,3,4)
 ),
 state_raw AS (
     SELECT *,
@@ -164,21 +170,22 @@ agg AS (
         MAX(si.point_ref_1)    AS point_ref_1,
         MAX(si.point_time_1)   AS point_time_1,
         MAX(si.point_dtime_2)  AS point_dtime_2,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cassette_no ORDER BY si.time DESC), 0))[1] AS cassette_no,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass_day    ORDER BY si.time DESC), 0))[1] AS cass_day,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass_month  ORDER BY si.time DESC), 0))[1] AS cass_month,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass_year   ORDER BY si.time DESC), 0))[1] AS cass_year,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass_hour   ORDER BY si.time DESC), 0))[1] AS cass_hour,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass1_no    ORDER BY si.time DESC), 0))[1] AS cass1_no,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass1_day   ORDER BY si.time DESC), 0))[1] AS cass1_day,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass1_month ORDER BY si.time DESC), 0))[1] AS cass1_month,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass1_year  ORDER BY si.time DESC), 0))[1] AS cass1_year,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass1_hour  ORDER BY si.time DESC), 0))[1] AS cass1_hour,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass2_no    ORDER BY si.time DESC), 0))[1] AS cass2_no,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass2_day   ORDER BY si.time DESC), 0))[1] AS cass2_day,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass2_month ORDER BY si.time DESC), 0))[1] AS cass2_month,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass2_year  ORDER BY si.time DESC), 0))[1] AS cass2_year,
-        (ARRAY_REMOVE(ARRAY_AGG(si.cass2_hour  ORDER BY si.time DESC), 0))[1] AS cass2_hour
+        -- Берем ПОСЛЕДНЕЕ значение > 0, а не первое после удаления нулей
+        (ARRAY_AGG(si.cassette_no ORDER BY si.time DESC) FILTER (WHERE si.cassette_no > 0))[1] AS cassette_no,
+        (ARRAY_AGG(si.cass_day    ORDER BY si.time DESC) FILTER (WHERE si.cass_day    > 0))[1] AS cass_day,
+        (ARRAY_AGG(si.cass_month  ORDER BY si.time DESC) FILTER (WHERE si.cass_month  > 0))[1] AS cass_month,
+        (ARRAY_AGG(si.cass_year   ORDER BY si.time DESC) FILTER (WHERE si.cass_year   > 0))[1] AS cass_year,
+        (ARRAY_AGG(si.cass_hour   ORDER BY si.time DESC) FILTER (WHERE si.cass_hour   > 0))[1] AS cass_hour,
+        (ARRAY_AGG(si.cass1_no    ORDER BY si.time DESC) FILTER (WHERE si.cass1_no    > 0))[1] AS cass1_no,
+        (ARRAY_AGG(si.cass1_day   ORDER BY si.time DESC) FILTER (WHERE si.cass1_day   > 0))[1] AS cass1_day,
+        (ARRAY_AGG(si.cass1_month ORDER BY si.time DESC) FILTER (WHERE si.cass1_month > 0))[1] AS cass1_month,
+        (ARRAY_AGG(si.cass1_year  ORDER BY si.time DESC) FILTER (WHERE si.cass1_year  > 0))[1] AS cass1_year,
+        (ARRAY_AGG(si.cass1_hour  ORDER BY si.time DESC) FILTER (WHERE si.cass1_hour  > 0))[1] AS cass1_hour,
+        (ARRAY_AGG(si.cass2_no    ORDER BY si.time DESC) FILTER (WHERE si.cass2_no    > 0))[1] AS cass2_no,
+        (ARRAY_AGG(si.cass2_day   ORDER BY si.time DESC) FILTER (WHERE si.cass2_day   > 0))[1] AS cass2_day,
+        (ARRAY_AGG(si.cass2_month ORDER BY si.time DESC) FILTER (WHERE si.cass2_month > 0))[1] AS cass2_month,
+        (ARRAY_AGG(si.cass2_year  ORDER BY si.time DESC) FILTER (WHERE si.cass2_year  > 0))[1] AS cass2_year,
+        (ARRAY_AGG(si.cass2_hour  ORDER BY si.time DESC) FILTER (WHERE si.cass2_hour  > 0))[1] AS cass2_hour
     FROM session_ids si
     JOIN session_with_end sw USING (furnace_no, session_id)
     WHERE si.state = 1 AND si.session_id > 0
@@ -203,7 +210,7 @@ SELECT
     cass2_no, cass2_day, cass2_month, cass2_year, cass2_hour
 FROM agg, params
 WHERE duration_min >= params.min_duration_min
-  
+  AND ended_at < NOW() - params.grace_interval          -- ← ВЕРНУЛ grace_interval
   AND NOT EXISTS (
       SELECT 1 FROM plc.tempering_sessions ts
       WHERE ts.furnace_no = agg.furnace_no

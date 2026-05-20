@@ -1,7 +1,10 @@
 ﻿using Dapper;
+using MES_ME.Server.Data;
+using MES_ME.Server.Models;
 using MES_ME.Server.Repositories;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using static MES_ME.Server.DTOs.TemperingSessionDTO;
 
@@ -13,9 +16,14 @@ namespace MES_ME.Server.Controllers
     {
          private readonly IFurnaceRepository _furnaceRepo;
         private readonly NpgsqlDataSource _ds;
-        public TemperingController(NpgsqlDataSource ds, IFurnaceRepository furnaceRepo) 
+        private readonly AppDbContext _context;
+        private readonly ILogger<TemperingController> _logger;
+
+        public TemperingController(NpgsqlDataSource ds, AppDbContext context,IFurnaceRepository furnaceRepo, ILogger<TemperingController> log) 
         {
             _ds = ds;
+            _context = context;
+            _logger = log;
             _furnaceRepo = furnaceRepo;
         }
 
@@ -288,5 +296,189 @@ namespace MES_ME.Server.Controllers
 
             return Ok(new { Session = session, Details = details });
         }
+
+        // GET: /api/tempering/active-sessions
+        [HttpGet("active-sessions")]
+        public async Task<IActionResult> GetActiveSessions(CancellationToken ct)
+        {
+            var sessions = await _context.FurnaceCassetteSessions
+                .Include(s => s.Cassette)
+                .Where(s => s.UnloadedAt == null)
+                .OrderBy(s => s.LoadedAt)
+                .ToListAsync(ct);
+
+            return Ok(sessions.Select(s => new
+            {
+                s.Id,
+                s.FurnaceNumber,
+                s.CassetteId,
+                s.LoadedAt,
+                s.LoadedBy,
+                cassette_status = s.Cassette?.Status
+            }));
+        }
+
+        // GET: /api/tempering/session-history/{cassetteId}
+        [HttpGet("session-history/{cassetteId}")]
+        public async Task<IActionResult> GetSessionHistory(string cassetteId, CancellationToken ct)
+        {
+            var sessions = await _context.FurnaceCassetteSessions
+                .Where(s => s.CassetteId == cassetteId)
+                .OrderByDescending(s => s.LoadedAt)
+                .ToListAsync(ct);
+
+            return Ok(sessions);
+        }
+
+        // POST: /api/tempering/load
+        [HttpPost("load")]
+        public async Task<IActionResult> LoadCassette([FromBody] LoadCassetteRequest request, CancellationToken ct)
+        {
+            // 1. Находим кассету
+            var cassetteId = $"CAS{request.CassetteNumber:D7}";
+            var cassette = await _context.Cassettes.FindAsync(new object[] { cassetteId }, ct);
+
+            if (cassette == null)
+                return NotFound(new { message = $"Кассета {cassetteId} не найдена" });
+
+            if (cassette.Status != "Готова к отправке")
+                return BadRequest(new { message = $"Кассета имеет статус '{cassette.Status}'" });
+
+            // 2. Проверяем, не занята ли печь (по данным из БД сессий)
+            var existingSession = await _context.FurnaceCassetteSessions
+                .FirstOrDefaultAsync(s => s.FurnaceNumber == request.FurnaceNo && s.UnloadedAt == null, ct);
+
+            if (existingSession != null)
+                return Conflict(new { message = $"Печь {request.FurnaceNo} уже занята кассетой {existingSession.CassetteId}" });
+
+            // 3. Создаём сессию
+            var session = new FurnaceCassetteSession
+            {
+                FurnaceNumber = request.FurnaceNo,
+                CassetteId = cassetteId,
+                LoadedAt = DateTime.UtcNow,
+                LoadedBy = User.Identity?.Name ?? "system",
+                Source = "HMI"
+            };
+
+            cassette.Status = "Отправлена в печь";
+
+            // Обновляем статусы листов в кассете
+            var sheetLinks = await _context.SheetCassetteLinks
+                .Where(l => l.CassetteId == cassetteId)
+                .Select(l => l.MatId)
+                .ToListAsync(ct);
+
+            var sheets = await _context.InputData
+                .Where(s => sheetLinks.Contains(s.MatId))
+                .ToListAsync(ct);
+
+            foreach (var sheet in sheets)
+            {
+                sheet.Status = "В печи отпуска";
             }
+
+            _context.FurnaceCassetteSessions.Add(session);
+            await _context.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Кассета {CassetteId} загружена в печь {FurnaceNo} оператором {User}",
+                cassetteId, request.FurnaceNo, User.Identity?.Name ?? "system");
+
+            return Ok(new
+            {
+                message = $"Кассета {cassetteId} загружена в печь {request.FurnaceNo}",
+                sessionId = session.Id
+            });
+        }
+
+        // POST: /api/tempering/unload
+        [HttpPost("unload")]
+        public async Task<IActionResult> UnloadCassette([FromBody] UnloadCassetteRequest request, CancellationToken ct)
+        {
+            var session = await _context.FurnaceCassetteSessions
+                .Include(s => s.Cassette)
+                .FirstOrDefaultAsync(s => s.FurnaceNumber == request.FurnaceNo && s.UnloadedAt == null, ct);
+
+            if (session == null)
+                return NotFound(new { message = $"Нет активной сессии для печи {request.FurnaceNo}" });
+
+            session.UnloadedAt = DateTime.UtcNow;
+            session.UnloadedBy = User.Identity?.Name ?? "system";
+
+            if (session.Cassette != null)
+            {
+                session.Cassette.Status = "Отпуск завершён";
+
+                // Обновляем статусы листов
+                var sheetLinks = await _context.SheetCassetteLinks
+                    .Where(l => l.CassetteId == session.CassetteId)
+                    .Select(l => l.MatId)
+                    .ToListAsync(ct);
+
+                var sheets = await _context.InputData
+                    .Where(s => sheetLinks.Contains(s.MatId))
+                    .ToListAsync(ct);
+
+                foreach (var sheet in sheets)
+                {
+                    sheet.Status = "Отпуск пройден";
+                }
+            }
+
+            await _context.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Кассета {CassetteId} выгружена из печи {FurnaceNo} оператором {User}",
+                session.CassetteId, request.FurnaceNo, User.Identity?.Name ?? "system");
+
+            return Ok(new
+            {
+                message = $"Кассета {session.CassetteId} выгружена из печи {request.FurnaceNo}",
+                sessionId = session.Id
+            });
+        }
+
+        // GET: /api/tempering/furnace/{no}/status
+        [HttpGet("furnace/{no}/status")]
+        public async Task<IActionResult> GetFurnaceStatus(int no, CancellationToken ct)
+        {
+            // Получаем текущие данные печи из PLC
+            await using var con = await _ds.OpenConnectionAsync(ct);
+            var plcData = await con.QueryFirstOrDefaultAsync("""
+                SELECT furnace_no, proc_run, proc_end, proc_fault,
+                       cassette_no, cass1_no, cass2_no
+                FROM plc.tempering_data
+                WHERE furnace_no = @FurnaceNo
+                ORDER BY time DESC
+                LIMIT 1
+                """, new { FurnaceNo = no });
+
+            // Получаем активную сессию из БД
+            var activeSession = await _context.FurnaceCassetteSessions
+                .FirstOrDefaultAsync(s => s.FurnaceNumber == no && s.UnloadedAt == null, ct);
+
+            return Ok(new
+            {
+                furnace_no = no,
+                plc = plcData,
+                active_session = activeSession == null ? null : new
+                {
+                    activeSession.CassetteId,
+                    activeSession.LoadedAt,
+                    activeSession.LoadedBy
+                }
+            });
+        }
+    }
+    // DTOs
+    public class LoadCassetteRequest
+    {
+        public int FurnaceNo { get; set; }
+        public int CassetteNumber { get; set; }
+    }
+
+    public class UnloadCassetteRequest
+    {
+        public int FurnaceNo { get; set; }
+    }
+
 }

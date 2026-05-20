@@ -181,19 +181,19 @@ namespace MES_ME.Server.Controllers
         bool success = true;
         try
         {
-            // Используем WriteByAliasAsync, если алиасы заданы в конфигурации
-            // или WriteAsync с прямыми NodeId.
-            // В вашем appsettings.json есть алиасы: E1_Melt, E1_PartNo, E1_Pack, E1_Sheet
-            ///ModeLen 0- это 3м листы, 1 - 6м, чет это для последовательности
-          //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Melt", request.Melt);
-          //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_PartNo", request.PartNo);
-          //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Pack", request.Pack);
-          //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Sheet", request.Sheet);
-
-            // Устанавливаем признак присутствия листа (E1_Ocp = true)
-         //   success &= await _opcService.WriteByAliasAsync("EntrPlateData_InsertToE1", true);
-        }
-        catch (Exception ex)
+                // Используем WriteByAliasAsync, если алиасы заданы в конфигурации
+                // или WriteAsync с прямыми NodeId.
+                // В вашем appsettings.json есть алиасы: E1_Melt, E1_PartNo, E1_Pack, E1_Sheet
+                ///ModeLen 0- это 3м листы, 1 - 6м, чет это для последовательности
+                //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Melt", request.Melt);
+                //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_PartNo", request.PartNo);
+                //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Pack", request.Pack);
+                //  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Sheet", request.Sheet);
+                //  success &= await _opcService.WriteByAliasAsync("ModeLen", request.ModeLen );
+                // Устанавливаем признак присутствия листа (E1_Ocp = true)
+                //   success &= await _opcService.WriteByAliasAsync("EntrPlateData_InsertToE1", true);
+            }
+            catch (Exception ex)
         {
             _logger.LogError(ex, "Ошибка записи в OPC UA при подаче листа {MatId}", request.UniqueId);
             return StatusCode(500, new { message = "Ошибка связи с OPC-сервером." });

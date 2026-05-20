@@ -33,6 +33,7 @@ namespace MES_ME.Server.Data
         public DbSet<AnnealingPlan> AnnealingPlans { get; set; }
         public DbSet<CassettePlanLink> CassettePlanLinks { get; set; }
 
+        public DbSet<FurnaceCassetteSession> FurnaceCassetteSessions { get; set; }
         public DbSet<SheetMeasurement> SheetMeasurements => Set<SheetMeasurement>();
 
 
@@ -53,68 +54,123 @@ namespace MES_ME.Server.Data
         {
              base.OnModelCreating(modelBuilder);
 
-
-/*
-              modelBuilder.Entity<ActualTemperatureAVG>(entity =>
+            modelBuilder.Entity<FurnaceCassetteSession>(entity =>
             {
-                entity.ToTable("termokoupler_reftemp_actual_avg", "telegraf");                 
-                entity.HasNoKey();
+                entity.ToTable("furnace_cassette_sessions", "mes");
+
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.Id)
+                    .UseIdentityColumn(); // BIGSERIAL
+
+                entity.Property(e => e.FurnaceNumber)
+                    .IsRequired();
+
+                entity.Property(e => e.CassetteId)
+                    .IsRequired()
+                    .HasMaxLength(10);
+
+                entity.Property(e => e.LoadedAt)
+                    .IsRequired()
+                    .HasDefaultValueSql("NOW()");
+
+                entity.Property(e => e.Source)
+                    .HasMaxLength(20)
+                    .HasDefaultValue("HMI");
+
+                entity.Property(e => e.CompletedByPLC)
+                    .HasDefaultValue(false);
+
+                // Индексы
+                entity.HasIndex(e => e.FurnaceNumber)
+                    .HasDatabaseName("idx_furnace_sessions_furnace_number");
+
+                entity.HasIndex(e => e.CassetteId)
+                    .HasDatabaseName("idx_furnace_sessions_cassette_id");
+
+                entity.HasIndex(e => e.LoadedAt)
+                    .HasDatabaseName("idx_furnace_sessions_loaded_at");
+
+                // Уникальные ограничения для активных сессий
+                entity.HasIndex(e => e.CassetteId)
+                    .HasDatabaseName("uk_active_cassette_session")
+                    .HasFilter("\"unloaded_at\" IS NULL")
+                    .IsUnique();
+
+                entity.HasIndex(e => e.FurnaceNumber)
+                    .HasDatabaseName("uk_active_furnace_session")
+                    .HasFilter("\"unloaded_at\" IS NULL")
+                    .IsUnique();
+
+                // Связь с Cassette
+                entity.HasOne(e => e.Cassette)
+                    .WithMany()
+                    .HasForeignKey(e => e.CassetteId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
-            // Настройка для termokoupler_reftemp
-                modelBuilder.Entity<TermokouplerRefTemp>(entity =>
-                {
-                    entity.ToTable("termokoupler_reftemp", "telegraf");
-                    entity.HasNoKey(); // Указывает, что у сущности нет ключа
-                    // Настройка столбцов при необходимости
-                    // entity.Property(e => e.Time).HasColumnName("time");
-                    // ...
-                });
 
-                // Настройка для master_plc_tracking_e1_view
-                modelBuilder.Entity<MasterPlcTrackingE1>(entity =>
-                {
-                    entity.ToTable("master_plc_tracking_e1_view", "telegraf");
-                    entity.HasNoKey();
-                    // Настройка столбцов при необходимости
-                });
+            /*
+                          modelBuilder.Entity<ActualTemperatureAVG>(entity =>
+                        {
+                            entity.ToTable("termokoupler_reftemp_actual_avg", "telegraf");                 
+                            entity.HasNoKey();
+                        });
 
-                // Настройка для master_plc_tracking_f1_view
-                modelBuilder.Entity<MasterPlcTrackingF1>(entity =>
-                {
-                    entity.ToTable("master_plc_tracking_f1_view", "telegraf");
-                    entity.HasNoKey();
-                });
+                        // Настройка для termokoupler_reftemp
+                            modelBuilder.Entity<TermokouplerRefTemp>(entity =>
+                            {
+                                entity.ToTable("termokoupler_reftemp", "telegraf");
+                                entity.HasNoKey(); // Указывает, что у сущности нет ключа
+                                // Настройка столбцов при необходимости
+                                // entity.Property(e => e.Time).HasColumnName("time");
+                                // ...
+                            });
 
-                // Настройка для master_plc_tracking_f2_view
-                modelBuilder.Entity<MasterPlcTrackingF2>(entity =>
-                {
-                    entity.ToTable("master_plc_tracking_f2_view", "telegraf");
-                    entity.HasNoKey();
-                });
+                            // Настройка для master_plc_tracking_e1_view
+                            modelBuilder.Entity<MasterPlcTrackingE1>(entity =>
+                            {
+                                entity.ToTable("master_plc_tracking_e1_view", "telegraf");
+                                entity.HasNoKey();
+                                // Настройка столбцов при необходимости
+                            });
 
-                // Настройка для master_plc_tracking_f3_view
-                modelBuilder.Entity<MasterPlcTrackingF3>(entity =>
-                {
-                    entity.ToTable("master_plc_tracking_f3_view", "telegraf");
-                    entity.HasNoKey();
-                });
+                            // Настройка для master_plc_tracking_f1_view
+                            modelBuilder.Entity<MasterPlcTrackingF1>(entity =>
+                            {
+                                entity.ToTable("master_plc_tracking_f1_view", "telegraf");
+                                entity.HasNoKey();
+                            });
 
-                // Настройка для master_plc_tracking_x1_view
-                modelBuilder.Entity<MasterPlcTrackingX1>(entity =>
-                {
-                    entity.ToTable("master_plc_tracking_x1_view", "telegraf");
-                    entity.HasNoKey();
-                });
+                            // Настройка для master_plc_tracking_f2_view
+                            modelBuilder.Entity<MasterPlcTrackingF2>(entity =>
+                            {
+                                entity.ToTable("master_plc_tracking_f2_view", "telegraf");
+                                entity.HasNoKey();
+                            });
 
-                // Настройка для master_plc_tracking_x2_view
-                modelBuilder.Entity<MasterPlcTrackingX2>(entity =>
-                {
-                    entity.ToTable("master_plc_tracking_x2_view", "telegraf");
-                    entity.HasNoKey();
-                });
+                            // Настройка для master_plc_tracking_f3_view
+                            modelBuilder.Entity<MasterPlcTrackingF3>(entity =>
+                            {
+                                entity.ToTable("master_plc_tracking_f3_view", "telegraf");
+                                entity.HasNoKey();
+                            });
 
-*/
+                            // Настройка для master_plc_tracking_x1_view
+                            modelBuilder.Entity<MasterPlcTrackingX1>(entity =>
+                            {
+                                entity.ToTable("master_plc_tracking_x1_view", "telegraf");
+                                entity.HasNoKey();
+                            });
+
+                            // Настройка для master_plc_tracking_x2_view
+                            modelBuilder.Entity<MasterPlcTrackingX2>(entity =>
+                            {
+                                entity.ToTable("master_plc_tracking_x2_view", "telegraf");
+                                entity.HasNoKey();
+                            });
+
+            */
             modelBuilder.Entity<SheetMeasurement>(entity =>
                     {
                         entity.ToTable("sheet_measurements", "plc");

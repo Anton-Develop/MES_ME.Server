@@ -229,13 +229,18 @@ export default function QuenchingHMI() {
  const addToConveyor = async () => {
     if (!canAdd || submitting) return;
     setsubmitting(true);
-    try {
+     try {
+		const modelen = selSheet.length > 3 ? 1 : 0;
+        
+
       await api.post('/quenchinghmi/write-entry', {
         EntrPlateData_Melt: selSheet.melt,
         EntrPlateData_PartNo: selSheet.batch,
         EntrPlateData_Pack: selSheet.pack,
         EntrPlateData_Sheet: selSheet.sheet,
-        UniqueId: selSheet.uniqueId,
+          UniqueId: selSheet.uniqueId,
+          ModeLen: modelen,
+
       });
       setInputSheet(selSheet);
       setSelectedPlan(prev => ({
