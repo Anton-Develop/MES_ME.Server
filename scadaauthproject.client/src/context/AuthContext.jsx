@@ -4,12 +4,20 @@ import api from '../api';
 
 const AuthContext = createContext(null);
 
-// ИСПРАВЛЕНО: добавлена проверка на наличие контекста — ранее useContext(AuthContext)
-// молча возвращал undefined, если компонент использовался вне AuthProvider
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within <AuthProvider>');
   return ctx;
+};
+
+// Вспомогательная функция для получения токена (сначала localStorage, потом sessionStorage)
+const getTokenFromStorage = () => {
+  return localStorage.getItem('token') || sessionStorage.getItem('token');
+};
+
+const clearTokenFromStorage = () => {
+  localStorage.removeItem('token');
+  sessionStorage.removeItem('token');
 };
 
 export const AuthProvider = ({ children }) => {
@@ -18,19 +26,18 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const loadUserFromToken = () => {
-      const token = localStorage.getItem('token');
+      const token = getTokenFromStorage();
       if (token) {
         try {
-          // ИСПРАВЛЕНО: проверка структуры токена (должно быть ровно 3 части)
           const parts = token.split('.');
           if (parts.length !== 3) throw new Error('Malformed JWT');
 
           const payload = JSON.parse(atob(parts[1]));
 
-          // ИСПРАВЛЕНО: проверка истечения срока (exp — Unix timestamp в секундах)
+          // Проверка истечения срока (60 минут из appsettings.json)
           if (payload.exp && payload.exp * 1000 < Date.now()) {
             console.warn('Token expired, clearing.');
-            localStorage.removeItem('token');
+            clearTokenFromStorage();
             setLoading(false);
             return;
           }
@@ -44,7 +51,7 @@ export const AuthProvider = ({ children }) => {
               : [],
           });
         } catch {
-          localStorage.removeItem('token');
+          clearTokenFromStorage();
         }
       }
       setLoading(false);
@@ -53,29 +60,41 @@ export const AuthProvider = ({ children }) => {
     loadUserFromToken();
   }, []);
 
-  const login = async (username, password) => {
+  const login = async (username, password, rememberMe = false) => {
     try {
       const response = await api.post('/auth/login', { username, password });
       const { token, username: userName, role, userId, permissions } = response.data;
 
       if (!token) return false;
 
-      localStorage.setItem('token', token);
-      // ИСПРАВЛЕНО: permissions может прийти null с сервера — защищаем через ??
+      // Если "Запомнить меня" — localStorage (переживает перезапуск браузера)
+      // Если нет — sessionStorage (очищается при закрытии вкладки/браузера)
+      if (rememberMe) {
+        localStorage.setItem('token', token);
+      } else {
+        sessionStorage.setItem('token', token);
+      }
+      
       setUser({ username: userName, role, userId, permissions: permissions ?? [] });
       return true;
-    } catch {
+    } catch (error) {
+      console.error('Login error:', error);
       return false;
     }
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    clearTokenFromStorage();
     setUser(null);
   };
 
+  // Проверка, является ли пользователь администратором (superadmin или developer)
+  const isAdmin = () => {
+    return user && (user.role === 'superadmin' || user.role === 'developer');
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );

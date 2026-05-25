@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Box, CssBaseline, CircularProgress, useTheme, useMediaQuery } from '@mui/material';
 import Navbar from './Navbar';
+import TokenExpiryWarning from './TokenExpiryWarning'
 import AdminSidebar, { DRAWER_WIDTH } from './AdminSidebar';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';

@@ -1,5 +1,5 @@
 // src/pages/Login.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -9,6 +9,9 @@ import {
   Button,
   Box,
   Alert,
+  Checkbox,
+  FormControlLabel,
+  Divider,
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,17 +19,24 @@ const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  // ИСПРАВЛЕНО: добавлен флаг загрузки, чтобы предотвратить двойную отправку
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const [rememberMe, setRememberMe] = useState(false);
+  const { login, user } = useAuth();
   const navigate = useNavigate();
+
+  // Если пользователь уже админ и залогинен — перенаправляем
+  useEffect(() => {
+    if (user) {
+      navigate('/');
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const success = await login(username, password);
+      const success = await login(username, password, rememberMe);
       if (success) {
         navigate('/');
       } else {
@@ -39,17 +49,27 @@ const Login = () => {
     }
   };
 
+  // Быстрый вход для администратора (для разработки/тестирования)
+  const adminQuickLogin = async () => {
+    setLoading(true);
+    const success = await login('Anton', 'superanton', true); // ← замените на реальный пароль
+    if (success) navigate('/');
+    setLoading(false);
+  };
+
   return (
     <Container maxWidth="sm" sx={{ mt: 8 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
         <Typography variant="h4" align="center" gutterBottom>
           Вход в систему
         </Typography>
+        
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
+        
         <Box component="form" onSubmit={handleSubmit}>
           <TextField
             fullWidth
@@ -61,6 +81,7 @@ const Login = () => {
             autoComplete="username"
             autoFocus
           />
+          
           <TextField
             fullWidth
             margin="normal"
@@ -71,6 +92,18 @@ const Login = () => {
             required
             autoComplete="current-password"
           />
+          
+          <FormControlLabel
+            control={
+              <Checkbox 
+                checked={rememberMe} 
+                onChange={(e) => setRememberMe(e.target.checked)} 
+              />
+            }
+            label="Запомнить меня (оставаться в системе после закрытия браузера)"
+            sx={{ mt: 1 }}
+          />
+          
           <Button
             type="submit"
             fullWidth
@@ -82,6 +115,23 @@ const Login = () => {
             {loading ? 'Вход...' : 'Войти'}
           </Button>
         </Box>
+
+        {/* Быстрый вход для администратора (только для разработки) */}
+        <Divider sx={{ my: 3 }}>или</Divider>
+        
+        <Button
+          fullWidth
+          variant="outlined"
+          color="warning"
+          onClick={adminQuickLogin}
+          disabled={loading}
+        >
+          ⚡ Быстрый вход (Администратор)
+        </Button>
+        
+        <Typography variant="caption" display="block" sx={{ mt: 2, textAlign: 'center', color: 'text.secondary' }}>
+          Токен доступа действителен 60 минут
+        </Typography>
       </Paper>
     </Container>
   );
