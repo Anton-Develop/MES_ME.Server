@@ -6,7 +6,7 @@ import DashboardCard from './DashboardCard';
 import { useAuth } from '../../context/AuthContext';
 
 const operatorActions = [
-  { text: 'План закалки',       icon: <AssignmentIcon />,  route: '/annealing-batch-plan' },
+  { text: 'Измерение планшетности',       icon: <AssignmentIcon />,  route: '/MeasurementHMI' },
   { text: 'Панель оператора',     icon: <TableChartIcon />,  route: '/HMI' },
 ];
 
