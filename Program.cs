@@ -108,7 +108,7 @@ namespace MES_ME.Server
             builder.Services.AddHostedService<QuenchingSessionWorker>();
             builder.Services.AddHostedService<TemperingSessionWorker>();
             builder.Services.AddHostedService<TemperingAutoCompletionService>();
-          //  builder.Services.AddHostedService<AnnealingCompletionService>();
+            builder.Services.AddHostedService<AnnealingCompletionService>();
 
 
             builder.Services.AddControllers();
