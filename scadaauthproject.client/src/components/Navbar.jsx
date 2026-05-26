@@ -4,7 +4,7 @@ import { AppBar, Toolbar, Typography, Box, Button, IconButton } from '@mui/mater
 import { useAuth } from '../context/AuthContext';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import TokenExpiryWarning from './TokenExpiryWarning';
+
 
 // ИСПРАВЛЕНО: удалён неиспользуемый импорт useNavigate
 const Navbar = ({ toggleSidebar, onLogout }) => {
@@ -12,7 +12,7 @@ const Navbar = ({ toggleSidebar, onLogout }) => {
 
   return (
     <>
-       <TokenExpiryWarning /> 
+     
       <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
         <Toolbar>
           <IconButton

@@ -5,7 +5,6 @@ using MES_ME.Server.Models;
 using Npgsql;
 using System.Data;
 
-
 namespace MES_ME.Server.Repositories
 {
     public interface IQuenchingRepository
@@ -14,14 +13,11 @@ namespace MES_ME.Server.Repositories
         Task<IEnumerable<dynamic>> FindMissedQuenchingSheetsAsync(int catchUpDays, int gracePeriodMinutes, CancellationToken ct);
         Task<QuenchingDataDto> GetQuenchingArraysAsync(DateTime from, DateTime to, CancellationToken ct);
         Task UpsertQuenchingSessionAsync(object parameters, CancellationToken ct);
-
-        // Новые методы для API
         Task<int> GetSessionCountAsync(DateTime? from, DateTime? to, int? slab, int? melt, int? alloyCode, CancellationToken ct);
         Task<IEnumerable<QuenchingSession>> GetSessionListAsync(DateTime? from, DateTime? to, int? slab, int? melt, int? alloyCode, int pageSize, int offset, CancellationToken ct);
         Task<QuenchingSession?> GetSessionByKeyAsync(string businessKey, CancellationToken ct);
         Task<IEnumerable<QuenchingSession>> GetSessionsBySheetAsync(int sheet, CancellationToken ct);
     }
-
 
     public class QuenchingRepository : IQuenchingRepository
     {
@@ -37,30 +33,52 @@ namespace MES_ME.Server.Repositories
         public async Task<IEnumerable<dynamic>> FindCompletedQuenchingSheetsAsync(int gracePeriodMinutes, CancellationToken ct)
         {
             using var db = CreateConnection();
-            return await db.QueryAsync(Sql.FindCompletedQuenchingSheets, new { GracePeriodMinutes = gracePeriodMinutes });
+            var command = new CommandDefinition(
+                Sql.FindCompletedQuenchingSheets,
+                new { GracePeriodMinutes = gracePeriodMinutes },
+                commandTimeout: 300,
+                cancellationToken: ct
+            );
+            return await db.QueryAsync(command);
         }
 
         public async Task<IEnumerable<dynamic>> FindMissedQuenchingSheetsAsync(int catchUpDays, int gracePeriodMinutes, CancellationToken ct)
         {
             using var db = CreateConnection();
-            return await db.QueryAsync(Sql.FindMissedQuenchingSheets,
-                new { DaysBack = catchUpDays, GracePeriodMinutes = gracePeriodMinutes });
+            var command = new CommandDefinition(
+                Sql.FindMissedQuenchingSheets,
+                new { DaysBack = catchUpDays, GracePeriodMinutes = gracePeriodMinutes },
+                commandTimeout: 300,
+                cancellationToken: ct
+            );
+            return await db.QueryAsync(command);
         }
 
         public async Task<QuenchingDataDto> GetQuenchingArraysAsync(DateTime from, DateTime to, CancellationToken ct)
         {
             using var db = CreateConnection();
-            var result = await db.QuerySingleAsync<QuenchingDataDto>(Sql.GetQuenchingArrays, new { From = from, To = to });
-            return result;
+            var command = new CommandDefinition(
+                Sql.GetQuenchingArrays,
+                new { From = from, To = to },
+                commandTimeout: 300,
+                cancellationToken: ct
+            );
+            return await db.QuerySingleAsync<QuenchingDataDto>(command);
         }
 
         public async Task UpsertQuenchingSessionAsync(object parameters, CancellationToken ct)
         {
             using var db = CreateConnection();
-            await db.ExecuteAsync(Sql.UpsertQuenchingSession, parameters);
+            var command = new CommandDefinition(
+                Sql.UpsertQuenchingSession,
+                parameters,
+                commandTimeout: 300,
+                cancellationToken: ct
+            );
+            await db.ExecuteAsync(command);
         }
 
-
+        // Остальные методы без изменений...
         public async Task<int> GetSessionCountAsync(DateTime? from, DateTime? to, int? slab, int? melt, int? alloyCode, CancellationToken ct)
         {
             using var db = CreateConnection();
@@ -101,5 +119,4 @@ namespace MES_ME.Server.Repositories
             return await db.QueryAsync<QuenchingSession>(Sql.QuenchingSessionsBySheet, new { Sheet = sheet });
         }
     }
-
 }

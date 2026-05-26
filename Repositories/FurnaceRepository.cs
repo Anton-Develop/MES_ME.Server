@@ -172,8 +172,15 @@ public sealed class FurnaceRepository : IFurnaceRepository
         return await _retry.ExecuteAsync(async () =>
         {
             await using var con = await OpenAsync(ct);
-            return await con.QueryAsync(Sql.FindMissedSheets, new { DaysBack = daysBack });
+            var command = new CommandDefinition(
+                Sql.FindMissedSheets,
+                new { DaysBack = daysBack },
+                commandTimeout: 300,
+                cancellationToken: ct
+            );
+            return await con.QueryAsync(command);
         });
+
     }
 
 

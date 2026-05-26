@@ -24,12 +24,16 @@ const Login = () => {
   const { login, user } = useAuth();
   const navigate = useNavigate();
 
-  // Если пользователь уже админ и залогинен — перенаправляем
+  // Используем useRef для предотвращения множественных редиректов
+  const [redirected, setRedirected] = useState(false);
+
   useEffect(() => {
-    if (user) {
-      navigate('/');
+    // Редиректим только если пользователь есть и еще не редиректили
+    if (user && !redirected) {
+      setRedirected(true);
+      navigate('/', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, redirected]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -38,23 +42,29 @@ const Login = () => {
     try {
       const success = await login(username, password, rememberMe);
       if (success) {
-        navigate('/');
+        // Не делаем navigate здесь, дождемся useEffect
+        // navigate('/', { replace: true });
       } else {
         setError('Неверное имя пользователя или пароль');
+        setLoading(false);
       }
-    } catch {
+    } catch (err) {
       setError('Ошибка соединения. Попробуйте позже.');
-    } finally {
       setLoading(false);
     }
+    // Убираем setLoading(false) из finally, т.к. при успехе не сбрасываем
   };
 
-  // Быстрый вход для администратора (для разработки/тестирования)
+  // Быстрый вход
   const adminQuickLogin = async () => {
     setLoading(true);
-    const success = await login('Anton', 'superanton', true); // ← замените на реальный пароль
-    if (success) navigate('/');
-    setLoading(false);
+    setError('');
+    const success = await login('Oper_2', '12341234', true);
+    if (!success) {
+      setError('Ошибка входа');
+      setLoading(false);
+    }
+    // При успехе loading останется true до редиректа
   };
 
   return (
@@ -80,6 +90,7 @@ const Login = () => {
             required
             autoComplete="username"
             autoFocus
+            disabled={loading}
           />
           
           <TextField
@@ -91,6 +102,7 @@ const Login = () => {
             onChange={(e) => setPassword(e.target.value)}
             required
             autoComplete="current-password"
+            disabled={loading}
           />
           
           <FormControlLabel
@@ -98,6 +110,7 @@ const Login = () => {
               <Checkbox 
                 checked={rememberMe} 
                 onChange={(e) => setRememberMe(e.target.checked)} 
+                disabled={loading}
               />
             }
             label="Запомнить меня (оставаться в системе после закрытия браузера)"
@@ -116,7 +129,6 @@ const Login = () => {
           </Button>
         </Box>
 
-        {/* Быстрый вход для администратора (только для разработки) */}
         <Divider sx={{ my: 3 }}>или</Divider>
         
         <Button
@@ -126,7 +138,7 @@ const Login = () => {
           onClick={adminQuickLogin}
           disabled={loading}
         >
-          ⚡ Быстрый вход (Администратор)
+          ⚡ Быстрый вход (Оператор)
         </Button>
         
         <Typography variant="caption" display="block" sx={{ mt: 2, textAlign: 'center', color: 'text.secondary' }}>

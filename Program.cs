@@ -13,12 +13,12 @@ using System.Text;
 
 namespace MES_ME.Server
 {
-  public class Program
-  {
-    public static void Main(string[] args)
+    public class Program
     {
-          
-          
+        public static void Main(string[] args)
+        {
+
+
             var builder = WebApplication.CreateBuilder(args);
 
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -27,10 +27,14 @@ namespace MES_ME.Server
             // Add services to the container.
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+            builder.Services.Configure<HostOptions>(options =>
+            {
+                options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+            });
 
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
-                { 
+                {
                     options.TokenValidationParameters = new TokenValidationParameters
                     {
                         ValidateIssuer = true,
@@ -44,37 +48,37 @@ namespace MES_ME.Server
                         )
                     };
                 });
-                  // Добавляем Authorization с политиками
-                builder.Services.AddAuthorization(async options =>
+            // Добавляем Authorization с политиками
+            builder.Services.AddAuthorization(async options =>
+            {
+                using var scope = builder.Services.BuildServiceProvider().CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                // Загружаем все права из БД при запуске приложения
+                var allPermissions = await context.Permissions.Select(p => p.Name).ToListAsync();
+
+                foreach (var permission in allPermissions)
                 {
-                    using var scope = builder.Services.BuildServiceProvider().CreateScope();
-                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                    // Загружаем все права из БД при запуске приложения
-                    var allPermissions = await context.Permissions.Select(p => p.Name).ToListAsync();
-
-                    foreach (var permission in allPermissions)
-                    {
-                        options.AddPolicy(permission, policy =>
-                            policy.RequireAssertion(context =>
-                            {
-                                // Получаем список прав из Claims токена пользователя
-                                var userPermissions = context.User.FindAll("permission").Select(c => c.Value);
-                                // Проверяем, содержит ли список прав пользователя требуемое право
-                                return userPermissions.Contains(permission);
-                            }));
-                    }
-                });
+                    options.AddPolicy(permission, policy =>
+                        policy.RequireAssertion(context =>
+                        {
+                            // Получаем список прав из Claims токена пользователя
+                            var userPermissions = context.User.FindAll("permission").Select(c => c.Value);
+                            // Проверяем, содержит ли список прав пользователя требуемое право
+                            return userPermissions.Contains(permission);
+                        }));
+                }
+            });
             builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
-{
-            options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-              });
+            {
+                options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+            });
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowSpecificOrigin",
                     policy =>
                     {
-                        policy.WithOrigins("http://localhost:3000","http://192.168.9.64:3000") ///192.168.9.200, "http://192.168.9.64:3000"
+                        policy.WithOrigins("http://localhost:3000", "http://192.168.9.64:3000") ///192.168.9.200, "http://192.168.9.64:3000"
                               .AllowAnyHeader()
                               .AllowAnyMethod()
                               .SetIsOriginAllowed(_ => true)
@@ -82,39 +86,41 @@ namespace MES_ME.Server
                     });
             });
             builder.Services.AddSingleton<NpgsqlDataSource>(sp =>
-                {
-                    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-                    return NpgsqlDataSource.Create(connectionString);
-                });
+            {
+                var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+                var sourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+                sourceBuilder.ConnectionStringBuilder.CommandTimeout = 120; // 2 минуты по умолчанию
+                return sourceBuilder.Build();
+            });
             ///Worker для запси таблицы временно закомментим для отладки остального до builder.Services.AddControllers();
             // SignalR
-           builder.Services.AddSignalR(opts =>
-              {
-                  opts.EnableDetailedErrors = builder.Environment.IsDevelopment();
-                  opts.MaximumReceiveMessageSize = 128 * 1024; // 64 KB
-              });
-              //Configurate OPC UA and registration
-              var opcOpts = builder.Configuration
-                                                  .GetSection("OpcUa")
-                                                  .Get<OpcUaOptions>() ?? new OpcUaOptions();
+            builder.Services.AddSignalR(opts =>
+            {
+                opts.EnableDetailedErrors = builder.Environment.IsDevelopment();
+                opts.MaximumReceiveMessageSize = 128 * 1024; // 64 KB
+            });
+            //Configurate OPC UA and registration
+            var opcOpts = builder.Configuration
+                                                .GetSection("OpcUa")
+                                                .Get<OpcUaOptions>() ?? new OpcUaOptions();
 
             builder.Services.AddSingleton(opcOpts);
             builder.Services.AddSingleton<IOpcUaService, OpcUaService>();
             builder.Services.AddHostedService<OpcUaBackgroundService>();
-            
+
             builder.Services.AddScoped<IFurnaceRepository, FurnaceRepository>();
             builder.Services.AddHostedService<HeatingSessionWorker>();
             builder.Services.AddScoped<IQuenchingRepository, QuenchingRepository>();
             builder.Services.AddHostedService<QuenchingSessionWorker>();
-            builder.Services.AddHostedService<TemperingSessionWorker>();
+            //builder.Services.AddHostedService<TemperingSessionWorker>();
             builder.Services.AddHostedService<TemperingAutoCompletionService>();
-            builder.Services.AddHostedService<AnnealingCompletionService>();
+            // builder.Services.AddHostedService<AnnealingCompletionService>();
 
 
             builder.Services.AddControllers();
 
             var app = builder.Build();
-           
+
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
@@ -137,5 +143,5 @@ namespace MES_ME.Server
             //}
             app.Run();
         }
-  }
+    }
 }
