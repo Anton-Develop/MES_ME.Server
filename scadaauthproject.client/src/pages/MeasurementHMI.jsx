@@ -1,27 +1,17 @@
 // src/pages/MeasurementHMI.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { useOpcUa } from '../hooks/useOpcUa';
 
 // ── Palette ────────────────────────────────────────────────────────────────
 const C = {
-    bg: '#1a1a2e',
-    panel: '#0f0f1a',
-    header: '#16213e',
-    blue: '#1565c0',
-    blueHdr: '#1976d2',
-    inputBg: '#263238',
-    inputBdr: '#37474f',
-    okBdr: '#2e7d32',
-    warnBdr: '#f57c00',
-    errBdr: '#c62828',
-    text: '#e0e0e0',
-    textDim: '#78909c',
-    textHdr: '#bbdefb',
-    green: '#4caf50',
-    red: '#f44336',
-    btnBg: '#1565c0',
-    btnDis: '#37474f',
+    bg: '#1a1a2e', panel: '#0f0f1a', header: '#16213e',
+    blue: '#1565c0', blueHdr: '#1976d2',
+    inputBg: '#263238', inputBdr: '#37474f',
+    okBdr: '#2e7d32', warnBdr: '#f57c00', errBdr: '#c62828',
+    text: '#e0e0e0', textDim: '#78909c', textHdr: '#bbdefb',
+    green: '#4caf50', red: '#f44336', yellow: '#ff9800',
+    btnBg: '#1565c0', btnDis: '#37474f',
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -30,6 +20,15 @@ const toNum = v => { if (v == null) return null; const n = Number(v); return isN
 const sheetKey = s => s ? `${s.melt}/${s.partNo}/${s.pack}/${s.sheet}` : null;
 const emptyGrid = () => ({ h1: null, h2: null, h3: null, h4: null, h5: null, h6: null, h7: null, h8: null });
 const bdrColor = v => { if (v == null) return C.inputBdr; const a = Math.abs(v); return a > 1.0 ? C.errBdr : a > 0.5 ? C.warnBdr : C.okBdr; };
+
+// Проверка: есть ли несохранённые данные
+const hasUnsavedData = (before, after, alreadyMeasured) => {
+    if (alreadyMeasured) return false;
+    for (let i = 1; i <= 8; i++) {
+        if (before[`h${i}`] != null || after[`h${i}`] != null) return true;
+    }
+    return false;
+};
 
 // ── Одно поле измерения ───────────────────────────────────────────────────
 function HCell({ label, value, onChange, disabled }) {
@@ -55,10 +54,7 @@ function HCell({ label, value, onChange, disabled }) {
     );
 }
 
-// ── Сетка 8 точек (периметр листа) ────────────────────────────────────────
-//      h1  h2  h3
-//  h8              h4
-//      h7  h6  h5
+// ── Сетка 8 точек ────────────────────────────────────────────────────────
 function MeasGrid({ title, values, onChange, disabled }) {
     const c = name => (
         <HCell key={name} label={name.toUpperCase()} value={values[name]}
@@ -76,17 +72,14 @@ function MeasGrid({ title, values, onChange, disabled }) {
             }}>
                 {title}
             </div>
-            {/* Top: h1 h2 h3 */}
             <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 6, marginBottom: 6, alignItems: 'end' }}>
                 <div />{c('h1')}{c('h2')}{c('h3')}<div />
             </div>
-            {/* Middle: h8 [void] h4 */}
             <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 64px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
                 {c('h8')}
                 <div style={{ height: 28, border: `1px dashed ${C.inputBdr}`, borderRadius: 4, opacity: 0.25 }} />
                 {c('h4')}
             </div>
-            {/* Bottom: h7 h6 h5 */}
             <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 6, alignItems: 'start' }}>
                 <div />{c('h7')}{c('h6')}{c('h5')}<div />
             </div>
@@ -110,6 +103,92 @@ function ParamCell({ label, value, wide }) {
     );
 }
 
+// ══ МОДАЛЬНОЕ ОКНО подтверждения ══════════════════════════════════════════
+function UnsavedDataModal({ newSheet, onSave, onDiscard, onCancel, saving }) {
+    return (
+        <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.75)', zIndex: 1000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+        }}>
+            <div style={{
+                background: C.panel, border: `2px solid ${C.yellow}`,
+                borderRadius: 8, padding: '20px 25px',
+                minWidth: 480, maxWidth: 580, color: C.text,
+                boxShadow: `0 0 30px ${C.yellow}55`,
+            }}>
+                <div style={{
+                    fontSize: 18, fontWeight: 700, color: C.yellow,
+                    marginBottom: 15, paddingBottom: 10,
+                    borderBottom: `1px solid ${C.inputBdr}`,
+                }}>
+                    ⚠ Несохранённые замеры
+                </div>
+
+                <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 15 }}>
+                    Обнаружен <b>новый лист</b> на X2:
+                    <div style={{
+                        background: C.bg, padding: 10, borderRadius: 4, marginTop: 8,
+                        fontFamily: 'monospace', fontSize: 13,
+                    }}>
+                        Плавка: <b>{newSheet?.melt}</b> /
+                        Партия: <b>{newSheet?.partNo}</b> /
+                        Пачка: <b>{newSheet?.pack}</b> /
+                        Лист: <b>{newSheet?.sheet}</b>
+                    </div>
+                </div>
+
+                <div style={{
+                    background: '#f57c0022', border: `1px solid ${C.yellow}`,
+                    padding: 10, borderRadius: 4, marginBottom: 15, fontSize: 13,
+                }}>
+                    У вас есть <b>незавершённые замеры</b> текущего листа.
+                    Выберите действие:
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button
+                        onClick={onCancel}
+                        disabled={saving}
+                        style={{
+                            background: 'transparent', color: C.textDim,
+                            border: `1px solid ${C.inputBdr}`, borderRadius: 4,
+                            padding: '8px 14px', cursor: 'pointer', fontSize: 13,
+                        }}
+                    >
+                        ← Остаться на текущем листе
+                    </button>
+                    <button
+                        onClick={onDiscard}
+                        disabled={saving}
+                        style={{
+                            background: '#b71c1c', color: '#fff',
+                            border: 'none', borderRadius: 4,
+                            padding: '8px 14px', cursor: 'pointer', fontSize: 13,
+                            fontWeight: 700, opacity: saving ? 0.6 : 1,
+                        }}
+                    >
+                        🗑 Отбросить и перейти
+                    </button>
+                    <button
+                        onClick={onSave}
+                        disabled={saving}
+                        style={{
+                            background: C.green, color: '#000',
+                            border: 'none', borderRadius: 4,
+                            padding: '8px 14px', cursor: 'pointer', fontSize: 13,
+                            fontWeight: 700, opacity: saving ? 0.6 : 1,
+                        }}
+                    >
+                        {saving ? '⏳ Сохранение...' : '💾 Сохранить и перейти'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Основной компонент ─────────────────────────────────────────────────────
 export default function MeasurementHMI() {
     const { values, connected } = useOpcUa([
@@ -119,7 +198,6 @@ export default function MeasurementHMI() {
         'X2_Thikness', 'X2_AlloyCodeText',
         'X2_SeqNo', 'X2_PlatePos', 'X2_State',
     ]);
-
     const [currentSheet, setCurrentSheet] = useState(null);
     const [dbRecord, setDbRecord] = useState(null);
     const [before, setBefore] = useState(emptyGrid());
@@ -128,7 +206,21 @@ export default function MeasurementHMI() {
     const [message, setMessage] = useState(null);
     const [opcSheetKey, setOpcSheetKey] = useState(null);
 
-    // ── Слежение за X2 ───────────────────────────────────────────────────
+    // 🆕 Состояние для модального окна "несохранённые данные"
+    const [pendingSheet, setPendingSheet] = useState(null);
+
+    // Используем ref для доступа к актуальным данным изнутри useEffect
+    const beforeRef = useRef(before);
+    const afterRef = useRef(after);
+    const dbRecordRef = useRef(dbRecord);
+    const currentSheetRef = useRef(currentSheet);
+
+    useEffect(() => { beforeRef.current = before; }, [before]);
+    useEffect(() => { afterRef.current = after; }, [after]);
+    useEffect(() => { dbRecordRef.current = dbRecord; }, [dbRecord]);
+    useEffect(() => { currentSheetRef.current = currentSheet; }, [currentSheet]);
+
+    // ── Слежение за X2 с защитой от потери данных ───────────────────────
     useEffect(() => {
         const occ = toNum(values['X2_ZoneOccup']?.value);
         if (occ === 1 || occ === true) {
@@ -147,7 +239,17 @@ export default function MeasurementHMI() {
                 state: toStr(values['X2_State']?.value),
             };
             const key = sheetKey(sheet);
+
             if (key && key !== opcSheetKey) {
+                // 🆕 ПРОВЕРКА: есть ли несохранённые данные у текущего листа?
+                const alreadyMeasured = dbRecordRef.current?.measuredAt != null;
+                if (currentSheetRef.current && hasUnsavedData(beforeRef.current, afterRef.current, alreadyMeasured)) {
+                    // ⚠ Блокируем переключение, показываем модалку
+                    setPendingSheet(sheet);
+                    return;
+                }
+
+                // Несохр. данных нет — переключаемся как обычно
                 setOpcSheetKey(key);
                 setCurrentSheet(sheet);
                 setDbRecord(null);
@@ -156,15 +258,29 @@ export default function MeasurementHMI() {
                 setMessage(null);
             }
         } else {
+            // Лист уехал с X2 — только если нет несохранённых данных
             if (opcSheetKey !== null) {
-                setOpcSheetKey(null); setCurrentSheet(null);
-                setDbRecord(null); setBefore(emptyGrid()); setAfter(emptyGrid());
+                const alreadyMeasured = dbRecordRef.current?.measuredAt != null;
+                if (currentSheetRef.current && hasUnsavedData(beforeRef.current, afterRef.current, alreadyMeasured)) {
+                    // Показываем предупреждение, но не очищаем
+                    setMessage({
+                        type: 'warning',
+                        text: '⚠ Лист уехал с X2, но у вас есть несохранённые замеры. Сохраните или отбросьте их.'
+                    });
+                    return;
+                }
+
+                setOpcSheetKey(null);
+                setCurrentSheet(null);
+                setDbRecord(null);
+                setBefore(emptyGrid());
+                setAfter(emptyGrid());
                 setMessage(null);
             }
         }
     }, [values, opcSheetKey]);
 
-    // ── Загрузка / создание записи БД ────────────────────────────────────
+    // ── Загрузка / создание записи БД ──────────────────────────────────────
     useEffect(() => {
         if (!currentSheet) return;
         (async () => {
@@ -205,37 +321,89 @@ export default function MeasurementHMI() {
         })();
     }, [currentSheet]);
 
-    // ── Сохранение ───────────────────────────────────────────────────────
-    const handleSave = async () => {
-        if (!dbRecord?.id) return;
+    // ── Сохранение (вынесено в отдельную функцию для переиспользования) ──
+    const saveMeasurements = async () => {
+        if (!dbRecord?.id) {
+            setMessage({ type: 'error', text: 'Нет записи в БД для сохранения' });
+            return false;
+        }
         setSaving(true);
         try {
             const payload = {};
-            for (let i = 1; i <= 8; i++) { payload[`h${i}Before`] = before[`h${i}`]; payload[`h${i}After`] = after[`h${i}`]; }
+            for (let i = 1; i <= 8; i++) {
+                payload[`h${i}Before`] = before[`h${i}`];
+                payload[`h${i}After`] = after[`h${i}`];
+            }
             payload.measuredBy = localStorage.getItem('username') || 'operator';
             payload.measuredAt = new Date().toISOString();
             const res = await api.put(`/measurement/${dbRecord.id}`, payload);
             setDbRecord(res.data);
-            setMessage({ type: 'success', text: 'Измерения сохранены' });
+            setMessage({ type: 'success', text: '✓ Измерения сохранены' });
+            return true;
         } catch (err) {
             setMessage({ type: 'error', text: err.response?.data?.message ?? 'Ошибка сохранения' });
-        } finally { setSaving(false); }
+            return false;
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSave = async () => { await saveMeasurements(); };
+
+    // ── Обработчики модалки ──────────────────────────────────────────────
+    const switchToNewSheet = (sheet) => {
+        const key = sheetKey(sheet);
+        setOpcSheetKey(key);
+        setCurrentSheet(sheet);
+        setDbRecord(null);
+        setBefore(emptyGrid());
+        setAfter(emptyGrid());
+        setMessage(null);
+        setPendingSheet(null);
+    };
+
+    const handleSaveAndSwitch = async () => {
+        const ok = await saveMeasurements();
+        if (ok && pendingSheet) {
+            switchToNewSheet(pendingSheet);
+        }
+    };
+
+    const handleDiscardAndSwitch = () => {
+        if (window.confirm('Вы уверены? Все несохранённые замеры будут потеряны.')) {
+            if (pendingSheet) switchToNewSheet(pendingSheet);
+        }
+    };
+
+    const handleCancelSwitch = () => {
+        setPendingSheet(null);
+        setMessage({ type: 'info', text: 'Переключение отменено. Завершите замеры текущего листа.' });
     };
 
     const allFilled = () => { for (let i = 1; i <= 8; i++) if (before[`h${i}`] == null || after[`h${i}`] == null) return false; return true; };
     const alreadyMeasured = dbRecord?.measuredAt != null;
+    const unsaved = hasUnsavedData(before, after, alreadyMeasured);
     const s = currentSheet;
 
-    // ── Render ────────────────────────────────────────────────────────────
     return (
         <div style={{ minHeight: '100vh', background: C.bg, fontFamily: "'Roboto Mono',monospace", color: C.text }}>
+
+            {/* 🆕 МОДАЛКА при появлении нового листа с несохранёнными данными */}
+            {pendingSheet && (
+                <UnsavedDataModal
+                    newSheet={pendingSheet}
+                    onSave={handleSaveAndSwitch}
+                    onDiscard={handleDiscardAndSwitch}
+                    onCancel={handleCancelSwitch}
+                    saving={saving}
+                />
+            )}
 
             {/* Шапка */}
             <div style={{
                 background: C.header, borderBottom: `2px solid ${C.blue}`,
                 display: 'flex', alignItems: 'stretch', minHeight: 56
             }}>
-                {/* ПЛК БАЗА */}
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px',
                     borderRight: `1px solid #1e3a5f`, minWidth: 120
@@ -248,7 +416,6 @@ export default function MeasurementHMI() {
                     <span style={{ fontSize: 12, fontWeight: 700, color: C.textHdr, letterSpacing: 1 }}>ПЛК БАЗА</span>
                 </div>
 
-                {/* Заголовок параметров */}
                 <div style={{
                     background: C.blueHdr, display: 'flex', alignItems: 'center',
                     padding: '0 14px', borderRight: `1px solid #1e3a5f`
@@ -258,7 +425,6 @@ export default function MeasurementHMI() {
                     </span>
                 </div>
 
-                {/* Поля */}
                 {s ? (
                     <div style={{ display: 'flex', alignItems: 'center', flex: 1, overflow: 'hidden' }}>
                         <ParamCell label="Плавка №" value={s.melt} />
@@ -286,13 +452,29 @@ export default function MeasurementHMI() {
                         <span style={{ fontSize: 12, color: '#a5d6a7', fontWeight: 700 }}>✓ ИЗМЕРЕНО</span>
                     </div>
                 )}
+
+                {/* 🆕 Индикатор несохранённых данных */}
+                {unsaved && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', padding: '0 16px',
+                        background: '#e65100', borderLeft: `1px solid ${C.yellow}`,
+                        animation: 'pulse 2s ease-in-out infinite',
+                    }}>
+                        <span style={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>
+                            ⚠ НЕСОХРАНЁННЫЕ ДАННЫЕ
+                        </span>
+                    </div>
+                )}
             </div>
 
             {/* Сообщение */}
             {message && (
                 <div style={{
                     padding: '7px 16px',
-                    background: message.type === 'success' ? '#1b5e20' : message.type === 'error' ? '#b71c1c' : '#0d47a1',
+                    background: message.type === 'success' ? '#1b5e20'
+                        : message.type === 'error' ? '#b71c1c'
+                            : message.type === 'warning' ? '#e65100'
+                                : '#0d47a1',
                     borderBottom: `1px solid ${C.inputBdr}`,
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
@@ -305,7 +487,6 @@ export default function MeasurementHMI() {
             {/* Тело */}
             {s ? (
                 <div style={{ padding: '16px 20px' }}>
-                    {/* Сетки */}
                     <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
                         <MeasGrid title="До кантовки" values={before}
                             onChange={(k, v) => setBefore(p => ({ ...p, [k]: v }))} disabled={saving || alreadyMeasured} />
@@ -313,7 +494,6 @@ export default function MeasurementHMI() {
                             onChange={(k, v) => setAfter(p => ({ ...p, [k]: v }))} disabled={saving || alreadyMeasured} />
                     </div>
 
-                    {/* Кнопка / статус */}
                     <div style={{ textAlign: 'center' }}>
                         {!alreadyMeasured ? (
                             <button
@@ -340,7 +520,6 @@ export default function MeasurementHMI() {
                         )}
                     </div>
 
-                    {/* Мета-строка */}
                     {dbRecord && (
                         <div style={{
                             marginTop: 14, display: 'flex', gap: 24, justifyContent: 'center',
@@ -360,6 +539,13 @@ export default function MeasurementHMI() {
                     {connected ? 'Лист на X2 не обнаружен' : '⚠ Нет соединения с OPC UA'}
                 </div>
             )}
+
+            <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+      `}</style>
         </div>
     );
 }

@@ -341,6 +341,14 @@ public class AnnealingCompletionService : BackgroundService
                 _logger.LogWarning("Лист {MatId} не найден для завершения закалки", matId);
                 return;
             }
+            // 🛡️ ЗАЩИТА: если лист уже бракованный — НЕ завершаем закалку
+            if (sheet.Status == "Брак")
+            {
+                _logger.LogWarning(
+                    "⚠ Лист {MatId} уже помечен как БРАК. Пропускаем автозавершение закалки.",
+                    matId);
+                return;
+            }
 
             // ✅ Атомарное обновление — всё в одном SaveChanges
             sheet.Status = "Закалка пройдена";

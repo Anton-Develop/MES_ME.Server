@@ -14,7 +14,7 @@ using System.Security.Claims;
 
 namespace MES_ME.Server.Controllers
 {
-    [Authorize(Roles = "superadmin,developer")]
+    [Authorize(Roles = "superadmin,developer,master")]
     [Route("api/[controller]")]
     [ApiController]
     public class ImportController : ControllerBase
