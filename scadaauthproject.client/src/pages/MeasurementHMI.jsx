@@ -1,226 +1,215 @@
 // src/pages/MeasurementHMI.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { useOpcUa } from '../hooks/useOpcUa';
 
-// ── Palette ────────────────────────────────────────────────────────────────
+// ── Palette ─────────────────────────────────────────────────────────────
 const C = {
-    bg: '#1a1a2e', panel: '#0f0f1a', header: '#16213e',
-    blue: '#1565c0', blueHdr: '#1976d2',
-    inputBg: '#263238', inputBdr: '#37474f',
+    bg: '#0d1117', panel: '#161b22', panelBd: '#30363d',
+    header: '#1a2332',
+    text: '#e6edf3', textDim: '#7d8590', textHdr: '#bbdefb',
+    accent: '#58a6ff', green: '#3fb950', red: '#f85149', yellow: '#d29922',
+    inputBg: '#21262d', inputBdr: '#37474f',
     okBdr: '#2e7d32', warnBdr: '#f57c00', errBdr: '#c62828',
-    text: '#e0e0e0', textDim: '#78909c', textHdr: '#bbdefb',
-    green: '#4caf50', red: '#f44336', yellow: '#ff9800',
     btnBg: '#1565c0', btnDis: '#37474f',
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
 const toStr = v => (v == null ? null : String(v));
 const toNum = v => { if (v == null) return null; const n = Number(v); return isNaN(n) ? null : n; };
 const sheetKey = s => s ? `${s.melt}/${s.partNo}/${s.pack}/${s.sheet}` : null;
-const emptyGrid = () => ({ h1: null, h2: null, h3: null, h4: null, h5: null, h6: null, h7: null, h8: null });
-const bdrColor = v => { if (v == null) return C.inputBdr; const a = Math.abs(v); return a > 1.0 ? C.errBdr : a > 0.5 ? C.warnBdr : C.okBdr; };
-
-// Проверка: есть ли несохранённые данные
-const hasUnsavedData = (before, after, alreadyMeasured) => {
-    if (alreadyMeasured) return false;
-    for (let i = 1; i <= 8; i++) {
-        if (before[`h${i}`] != null || after[`h${i}`] != null) return true;
-    }
-    return false;
+const emptyGrid = () => Array.from({ length: 8 }, () => null);
+const bdrColor = v => {
+    if (v == null) return C.inputBdr;
+    const a = Math.abs(v);
+    return a > 1.0 ? C.errBdr : a > 0.5 ? C.warnBdr : C.okBdr;
+};
+const fmtTime = d => d ? new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtWait = minutes => {
+    if (minutes == null) return '';
+    if (minutes < 1) return '<1 мин';
+    if (minutes < 60) return `${Math.round(minutes)} мин`;
+    return `${Math.floor(minutes / 60)}ч ${Math.round(minutes % 60)}м`;
 };
 
-// ── Одно поле измерения ───────────────────────────────────────────────────
+// ── Крупная ячейка ввода ────────────────────────────────────────────────
 function HCell({ label, value, onChange, disabled }) {
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-            <span style={{ fontSize: 11, color: C.textDim, fontFamily: 'monospace' }}>{label}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <span style={{
+                fontSize: 13, color: C.textDim, fontFamily: 'monospace',
+                fontWeight: 600, letterSpacing: 1
+            }}>
+                {label}
+            </span>
             <input
-                type="number" step="0.1" disabled={disabled}
+                type="number"
+                step="0.1"
+                disabled={disabled}
                 value={value ?? ''}
                 onChange={e => onChange(e.target.value === '' ? null : parseFloat(e.target.value))}
                 style={{
-                    width: 60, textAlign: 'center', fontFamily: 'monospace',
-                    fontSize: 15, fontWeight: 600,
+                    width: 90, height: 50,
+                    textAlign: 'center', fontFamily: 'monospace',
+                    fontSize: 22, fontWeight: 700,
                     color: value != null ? C.text : C.textDim,
                     background: C.inputBg,
-                    border: `2px solid ${bdrColor(value)}`,
-                    borderRadius: 4, padding: '3px 2px', outline: 'none',
+                    border: `3px solid ${bdrColor(value)}`,
+                    borderRadius: 6, padding: '4px 6px', outline: 'none',
                     cursor: disabled ? 'not-allowed' : 'text',
-                    opacity: disabled ? 0.7 : 1,
+                    opacity: disabled ? 0.6 : 1,
+                    transition: 'border-color 0.2s',
                 }}
             />
         </div>
     );
 }
 
-// ── Сетка 8 точек ────────────────────────────────────────────────────────
+// ── Крупная сетка 8 точек ───────────────────────────────────────────────
 function MeasGrid({ title, values, onChange, disabled }) {
-    const c = name => (
-        <HCell key={name} label={name.toUpperCase()} value={values[name]}
-            onChange={v => onChange(name, v)} disabled={disabled} />
+    const c = (idx, name) => (
+        <HCell key={name} label={name.toUpperCase()} value={values[idx]}
+            onChange={v => onChange(idx, v)} disabled={disabled} />
     );
-    const COL = '64px 1fr 1fr 1fr 64px';
+    // h1=0, h2=1, h3=2, h4=3, h5=4, h6=5, h7=6, h8=7
     return (
         <div style={{
-            flex: 1, background: C.panel, border: `1px solid ${C.inputBdr}`,
-            borderRadius: 6, padding: '10px 12px 14px',
+            flex: 1, background: C.panel, border: `1px solid ${C.panelBd}`,
+            borderRadius: 8, padding: '14px 18px 18px',
         }}>
             <div style={{
-                textAlign: 'center', fontSize: 13, fontWeight: 700, color: C.textHdr,
-                marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1
+                textAlign: 'center', fontSize: 15, fontWeight: 700, color: C.textHdr,
+                marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1.5
             }}>
                 {title}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 6, marginBottom: 6, alignItems: 'end' }}>
-                <div />{c('h1')}{c('h2')}{c('h3')}<div />
+            {/* Top row: h1 h2 h3 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr 1fr 80px', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                <div />{c(0, 'h1')}{c(1, 'h2')}{c(2, 'h3')}<div />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 64px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                {c('h8')}
-                <div style={{ height: 28, border: `1px dashed ${C.inputBdr}`, borderRadius: 4, opacity: 0.25 }} />
-                {c('h4')}
+            {/* Middle row: h8 [void] h4 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 80px', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                {c(7, 'h8')}
+                <div style={{
+                    height: 50, border: `2px dashed ${C.inputBdr}`,
+                    borderRadius: 6, opacity: 0.2,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                    <span style={{ color: C.textDim, fontSize: 11, opacity: 0.5 }}>ЛИСТ</span>
+                </div>
+                {c(3, 'h4')}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 6, alignItems: 'start' }}>
-                <div />{c('h7')}{c('h6')}{c('h5')}<div />
+            {/* Bottom row: h7 h6 h5 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr 1fr 80px', gap: 8, alignItems: 'start' }}>
+                <div />{c(6, 'h7')}{c(5, 'h6')}{c(4, 'h5')}<div />
             </div>
         </div>
     );
 }
 
-// ── Ячейка параметра листа ────────────────────────────────────────────────
-function ParamCell({ label, value, wide }) {
+// ── Элемент очереди ─────────────────────────────────────────────────────
+function QueueItem({ item, isCurrent, onClick, waitColor }) {
     return (
-        <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            minWidth: wide ? 90 : 60, padding: '2px 10px',
-            borderRight: `1px solid #1e3a5f`,
-        }}>
-            <span style={{ fontSize: 10, color: C.textDim, whiteSpace: 'nowrap' }}>{label}</span>
-            <span style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                {value ?? '—'}
-            </span>
-        </div>
-    );
-}
-
-// ══ МОДАЛЬНОЕ ОКНО подтверждения ══════════════════════════════════════════
-function UnsavedDataModal({ newSheet, onSave, onDiscard, onCancel, saving }) {
-    return (
-        <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.75)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 20,
-        }}>
+        <div
+            onClick={onClick}
+            style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: '4px 8px',
+                padding: '8px 12px',
+                background: isCurrent ? '#1a2f4a' : 'transparent',
+                border: `1px solid ${isCurrent ? C.accent : C.panelBd}`,
+                borderLeft: `4px solid ${isCurrent ? C.accent : 'transparent'}`,
+                borderRadius: 5,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                fontSize: 13,
+            }}
+        >
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: 'monospace', fontWeight: 700 }}>
+                <span style={{ color: C.accent }}>#{item.id}</span>
+                <span>{item.melt}/{item.sheet}</span>
+            </div>
             <div style={{
-                background: C.panel, border: `2px solid ${C.yellow}`,
-                borderRadius: 8, padding: '20px 25px',
-                minWidth: 480, maxWidth: 580, color: C.text,
-                boxShadow: `0 0 30px ${C.yellow}55`,
+                fontSize: 11, color: waitColor, fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 4,
             }}>
-                <div style={{
-                    fontSize: 18, fontWeight: 700, color: C.yellow,
-                    marginBottom: 15, paddingBottom: 10,
-                    borderBottom: `1px solid ${C.inputBdr}`,
-                }}>
-                    ⚠ Несохранённые замеры
-                </div>
-
-                <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 15 }}>
-                    Обнаружен <b>новый лист</b> на X2:
-                    <div style={{
-                        background: C.bg, padding: 10, borderRadius: 4, marginTop: 8,
-                        fontFamily: 'monospace', fontSize: 13,
-                    }}>
-                        Плавка: <b>{newSheet?.melt}</b> /
-                        Партия: <b>{newSheet?.partNo}</b> /
-                        Пачка: <b>{newSheet?.pack}</b> /
-                        Лист: <b>{newSheet?.sheet}</b>
-                    </div>
-                </div>
-
-                <div style={{
-                    background: '#f57c0022', border: `1px solid ${C.yellow}`,
-                    padding: 10, borderRadius: 4, marginBottom: 15, fontSize: 13,
-                }}>
-                    У вас есть <b>незавершённые замеры</b> текущего листа.
-                    Выберите действие:
-                </div>
-
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <button
-                        onClick={onCancel}
-                        disabled={saving}
-                        style={{
-                            background: 'transparent', color: C.textDim,
-                            border: `1px solid ${C.inputBdr}`, borderRadius: 4,
-                            padding: '8px 14px', cursor: 'pointer', fontSize: 13,
-                        }}
-                    >
-                        ← Остаться на текущем листе
-                    </button>
-                    <button
-                        onClick={onDiscard}
-                        disabled={saving}
-                        style={{
-                            background: '#b71c1c', color: '#fff',
-                            border: 'none', borderRadius: 4,
-                            padding: '8px 14px', cursor: 'pointer', fontSize: 13,
-                            fontWeight: 700, opacity: saving ? 0.6 : 1,
-                        }}
-                    >
-                        🗑 Отбросить и перейти
-                    </button>
-                    <button
-                        onClick={onSave}
-                        disabled={saving}
-                        style={{
-                            background: C.green, color: '#000',
-                            border: 'none', borderRadius: 4,
-                            padding: '8px 14px', cursor: 'pointer', fontSize: 13,
-                            fontWeight: 700, opacity: saving ? 0.6 : 1,
-                        }}
-                    >
-                        {saving ? '⏳ Сохранение...' : '💾 Сохранить и перейти'}
-                    </button>
-                </div>
+                ⏱ {fmtWait(item.waitingMinutes)}
+            </div>
+            <div style={{ fontSize: 11, color: C.textDim, gridColumn: '1 / -1' }}>
+                Пачка: {item.pack} · {item.alloyCodeText || '—'} · {item.thickness ? `${item.thickness}мм` : '—'}
             </div>
         </div>
     );
 }
 
-// ── Основной компонент ─────────────────────────────────────────────────────
+// ── Основной компонент ──────────────────────────────────────────────────
 export default function MeasurementHMI() {
+    // OPC UA — только для детекции новых листов
     const { values, connected } = useOpcUa([
-        'X2_ZoneOccup',
-        'X2_Melt', 'X2_Slab', 'X2_PartNo', 'X2_Pack',
+        'X2_ZoneOccup', 'X2_Melt', 'X2_Slab', 'X2_PartNo', 'X2_Pack',
         'X2_Sheet', 'X2_SubSheet', 'X2_SheetInPack', 'X2_SheetsInPack',
         'X2_Thikness', 'X2_AlloyCodeText',
-        'X2_SeqNo', 'X2_PlatePos', 'X2_State',
     ]);
-    const [currentSheet, setCurrentSheet] = useState(null);
-    const [dbRecord, setDbRecord] = useState(null);
+
+    const [queue, setQueue] = useState([]);
+    const [currentRecord, setCurrentRecord] = useState(null);
     const [before, setBefore] = useState(emptyGrid());
     const [after, setAfter] = useState(emptyGrid());
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState(null);
-    const [opcSheetKey, setOpcSheetKey] = useState(null);
+    const [lastCreatedKey, setLastCreatedKey] = useState(null);
 
-    // 🆕 Состояние для модального окна "несохранённые данные"
-    const [pendingSheet, setPendingSheet] = useState(null);
+    // ── Загрузка очереди ──────────────────────────────────────────────────
+    const fetchQueue = useCallback(async () => {
+        try {
+            const res = await api.get('/measurement/queue');
+            setQueue(res.data);
+        } catch (err) {
+            console.error('Ошибка загрузки очереди:', err);
+        }
+    }, []);
 
-    // Используем ref для доступа к актуальным данным изнутри useEffect
-    const beforeRef = useRef(before);
-    const afterRef = useRef(after);
-    const dbRecordRef = useRef(dbRecord);
-    const currentSheetRef = useRef(currentSheet);
+    useEffect(() => { fetchQueue(); }, [fetchQueue]);
+    // Периодическое обновление очереди (каждые 5 сек)
+    useEffect(() => {
+        const id = setInterval(fetchQueue, 5000);
+        return () => clearInterval(id);
+    }, [fetchQueue]);
 
-    useEffect(() => { beforeRef.current = before; }, [before]);
-    useEffect(() => { afterRef.current = after; }, [after]);
-    useEffect(() => { dbRecordRef.current = dbRecord; }, [dbRecord]);
-    useEffect(() => { currentSheetRef.current = currentSheet; }, [currentSheet]);
+    // ── Автозагрузка первого листа из очереди ─────────────────────────────
+    useEffect(() => {
+        if (!currentRecord && queue.length > 0) {
+            loadRecord(queue[0].id);
+        }
+    }, [queue, currentRecord]);
 
-    // ── Слежение за X2 с защитой от потери данных ───────────────────────
+    // ── Загрузка записи по ID ─────────────────────────────────────────────
+    const loadRecord = async (id) => {
+        try {
+            const res = await api.get(`/measurement/${id}`);
+            const rec = res.data;
+            setCurrentRecord(rec);
+
+            if (rec.measuredAt) {
+                // Уже измерен — загружаем данные
+                const b = emptyGrid(), a = emptyGrid();
+                for (let i = 1; i <= 8; i++) {
+                    b[i - 1] = rec[`h${i}Before`] ?? null;
+                    a[i - 1] = rec[`h${i}After`] ?? null;
+                }
+                setBefore(b); setAfter(a);
+            } else {
+                setBefore(emptyGrid());
+                setAfter(emptyGrid());
+            }
+            setMessage(null);
+        } catch (err) {
+            setMessage({ type: 'error', text: 'Ошибка загрузки: ' + (err.response?.data?.message ?? err.message) });
+        }
+    };
+
+    // ── Слежение за X2: создание записей в очереди ────────────────────────
     useEffect(() => {
         const occ = toNum(values['X2_ZoneOccup']?.value);
         if (occ === 1 || occ === true) {
@@ -230,322 +219,294 @@ export default function MeasurementHMI() {
                 partNo: toNum(values['X2_PartNo']?.value),
                 pack: toNum(values['X2_Pack']?.value),
                 sheet: toNum(values['X2_Sheet']?.value),
-                subSheet: toNum(values['X2_SubSheet']?.value),
                 sheetInPack: toNum(values['X2_SheetInPack']?.value),
                 sheetsInPack: toNum(values['X2_SheetsInPack']?.value),
-                thickness: toStr(values['X2_Thikness']?.value),
+                thickness: toNum(values['X2_Thikness']?.value),
                 alloyCodeText: toStr(values['X2_AlloyCodeText']?.value),
-                seqNo: toNum(values['X2_SeqNo']?.value),
-                state: toStr(values['X2_State']?.value),
             };
             const key = sheetKey(sheet);
 
-            if (key && key !== opcSheetKey) {
-                // 🆕 ПРОВЕРКА: есть ли несохранённые данные у текущего листа?
-                const alreadyMeasured = dbRecordRef.current?.measuredAt != null;
-                if (currentSheetRef.current && hasUnsavedData(beforeRef.current, afterRef.current, alreadyMeasured)) {
-                    // ⚠ Блокируем переключение, показываем модалку
-                    setPendingSheet(sheet);
-                    return;
-                }
-
-                // Несохр. данных нет — переключаемся как обычно
-                setOpcSheetKey(key);
-                setCurrentSheet(sheet);
-                setDbRecord(null);
-                setBefore(emptyGrid());
-                setAfter(emptyGrid());
-                setMessage(null);
+            if (key && key !== lastCreatedKey) {
+                setLastCreatedKey(key);
+                // Создаём запись в БД (если ещё нет)
+                api.post('/measurement', { ...sheet, enteredX2At: new Date().toISOString() })
+                    .then(() => fetchQueue())
+                    .catch(err => {
+                        if (err.response?.status !== 409) // 409 = уже существует
+                            console.error('Ошибка создания записи:', err);
+                        else
+                            fetchQueue(); // Обновляем очередь даже если дубликат
+                    });
             }
         } else {
-            // Лист уехал с X2 — только если нет несохранённых данных
-            if (opcSheetKey !== null) {
-                const alreadyMeasured = dbRecordRef.current?.measuredAt != null;
-                if (currentSheetRef.current && hasUnsavedData(beforeRef.current, afterRef.current, alreadyMeasured)) {
-                    // Показываем предупреждение, но не очищаем
-                    setMessage({
-                        type: 'warning',
-                        text: '⚠ Лист уехал с X2, но у вас есть несохранённые замеры. Сохраните или отбросьте их.'
-                    });
-                    return;
-                }
-
-                setOpcSheetKey(null);
-                setCurrentSheet(null);
-                setDbRecord(null);
-                setBefore(emptyGrid());
-                setAfter(emptyGrid());
-                setMessage(null);
-            }
+            // Лист уехал — сбрасываем ключ, чтобы следующий лист создал новую запись
+            setLastCreatedKey(null);
         }
-    }, [values, opcSheetKey]);
+    }, [values, lastCreatedKey, fetchQueue]);
 
-    // ── Загрузка / создание записи БД ──────────────────────────────────────
-    useEffect(() => {
-        if (!currentSheet) return;
-        (async () => {
-            try {
-                const res = await api.get('/measurement/current', {
-                    params: {
-                        melt: currentSheet.melt, partNo: currentSheet.partNo,
-                        pack: currentSheet.pack, sheet: currentSheet.sheet
-                    },
-                });
-                setDbRecord(res.data);
-                if (res.data?.measuredAt) {
-                    const b = {}, a = {};
-                    for (let i = 1; i <= 8; i++) {
-                        b[`h${i}`] = res.data[`h${i}Before`] ?? null;
-                        a[`h${i}`] = res.data[`h${i}After`] ?? null;
-                    }
-                    setBefore(b); setAfter(a);
-                }
-            } catch (err) {
-                if (err.response?.status === 404) {
-                    try {
-                        const cr = await api.post('/measurement', {
-                            melt: currentSheet.melt, slab: currentSheet.slab,
-                            partNo: currentSheet.partNo, pack: currentSheet.pack,
-                            sheet: currentSheet.sheet, sheetInPack: currentSheet.sheetInPack,
-                            sheetsInPack: currentSheet.sheetsInPack,
-                            thickness: toNum(currentSheet.thickness),
-                            alloyCodeText: currentSheet.alloyCodeText,
-                            enteredX2At: new Date().toISOString(),
-                        });
-                        setDbRecord(cr.data);
-                    } catch (e) {
-                        setMessage({ type: 'error', text: 'Ошибка создания записи: ' + (e.response?.data?.message ?? e.message) });
-                    }
-                }
-            }
-        })();
-    }, [currentSheet]);
-
-    // ── Сохранение (вынесено в отдельную функцию для переиспользования) ──
-    const saveMeasurements = async () => {
-        if (!dbRecord?.id) {
-            setMessage({ type: 'error', text: 'Нет записи в БД для сохранения' });
-            return false;
-        }
+    // ── Сохранение замеров ────────────────────────────────────────────────
+    const handleSave = async () => {
+        if (!currentRecord?.id) return;
         setSaving(true);
         try {
             const payload = {};
             for (let i = 1; i <= 8; i++) {
-                payload[`h${i}Before`] = before[`h${i}`];
-                payload[`h${i}After`] = after[`h${i}`];
+                payload[`h${i}Before`] = before[i - 1];
+                payload[`h${i}After`] = after[i - 1];
             }
             payload.measuredBy = localStorage.getItem('username') || 'operator';
             payload.measuredAt = new Date().toISOString();
-            const res = await api.put(`/measurement/${dbRecord.id}`, payload);
-            setDbRecord(res.data);
-            setMessage({ type: 'success', text: '✓ Измерения сохранены' });
-            return true;
+
+            await api.put(`/measurement/${currentRecord.id}`, payload);
+            setMessage({ type: 'success', text: '✓ Измерения сохранены! Переход к следующему листу...' });
+
+            // Обновляем очередь
+            await fetchQueue();
+
+            // Через 1.5 сек — переход к следующему листу
+            setTimeout(() => {
+                setCurrentRecord(null); // Сброс — useEffect подхватит следующий из очереди
+                setMessage(null);
+            }, 1500);
         } catch (err) {
             setMessage({ type: 'error', text: err.response?.data?.message ?? 'Ошибка сохранения' });
-            return false;
         } finally {
             setSaving(false);
         }
     };
 
-    const handleSave = async () => { await saveMeasurements(); };
-
-    // ── Обработчики модалки ──────────────────────────────────────────────
-    const switchToNewSheet = (sheet) => {
-        const key = sheetKey(sheet);
-        setOpcSheetKey(key);
-        setCurrentSheet(sheet);
-        setDbRecord(null);
-        setBefore(emptyGrid());
-        setAfter(emptyGrid());
-        setMessage(null);
-        setPendingSheet(null);
-    };
-
-    const handleSaveAndSwitch = async () => {
-        const ok = await saveMeasurements();
-        if (ok && pendingSheet) {
-            switchToNewSheet(pendingSheet);
-        }
-    };
-
-    const handleDiscardAndSwitch = () => {
-        if (window.confirm('Вы уверены? Все несохранённые замеры будут потеряны.')) {
-            if (pendingSheet) switchToNewSheet(pendingSheet);
-        }
-    };
-
-    const handleCancelSwitch = () => {
-        setPendingSheet(null);
-        setMessage({ type: 'info', text: 'Переключение отменено. Завершите замеры текущего листа.' });
-    };
-
-    const allFilled = () => { for (let i = 1; i <= 8; i++) if (before[`h${i}`] == null || after[`h${i}`] == null) return false; return true; };
-    const alreadyMeasured = dbRecord?.measuredAt != null;
-    const unsaved = hasUnsavedData(before, after, alreadyMeasured);
-    const s = currentSheet;
+    // ── Проверки ──────────────────────────────────────────────────────────
+    const allFilled = before.every(v => v != null) && after.every(v => v != null);
+    const alreadyMeasured = currentRecord?.measuredAt != null;
+    const s = currentRecord;
+    const pendingCount = queue.length;
 
     return (
-        <div style={{ minHeight: '100vh', background: C.bg, fontFamily: "'Roboto Mono',monospace", color: C.text }}>
+        <div style={{
+            minHeight: '100vh', background: C.bg,
+            fontFamily: "'Roboto Mono', 'Courier New', monospace", color: C.text,
+            display: 'flex', flexDirection: 'column',
+        }}>
 
-            {/* 🆕 МОДАЛКА при появлении нового листа с несохранёнными данными */}
-            {pendingSheet && (
-                <UnsavedDataModal
-                    newSheet={pendingSheet}
-                    onSave={handleSaveAndSwitch}
-                    onDiscard={handleDiscardAndSwitch}
-                    onCancel={handleCancelSwitch}
-                    saving={saving}
-                />
-            )}
-
-            {/* Шапка */}
+            {/* ── ШАПКА ──────────────────────────────────────────────────────── */}
             <div style={{
-                background: C.header, borderBottom: `2px solid ${C.blue}`,
-                display: 'flex', alignItems: 'stretch', minHeight: 56
+                background: C.header, borderBottom: `2px solid ${C.accent}`,
+                display: 'flex', alignItems: 'stretch', minHeight: 60,
             }}>
+                {/* OPC UA статус */}
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px',
-                    borderRight: `1px solid #1e3a5f`, minWidth: 120
+                    borderRight: `1px solid #1e3a5f`,
                 }}>
                     <div style={{
-                        width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                        width: 14, height: 14, borderRadius: '50%',
                         background: connected ? C.green : C.red,
-                        boxShadow: connected ? `0 0 8px ${C.green}` : 'none'
+                        boxShadow: connected ? `0 0 8px ${C.green}` : 'none',
                     }} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.textHdr, letterSpacing: 1 }}>ПЛК БАЗА</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textHdr, letterSpacing: 1 }}>
+                        ПЛК
+                    </span>
                 </div>
 
+                {/* Параметры текущего листа */}
                 <div style={{
-                    background: C.blueHdr, display: 'flex', alignItems: 'center',
-                    padding: '0 14px', borderRight: `1px solid #1e3a5f`
+                    background: '#1565c0', display: 'flex', alignItems: 'center',
+                    padding: '0 14px', borderRight: `1px solid #1e3a5f`,
                 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: 1, whiteSpace: 'nowrap' }}>
-                        Параметры листа
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: 1 }}>
+                        ТЕКУЩИЙ ЛИСТ
                     </span>
                 </div>
 
                 {s ? (
                     <div style={{ display: 'flex', alignItems: 'center', flex: 1, overflow: 'hidden' }}>
-                        <ParamCell label="Плавка №" value={s.melt} />
-                        <ParamCell label="Слиб" value={s.slab} />
-                        <ParamCell label="Партия" value={s.partNo} />
-                        <ParamCell label="Пачка" value={s.pack} />
-                        <ParamCell label="Лист" value={s.sheet} />
-                        <ParamCell label="Марка" value={s.alloyCodeText} wide />
-                        <ParamCell label="Толщина" value={s.thickness} />
-                        <ParamCell label="Листов в пачке" value={s.sheetsInPack} wide />
+                        {[
+                            { label: 'Плавка', value: s.melt },
+                            { label: 'Слиб', value: s.slab },
+                            { label: 'Партия', value: s.partNo },
+                            { label: 'Пачка', value: s.pack },
+                            { label: 'Лист', value: s.sheet, accent: true },
+                            { label: 'Марка', value: s.alloyCodeText, wide: true },
+                            { label: 'Толщ.', value: s.thickness },
+                        ].map(p => (
+                            <div key={p.label} style={{
+                                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                padding: '4px 14px', borderRight: `1px solid #1e3a5f`,
+                                minWidth: p.wide ? 100 : 65,
+                            }}>
+                                <span style={{ fontSize: 9, color: '#90caf9', whiteSpace: 'nowrap' }}>{p.label}</span>
+                                <span style={{
+                                    fontSize: 16, fontWeight: 700, fontFamily: 'monospace',
+                                    color: p.accent ? C.accent : C.text,
+                                }}>
+                                    {p.value ?? '—'}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 ) : (
                     <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', flex: 1 }}>
-                        <span style={{ color: C.textDim, fontSize: 13 }}>
-                            {connected ? 'Ожидание листа на X2...' : '⚠ OPC UA не подключён'}
+                        <span style={{ color: C.textDim, fontSize: 14 }}>
+                            {pendingCount > 0
+                                ? 'Загрузка листа из очереди...'
+                                : connected ? 'Очередь пуста. Ожидание листа на X2...' : '⚠ OPC UA не подключён'}
                         </span>
                     </div>
                 )}
 
+                {/* Счётчик очереди */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', padding: '0 20px',
+                    background: pendingCount > 0 ? '#e65100' : '#1b5e20',
+                    borderLeft: `1px solid ${pendingCount > 0 ? C.yellow : '#2e7d32'}`,
+                    gap: 8,
+                }}>
+                    <span style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{pendingCount}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, lineHeight: 1.1 }}>
+                            В ОЧЕРЕДИ
+                        </span>
+                        <span style={{ fontSize: 10, color: '#ffffffaa' }}>
+                            {pendingCount === 0 ? 'всё измерено' : 'ожидает'}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Статус "Измерено" */}
                 {alreadyMeasured && (
                     <div style={{
                         display: 'flex', alignItems: 'center', padding: '0 16px',
-                        background: '#1b5e20', borderLeft: `1px solid #2e7d32`
+                        background: '#1b5e20', borderLeft: `1px solid #2e7d32`,
                     }}>
                         <span style={{ fontSize: 12, color: '#a5d6a7', fontWeight: 700 }}>✓ ИЗМЕРЕНО</span>
                     </div>
                 )}
-
-                {/* 🆕 Индикатор несохранённых данных */}
-                {unsaved && (
-                    <div style={{
-                        display: 'flex', alignItems: 'center', padding: '0 16px',
-                        background: '#e65100', borderLeft: `1px solid ${C.yellow}`,
-                        animation: 'pulse 2s ease-in-out infinite',
-                    }}>
-                        <span style={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>
-                            ⚠ НЕСОХРАНЁННЫЕ ДАННЫЕ
-                        </span>
-                    </div>
-                )}
             </div>
 
-            {/* Сообщение */}
+            {/* ── Сообщение ──────────────────────────────────────────────────── */}
             {message && (
                 <div style={{
-                    padding: '7px 16px',
-                    background: message.type === 'success' ? '#1b5e20'
-                        : message.type === 'error' ? '#b71c1c'
-                            : message.type === 'warning' ? '#e65100'
-                                : '#0d47a1',
+                    padding: '8px 16px',
+                    background: message.type === 'success' ? '#1b5e20' : message.type === 'error' ? '#b71c1c' : '#0d47a1',
                     borderBottom: `1px solid ${C.inputBdr}`,
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
                     <span style={{ fontSize: 13 }}>{message.text}</span>
                     <button onClick={() => setMessage(null)}
-                        style={{ background: 'none', border: 'none', color: C.textDim, cursor: 'pointer', fontSize: 16 }}>✕</button>
+                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16 }}>✕</button>
                 </div>
             )}
 
-            {/* Тело */}
-            {s ? (
-                <div style={{ padding: '16px 20px' }}>
-                    <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
-                        <MeasGrid title="До кантовки" values={before}
-                            onChange={(k, v) => setBefore(p => ({ ...p, [k]: v }))} disabled={saving || alreadyMeasured} />
-                        <MeasGrid title="После кантовки" values={after}
-                            onChange={(k, v) => setAfter(p => ({ ...p, [k]: v }))} disabled={saving || alreadyMeasured} />
+            {/* ── ТЕЛО: Сетки + Очередь ─────────────────────────────────────── */}
+            <div style={{ display: 'flex', flex: 1, padding: 12, gap: 12 }}>
+
+                {/* Левая часть: сетки измерений */}
+                {s ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ display: 'flex', gap: 12, flex: 1 }}>
+                            <MeasGrid title="До кантовки" values={before}
+                                onChange={(idx, v) => setBefore(p => { const n = [...p]; n[idx] = v; return n; })}
+                                disabled={saving || alreadyMeasured} />
+                            <MeasGrid title="После кантовки" values={after}
+                                onChange={(idx, v) => setAfter(p => { const n = [...p]; n[idx] = v; return n; })}
+                                disabled={saving || alreadyMeasured} />
+                        </div>
+
+                        {/* Кнопка сохранения */}
+                        <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                            {!alreadyMeasured ? (
+                                <button
+                                    onClick={handleSave}
+                                    disabled={saving || !allFilled}
+                                    style={{
+                                        minWidth: 360, padding: '14px 32px', fontSize: 18, fontWeight: 700,
+                                        fontFamily: 'inherit', letterSpacing: 1.5, textTransform: 'uppercase',
+                                        background: (saving || !allFilled) ? C.btnDis : C.btnBg,
+                                        color: '#fff', border: 'none', borderRadius: 6,
+                                        cursor: (saving || !allFilled) ? 'not-allowed' : 'pointer',
+                                        boxShadow: allFilled && !saving ? `0 0 20px ${C.accent}44` : 'none',
+                                        transition: 'all 0.2s',
+                                    }}
+                                >
+                                    {saving ? '⏳ Сохранение...' : allFilled() ? '💾 Сохранить замеры' : `⚠ Заполните все 16 точек (${before.filter(v => v != null).length + after.filter(v => v != null).length}/16)`}
+                                </button>
+                            ) : (
+                                <div style={{
+                                    display: 'inline-block', padding: '10px 24px', background: '#1b5e20',
+                                    borderRadius: 6, color: '#a5d6a7', fontSize: 15, fontWeight: 700,
+                                }}>
+                                    ✓ Замеры сохранены — {new Date(s.measuredAt).toLocaleString('ru-RU')}
+                                    {s.measuredBy ? ` (${s.measuredBy})` : ''}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Мета-инфо */}
+                        <div style={{ display: 'flex', gap: 24, justifyContent: 'center', fontSize: 11, color: C.textDim }}>
+                            <span>ID: {s.id}</span>
+                            <span>Создана: {s.createdAt ? new Date(s.createdAt).toLocaleString('ru-RU') : '—'}</span>
+                            <span>Вход X2: {s.enteredX2At ? new Date(s.enteredX2At).toLocaleString('ru-RU') : '—'}</span>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{
+                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: C.textDim, fontSize: 18,
+                    }}>
+                        {pendingCount > 0 ? 'Загрузка...' : 'Нет листов для измерения'}
+                    </div>
+                )}
+
+                {/* Правая панель: Очередь */}
+                <div style={{
+                    width: 320, flexShrink: 0,
+                    background: C.panel, border: `1px solid ${C.panelBd}`,
+                    borderRadius: 8, padding: 12,
+                    display: 'flex', flexDirection: 'column',
+                }}>
+                    <div style={{
+                        fontSize: 13, fontWeight: 700, color: C.accent,
+                        letterSpacing: 1, marginBottom: 10,
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                        <span>📋 ОЧЕРЕДЬ ({pendingCount})</span>
+                        <button onClick={fetchQueue} style={{
+                            background: 'transparent', border: `1px solid ${C.panelBd}`,
+                            color: C.textDim, borderRadius: 3, padding: '2px 8px',
+                            cursor: 'pointer', fontSize: 11,
+                        }}>
+                            ↻
+                        </button>
                     </div>
 
-                    <div style={{ textAlign: 'center' }}>
-                        {!alreadyMeasured ? (
-                            <button
-                                onClick={handleSave}
-                                disabled={saving || !allFilled()}
-                                style={{
-                                    minWidth: 280, padding: '10px 24px', fontSize: 15, fontWeight: 700,
-                                    fontFamily: 'inherit', letterSpacing: 1, textTransform: 'uppercase',
-                                    background: (saving || !allFilled()) ? C.btnDis : C.btnBg,
-                                    color: '#fff', border: 'none', borderRadius: 5,
-                                    cursor: (saving || !allFilled()) ? 'not-allowed' : 'pointer',
-                                }}
-                            >
-                                {saving ? '⏳ Сохранение...' : allFilled() ? '💾 Сохранить замеры' : '⚠ Заполните все 16 точек'}
-                            </button>
-                        ) : (
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {queue.length === 0 ? (
                             <div style={{
-                                display: 'inline-block', padding: '8px 20px', background: '#1b5e20',
-                                borderRadius: 5, color: '#a5d6a7', fontSize: 14, fontWeight: 700
+                                padding: 20, textAlign: 'center', color: C.textDim, fontSize: 12,
                             }}>
-                                ✓ Замеры сохранены — {new Date(dbRecord.measuredAt).toLocaleString('ru-RU')}
-                                {dbRecord.measuredBy ? ` (${dbRecord.measuredBy})` : ''}
+                                Очередь пуста.<br />
+                                Листы появятся здесь,<br />
+                                когда приедут на X2.
                             </div>
+                        ) : (
+                            queue.map((item, idx) => {
+                                const isCurrent = currentRecord?.id === item.id;
+                                const waitColor = item.waitingMinutes > 10 ? C.red
+                                    : item.waitingMinutes > 5 ? C.yellow : C.green;
+                                return (
+                                    <QueueItem
+                                        key={item.id}
+                                        item={item}
+                                        isCurrent={isCurrent}
+                                        onClick={() => !isCurrent && loadRecord(item.id)}
+                                        waitColor={waitColor}
+                                    />
+                                );
+                            })
                         )}
                     </div>
-
-                    {dbRecord && (
-                        <div style={{
-                            marginTop: 14, display: 'flex', gap: 24, justifyContent: 'center',
-                            fontSize: 11, color: C.textDim
-                        }}>
-                            <span>ID: {dbRecord.id}</span>
-                            <span>Создана: {dbRecord.createdAt ? new Date(dbRecord.createdAt).toLocaleString('ru-RU') : '—'}</span>
-                            <span>Вход X2: {dbRecord.enteredX2At ? new Date(dbRecord.enteredX2At).toLocaleString('ru-RU') : '—'}</span>
-                        </div>
-                    )}
                 </div>
-            ) : (
-                <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    minHeight: 300, color: C.textDim, fontSize: 16
-                }}>
-                    {connected ? 'Лист на X2 не обнаружен' : '⚠ Нет соединения с OPC UA'}
-                </div>
-            )}
-
-            <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.7; }
-        }
-      `}</style>
+            </div>
         </div>
     );
 }

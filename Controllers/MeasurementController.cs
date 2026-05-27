@@ -1,9 +1,10 @@
 // Controllers/MeasurementController.cs
+using MES_ME.Server.Data;
+using MES_ME.Server.DTOs;
+using MES_ME.Server.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MES_ME.Server.Data;
-using MES_ME.Server.Models;
-using MES_ME.Server.DTOs;
 
 namespace MES_ME.Server.Controllers
 {
@@ -224,5 +225,77 @@ namespace MES_ME.Server.Controllers
             MeasuredBy = sm.MeasuredBy,
             CreatedAt = sm.CreatedAt,
         };
+
+
+        // ── Очередь измерений ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// GET /api/measurement/queue
+        /// Получить список листов, ожидающих измерения (в порядке поступления)
+        /// </summary>
+        [HttpGet("queue")]
+        public async Task<IActionResult> GetQueue()
+        {
+            var pending = await _context.Set<SheetMeasurement>()
+                .Where(sm => sm.MeasuredAt == null)
+                .OrderBy(sm => sm.EnteredX2At)
+                .Select(sm => new
+                {
+                    sm.Id,
+                    sm.Melt,
+                    sm.Slab,
+                    sm.PartNo,
+                    sm.Pack,
+                    sm.Sheet,
+                    sm.Thickness,
+                    sm.AlloyCodeText,
+                    sm.EnteredX2At,
+                    WaitingMinutes = (DateTime.UtcNow - (sm.EnteredX2At ?? DateTime.UtcNow)).TotalMinutes
+                })
+                .ToListAsync();
+
+            return Ok(pending);
+        }
+
+        /// <summary>
+        /// GET /api/measurement/queue/next
+        /// Получить первый неизмеренный лист (для работы оператора)
+        /// </summary>
+        [HttpGet("queue/next")]
+        public async Task<IActionResult> GetNext()
+        {
+            var next = await _context.Set<SheetMeasurement>()
+                .Where(sm => sm.MeasuredAt == null)
+                .OrderBy(sm => sm.EnteredX2At)
+                .FirstOrDefaultAsync();
+
+            if (next == null)
+                return NotFound(new { message = "Очередь пуста" });
+
+            return Ok(MapToDto(next));
+        }
+
+        /// <summary>
+        /// DELETE /api/measurement/queue/{id}
+        /// Удалить лист из очереди (например, если он уехал и оператор не хочет его измерять)
+        /// </summary>
+        [HttpDelete("queue/{id:long}")]
+       // [Authorize(Roles = "master,superadmin,developer")]
+        public async Task<IActionResult> RemoveFromQueue(long id)
+        {
+            var record = await _context.Set<SheetMeasurement>().FindAsync(id);
+            if (record == null)
+                return NotFound();
+
+            if (record.MeasuredAt != null)
+                return BadRequest(new { message = "Лист уже измерен, удаление невозможно" });
+
+            _context.Set<SheetMeasurement>().Remove(record);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Лист удалён из очереди" });
+        }
     }
+
+
 }
