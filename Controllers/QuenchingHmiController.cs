@@ -210,6 +210,27 @@ namespace MES_ME.Server.Controllers
         await _context.SaveChangesAsync();
 
         return Ok(new { message = $"Лист {request.UniqueId} подан на входной рольганг." });
+    
     }
+        [HttpGet("find-sheet")]
+        public async Task<IActionResult> FindSheet(
+            [FromQuery] string melt, [FromQuery] string batch,
+            [FromQuery] string pack, [FromQuery] string sheet)
+        {
+            var s = await _context.InputData
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    x.MeltNumber == melt && x.BatchNumber == batch &&
+                    x.PackNumber == pack && x.SheetNumber == sheet);
+            
+            if (s == null)
+                return NotFound(new { message = "Лист не найден в БД" });
+            
+            return Ok(new {
+                s.MatId, s.MeltNumber, s.BatchNumber, s.PackNumber, s.SheetNumber,
+                s.SteelGrade, s.SheetDimensions, s.SlabNumber, s.Status
+            });
+        }
+    
     }
 }

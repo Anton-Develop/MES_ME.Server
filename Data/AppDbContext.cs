@@ -36,6 +36,9 @@ namespace MES_ME.Server.Data
         public DbSet<FurnaceCassetteSession> FurnaceCassetteSessions { get; set; }
         public DbSet<SheetMeasurement> SheetMeasurements => Set<SheetMeasurement>();
 
+        public DbSet<Defect> Defects { get; set; }
+        public DbSet<DefectType> DefectTypes { get; set; }
+
 
 
     /*      public DbSet<ActualTemperatureAVG> ActualTemperatureAVG_HMI {get;set;}
@@ -320,6 +323,119 @@ namespace MES_ME.Server.Data
                 .HasOne(u => u.Role)
                 .WithMany(r => r.Users)
                 .HasForeignKey(u => u.RoleId);
+
+
+            // ═══════════════════════════════════════════════════════════════
+    // DefectType — справочник типов брака
+    // ═══════════════════════════════════════════════════════════════
+    modelBuilder.Entity<DefectType>(entity =>
+    {
+        entity.ToTable("defect_types", "mes");
+
+        entity.HasKey(e => e.Id);
+
+        // Уникальный индекс на code (для ON CONFLICT при seed)
+        entity.HasIndex(e => e.Code)
+              .IsUnique()
+              .HasDatabaseName("uq_defect_types_code");
+
+        // Индекс для быстрого фильтра активных типов
+        entity.HasIndex(e => e.IsActive)
+              .HasDatabaseName("idx_defect_types_is_active")
+              .HasFilter("is_active = true");
+
+        entity.Property(e => e.Code).HasMaxLength(50).IsRequired();
+        entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+        entity.Property(e => e.Description).HasColumnType("text");
+        entity.Property(e => e.Severity).HasDefaultValue(1);
+        entity.Property(e => e.IsActive).HasDefaultValue(true);
+        entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+
+        // Связь: DefectType → Defects (1:N)
+        entity.HasMany(e => e.Defects)
+              .WithOne(d => d.DefectType)
+              .HasForeignKey(d => d.DefectTypeId)
+              .OnDelete(DeleteBehavior.SetNull); // При удалении типа — defect_type_id = NULL
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Defect — история браков
+    // ═══════════════════════════════════════════════════════════════
+    modelBuilder.Entity<Defect>(entity =>
+    {
+        entity.ToTable("defects", "mes");
+
+        entity.HasKey(e => e.Id);
+
+        // ── Индексы для производительности ─────────────────────────
+        
+        // Быстрый поиск всех дефектов конкретного листа
+        entity.HasIndex(e => e.MatId)
+              .HasDatabaseName("idx_defects_mat_id");
+
+        // Сортировка по дате обнаружения (главная страница "БРАК")
+        entity.HasIndex(e => e.DetectedAt)
+              .HasDatabaseName("idx_defects_detected_at_desc")
+              .IsDescending();
+
+        // Partial index: только активные (нерешённые) браки
+        entity.HasIndex(e => new { e.Status, e.MatId })
+              .HasDatabaseName("idx_defects_active")
+              .HasFilter("status = 'open'");
+
+        // Группировка по типу дефекта (аналитика)
+        entity.HasIndex(e => e.DefectTypeId)
+              .HasDatabaseName("idx_defects_defect_type_id");
+
+        // Поиск по оператору (аналитика)
+        entity.HasIndex(e => e.DetectedBy)
+              .HasDatabaseName("idx_defects_detected_by");
+
+        // Поиск по коду дефекта
+        entity.HasIndex(e => e.DefectCode)
+              .HasDatabaseName("idx_defects_defect_code");
+
+        // ── Свойства ───────────────────────────────────────────────
+        
+        entity.Property(e => e.MatId).HasMaxLength(50).IsRequired();
+        entity.Property(e => e.DefectCode).HasMaxLength(50);
+        entity.Property(e => e.DefectDescription).HasColumnType("text");
+        entity.Property(e => e.Severity).HasDefaultValue(1);
+        entity.Property(e => e.DetectedAtZone).HasMaxLength(10);
+        entity.Property(e => e.DetectedByProcess).HasMaxLength(50);
+        entity.Property(e => e.DetectedBy).HasMaxLength(100).IsRequired();
+        entity.Property(e => e.DetectedAt).HasDefaultValueSql("NOW()");
+        entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("open");
+        entity.Property(e => e.ResolvedBy).HasMaxLength(100);
+        entity.Property(e => e.ResolutionNotes).HasColumnType("text");
+
+        // JSONB-колонки (важно для PostgreSQL!)
+        //entity.Property(e => e.Photos).HasColumnType("jsonb");
+        //entity.Property(e => e.Documents).HasColumnType("jsonb");
+        entity.Property(e => e.Metadata).HasColumnType("jsonb");
+
+        entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+        entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+
+        // ── CHECK constraints ──────────────────────────────────────
+        
+        // Валидные статусы
+        entity.ToTable(t => t.HasCheckConstraint(
+            "chk_defect_status",
+            "status IN ('open', 'in_progress', 'resolved', 'scrapped')"));
+
+        // Валидная серьёзность (1-3)
+        entity.ToTable(t => t.HasCheckConstraint(
+            "chk_defect_severity",
+            "severity BETWEEN 1 AND 3"));
+
+        // ── Связь с InputDatum (лист) ──────────────────────────────
+        
+        entity.HasOne(d => d.Sheet)
+              .WithMany() // В InputDatum можно не добавлять ICollection<Defect>
+              .HasForeignKey(d => d.MatId)
+              .OnDelete(DeleteBehavior.Cascade); // При удалении листа — удаляются все его браки
+    });
         }
     }
 }
