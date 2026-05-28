@@ -10,6 +10,10 @@ namespace MES_ME.Server.Models
         [Key]
         [Column("id")]
         public long Id { get; set; }
+        // 🆕 Связь с листом через MatId
+        [Column("mat_id")]
+        [MaxLength(50)]
+        public string? MatId { get; set; }
 
         [Column("sheet")]
         public int Sheet { get; set; }
@@ -69,5 +73,11 @@ namespace MES_ME.Server.Models
 
         [Column("created_at")]
         public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+        [Column("edited_at")]
+        public DateTime? EditedAt { get; set; }
+
+        [Column("edited_by")]
+        [MaxLength(100)]
+        public string? EditedBy { get; set; }
     }
 }

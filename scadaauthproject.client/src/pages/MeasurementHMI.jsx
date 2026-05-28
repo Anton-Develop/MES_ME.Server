@@ -229,14 +229,16 @@ export default function MeasurementHMI() {
             if (key && key !== lastCreatedKey) {
                 setLastCreatedKey(key);
                 // Создаём запись в БД (если ещё нет)
-                api.post('/measurement', { ...sheet, enteredX2At: new Date().toISOString() })
-                    .then(() => fetchQueue())
-                    .catch(err => {
-                        if (err.response?.status !== 409) // 409 = уже существует
-                            console.error('Ошибка создания записи:', err);
-                        else
-                            fetchQueue(); // Обновляем очередь даже если дубликат
-                    });
+               api.post('/measurement', { ...sheet, enteredX2At: new Date().toISOString() })
+				  .then(() => fetchQueue())
+				  .catch(err => {
+					if (err.response?.status === 409) {
+					  // 409 = запись уже существует — просто обновляем очередь
+					  fetchQueue();
+					  return;
+					}
+					console.error('Ошибка создания записи:', err);
+				  });
             }
         } else {
             // Лист уехал — сбрасываем ключ, чтобы следующий лист создал новую запись
@@ -428,7 +430,7 @@ export default function MeasurementHMI() {
                                         transition: 'all 0.2s',
                                     }}
                                 >
-                                    {saving ? '⏳ Сохранение...' : allFilled() ? '💾 Сохранить замеры' : `⚠ Заполните все 16 точек (${before.filter(v => v != null).length + after.filter(v => v != null).length}/16)`}
+                                    {saving ? '⏳ Сохранение...' : allFilled ? '💾 Сохранить замеры' : `⚠ Заполните все 16 точек (${before.filter(v => v != null).length + after.filter(v => v != null).length}/16)`}
                                 </button>
                             ) : (
                                 <div style={{

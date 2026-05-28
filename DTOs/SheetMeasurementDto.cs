@@ -4,6 +4,7 @@ namespace MES_ME.Server.DTOs
     public class SheetMeasurementDto
     {
         public long? Id { get; set; }
+        public string? MatId { get; set; }
         public int? Sheet { get; set; }
         public int? Melt { get; set; }
         public int? Slab { get; set; }

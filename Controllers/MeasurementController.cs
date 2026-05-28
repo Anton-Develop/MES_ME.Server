@@ -88,7 +88,7 @@ namespace MES_ME.Server.Controllers
         public async Task<IActionResult> Create([FromBody] CreateMeasurementRequest request)
         {
             if (request.Melt == null || request.Sheet == null)
-                return BadRequest(new { message = "Поля melt и sheet обязательны" });
+                return BadRequest("Поля melt и sheet обязательны");
 
             // Проверка на дубликат
             var exists = await _context.Set<SheetMeasurement>()
@@ -101,8 +101,31 @@ namespace MES_ME.Server.Controllers
             if (exists)
                 return Conflict(new { message = "Запись для этого листа уже существует" });
 
+            // 🔍 Ищем MatId в InputData по бизнес-ключам
+            var matId = await _context.InputData
+                .Where(i => i.MeltNumber == request.Melt.ToString() &&
+                            i.BatchNumber == request.PartNo.ToString() &&
+                            i.PackNumber == request.Pack.ToString() &&
+                            i.SheetNumber == request.Sheet.ToString())
+                .Select(i => i.MatId)
+                .FirstOrDefaultAsync();
+
+            // 🆕 Если не нашли сразу — ждём 1.5 сек (PLC ещё обновляет регистры)
+            if (string.IsNullOrEmpty(matId))
+            {
+                await Task.Delay(1500);
+                matId = await _context.InputData
+                    .Where(i => i.MeltNumber == request.Melt.ToString() &&
+                                i.BatchNumber == request.PartNo.ToString() &&
+                                i.PackNumber == request.Pack.ToString() &&
+                                i.SheetNumber == request.Sheet.ToString())
+                    .Select(i => i.MatId)
+                    .FirstOrDefaultAsync();
+            }
+
             var record = new SheetMeasurement
             {
+                MatId = matId,  // ← Связь с основным листом
                 Sheet = request.Sheet ?? 0,
                 Melt = request.Melt,
                 Slab = request.Slab,
@@ -194,7 +217,9 @@ namespace MES_ME.Server.Controllers
         // ── Вспомогательный метод маппинга ──
         private static SheetMeasurementDto MapToDto(SheetMeasurement sm) => new()
         {
+
             Id = sm.Id,
+            MatId = sm.MatId,
             Sheet = sm.Sheet,
             Melt = sm.Melt,
             Slab = sm.Slab,
@@ -242,6 +267,7 @@ namespace MES_ME.Server.Controllers
                 .Select(sm => new
                 {
                     sm.Id,
+                    sm.MatId,
                     sm.Melt,
                     sm.Slab,
                     sm.PartNo,
@@ -250,7 +276,12 @@ namespace MES_ME.Server.Controllers
                     sm.Thickness,
                     sm.AlloyCodeText,
                     sm.EnteredX2At,
-                    WaitingMinutes = (DateTime.UtcNow - (sm.EnteredX2At ?? DateTime.UtcNow)).TotalMinutes
+                    WaitingMinutes = (DateTime.UtcNow - (sm.EnteredX2At ?? DateTime.UtcNow)).TotalMinutes,
+                    // 🆕 Статус основного листа (для проверки "Закалка пройдена")
+                    SheetStatus = _context.InputData
+                        .Where(i => i.MatId == sm.MatId)
+                        .Select(i => i.Status)
+                        .FirstOrDefault()
                 })
                 .ToListAsync();
 

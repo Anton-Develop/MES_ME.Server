@@ -31,6 +31,11 @@ import HMI from './pages/QuenchingHMI';
 import MeasurementHMI from './pages/MeasurementHMI';
 import TemperingHMI from './pages/TemperingHMI';
 import TemperingHeatReport from './pages/TemperingHeatReport';
+import Defect from './pages/DefectsPage';
+import CassetteBuilder from './pages/CassetteBuilder';
+import OperatorWorkplace from './pages/OperatorWorkplace';
+import CassetteHistoryPage from './pages/CassetteHistoryPage';
+
 
 import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
 import FurnaceReport from './components/Furnace/FurnaceReport';
@@ -223,6 +228,10 @@ const App = () => (
                             <Route path="sheet-report" element={<ProtectedRoute><SheetCustomerReport /></ProtectedRoute>} />  
                             <Route path="tempering-hmi" element={<ProtectedRoute><TemperingHMI /></ProtectedRoute>} />
 							<Route path="TemperingHeatReport" element={<ProtectedRoute><TemperingHeatReport /></ProtectedRoute>} />
+							<Route path="Defect" element={<ProtectedRoute><Defect /></ProtectedRoute>} />
+							<Route path="CassetteBuilder" element={<ProtectedRoute><CassetteBuilder /></ProtectedRoute>} />
+							<Route path="OperatorWorkplace" element={<ProtectedRoute><OperatorWorkplace /></ProtectedRoute>} />
+							<Route path="CassetteHistoryPage" element={<ProtectedRoute><CassetteHistoryPage /></ProtectedRoute>} />
 							
                             {/* Фолбэк — любой неизвестный путь */}
                             <Route path="*" element={<Navigate to="/unauthorized" replace />} />
