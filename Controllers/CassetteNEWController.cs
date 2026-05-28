@@ -57,11 +57,10 @@ namespace MES_ME.Server.Controllers
 
             var userName = GetUserName();
 
-            // Проверяем: кассета с таким номером сейчас в печи?
             await using var con = await _dataSource.OpenConnectionAsync();
             var inFurnace = await con.QueryFirstOrDefaultAsync<int>(
                 @"SELECT COUNT(*) FROM mes.furnace_cassette_sessions 
-              WHERE cassette_id = @CassNo::TEXT AND unloaded_at IS NULL",
+          WHERE cassette_id = @CassNo::TEXT AND unloaded_at IS NULL",
                 new { CassNo = request.CassetteNumber.ToString() });
 
             if (inFurnace > 0)
@@ -74,7 +73,6 @@ namespace MES_ME.Server.Controllers
 
             var businessKey = BuildBusinessKey(request.CassetteNumber);
 
-            // Проверяем, не существует ли уже такая кассета (защита от двойного клика)
             var exists = await _context.Set<CassetteSheet>()
                 .AnyAsync(cs => cs.CassetteBusinessKey == businessKey);
 
@@ -83,14 +81,16 @@ namespace MES_ME.Server.Controllers
                 return Conflict(new { message = "Кассета с таким ключом уже создаётся. Попробуйте через минуту." });
             }
 
-            // Логируем создание
             await LogAuditAsync(con, businessKey, "create", null, userName, null);
 
             _logger.LogInformation("Создана новая кассета: {BusinessKey} оператором {User}", businessKey, userName);
+
+            // ✅ ИСПРАВЛЕНО: CassetteNumber вместо CassNo
             await con.ExecuteAsync(
-    @"INSERT INTO mes.active_cassettes (business_key, cassette_number, created_by)
-      VALUES (@Key, @CassetteNumber, @User)",
-    new { Key = businessKey, CassNo = request.CassetteNumber, User = userName });
+                @"INSERT INTO mes.active_cassettes (business_key, cassette_number, created_by)
+          VALUES (@Key, @CassetteNumber, @User)",
+                new { Key = businessKey, CassetteNumber = request.CassetteNumber, User = userName });
+
             return Ok(new
             {
                 businessKey,
