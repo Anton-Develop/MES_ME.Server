@@ -155,61 +155,67 @@ const HRule = () => <Divider sx={{ borderColor: T.borderSoft, my: 1.5 }} />;
 function CassetteControl({ furnaceNo, activeSession, availableCassettes, loading, onLoadClick, onUnloadClick }) {
     const [selected, setSelected] = useState('');
 
-    if (activeSession) {
-        return (
-            <Box sx={{
-                bgcolor: '#0d1f30',
-                border: `1px solid ${T.accent}33`,
-                borderRadius: 1.5,
-                p: 1.5,
-            }}>
-                <Typography sx={{
-                    color: T.textMuted, fontSize: '0.6rem', fontFamily: T.sansFont,
-                    fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1,
-                }}>
-                    Активная кассета
-                </Typography>
+{activeSession && (
+    <Box sx={{
+        bgcolor: '#0d1f30',
+        border: `1px solid ${T.accent}33`,
+        borderRadius: 1.5,
+        p: 1.5,
+    }}>
+        <Typography sx={{
+            color: T.textMuted, fontSize: '0.6rem', fontFamily: T.sansFont,
+            fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1,
+        }}>
+            Активная кассета
+        </Typography>
 
-                <Typography sx={{
-                    fontFamily: T.monoFont, fontSize: '1rem', fontWeight: 600,
-                    color: T.accent, lineHeight: 1.2, mb: 0.5,
-                }}>
-                    {activeSession.cassetteId}
-                </Typography>
+        {/* ✅ Крупно — номер кассеты */}
+        <Typography sx={{
+            fontFamily: T.monoFont, fontSize: '1.1rem', fontWeight: 700,
+            color: T.accent, lineHeight: 1.2, mb: 0.3,
+        }}>
+            №{activeSession.cassetteNumber}
+        </Typography>
+        
+        {/* ✅ Мелко — полный business_key */}
+        <Typography sx={{ 
+            color: T.textSecondary, fontSize: '0.68rem', fontFamily: T.monoFont, mb: 0.5 
+        }}>
+            {activeSession.businessKey}
+        </Typography>
 
-                <Typography sx={{ color: T.textSecondary, fontSize: '0.72rem', fontFamily: T.sansFont, mb: 0.25 }}>
-                    Загружена: {formatDateTime(activeSession.loadedAt)}
-                </Typography>
-                {activeSession.loadedBy && (
-                    <Typography sx={{ color: T.textMuted, fontSize: '0.7rem', fontFamily: T.sansFont, mb: 1 }}>
-                        Оператор: {activeSession.loadedBy}
-                    </Typography>
-                )}
+        <Typography sx={{ color: T.textSecondary, fontSize: '0.72rem', fontFamily: T.sansFont, mb: 0.25 }}>
+            Загружена: {formatDateTime(activeSession.loadedAt)}
+        </Typography>
+        {activeSession.loadedBy && (
+            <Typography sx={{ color: T.textMuted, fontSize: '0.7rem', fontFamily: T.sansFont, mb: 1 }}>
+                Оператор: {activeSession.loadedBy}
+            </Typography>
+        )}
 
-                <Button
-                    fullWidth variant="outlined" size="small"
-                    onClick={onUnloadClick}
-                    disabled={loading}
-                    startIcon={<StopIcon sx={{ fontSize: '0.9rem !important' }} />}
-                    sx={{
-                        color: T.danger,
-                        borderColor: `${T.danger}66`,
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        letterSpacing: '0.05em',
-                        fontFamily: T.sansFont,
-                        py: 0.75,
-                        '&:hover': {
-                            borderColor: T.danger,
-                            bgcolor: `${T.danger}11`,
-                        },
-                    }}
-                >
-                    Выгрузить кассету
-                </Button>
-            </Box>
-        );
-    }
+        <Button
+            fullWidth variant="outlined" size="small"
+            onClick={onUnloadClick}
+            disabled={loading}
+            startIcon={<StopIcon sx={{ fontSize: '0.9rem !important' }} />}
+            sx={{
+                color: T.danger,
+                borderColor: `${T.danger}66`,
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                letterSpacing: '0.05em',
+                fontFamily: T.sansFont,
+                py: 0.75,
+                '&:hover': {
+                    borderColor: T.danger,
+                    bgcolor: `${T.danger}11`,
+                },
+            }}
+        >
+            Выгрузить кассету
+        </Button>
+    </Box>
+)}
 
     return (
         <Box>
@@ -262,15 +268,15 @@ function CassetteControl({ furnaceNo, activeSession, availableCassettes, loading
                     </MenuItem>
                     {availableCassettes.map(c => (
                         <MenuItem key={c.cassetteId} value={c.cassetteNumber}>
-                            <Stack direction="row" spacing={1.5} alignItems="baseline">
-                                <Typography sx={{ fontFamily: T.monoFont, fontSize: '0.8rem', color: T.accent, fontWeight: 600 }}>
-                                    {c.cassetteId}
-                                </Typography>
-                                <Typography sx={{ fontFamily: T.sansFont, fontSize: '0.68rem', color: T.textSecondary }}>
-                                    {c.sheetsCount} л · {c.totalWeight} кг
-                                </Typography>
-                            </Stack>
-                        </MenuItem>
+    <Stack direction="row" spacing={1.5} alignItems="baseline">
+        <Typography sx={{ fontFamily: T.monoFont, fontSize: '0.8rem', color: T.accent, fontWeight: 600 }}>
+            №{c.cassetteNumber}
+        </Typography>
+        <Typography sx={{ fontFamily: T.sansFont, fontSize: '0.68rem', color: T.textSecondary }}>
+            {c.sheetsCount} л · {new Date(c.createdAt).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'})}
+        </Typography>
+    </Stack>
+</MenuItem>
                     ))}
                 </Select>
             </FormControl>
@@ -561,31 +567,48 @@ export default function TemperingHMI() {
         } catch { /* silent */ }
     }, []);
 
-    const loadReadyCassettes = useCallback(async () => {
-        try {
-            const [casR, sesR] = await Promise.all([
-                api.get('/cassettenew/list'),
-                api.get('/tempering/active-sessions'),
-            ]);
-            const activeCasIds = sesR.data.map(s => s.cassetteId);
-            const ready = casR.data.filter(c => c.status === 'Готова к отправке' && !activeCasIds.includes(c.cassetteId));
-            const withSheets = await Promise.all(ready.map(async (c) => {
-                try {
-                    const sr = await api.get(`/cassette/${c.cassetteId}/sheets`);
-                    return {
-                        cassetteId: c.cassetteId,
-                        cassetteNumber: parseInt(c.cassetteId.substring(3)),
-                        status: c.status,
-                        sheetsCount: sr.data.length,
-                        totalWeight: sr.data.reduce((s, x) => s + (x.actualNetWeightKg || 0), 0),
-                    };
-                } catch {
-                    return { cassetteId: c.cassetteId, cassetteNumber: parseInt(c.cassetteId.substring(3)), status: c.status, sheetsCount: 0, totalWeight: 0 };
-                }
-            }));
-            setAvailableCassettes(withSheets);
-        } catch { /* silent */ }
-    }, []);
+const loadReadyCassettes = useCallback(async () => {
+    try {
+        const [casR, sesR] = await Promise.all([
+            api.get('/cassettenew/list'),
+            api.get('/tempering/active-sessions'),
+        ]);
+        
+        // ✅ Используем businessKey из новой таблицы
+        const activeCasKeys = sesR.data.map(s => s.businessKey || s.BusinessKey);
+        
+        // ✅ Фильтруем: только закрытые (is_closed=true), которых ещё нет в печах
+        const ready = casR.data.filter(c => 
+            c.is_closed === true && !activeCasKeys.includes(c.business_key)
+        );
+        
+        const withSheets = await Promise.all(ready.map(async (c) => {
+            try {
+                const sr = await api.get(`/cassettenew/${encodeURIComponent(c.business_key)}/sheets`);
+                return {
+                    cassetteId: c.business_key,           // ✅ business_key, а не cassetteId
+                    cassetteNumber: c.cassette_number,    // ✅ короткий номер
+                    status: 'Готова к отправке',
+                    sheetsCount: sr.data.length,
+                    totalWeight: 0,
+                    createdAt: c.created_at,
+                };
+            } catch {
+                return { 
+                    cassetteId: c.business_key, 
+                    cassetteNumber: c.cassette_number, 
+                    status: 'Готова к отправке', 
+                    sheetsCount: 0, 
+                    totalWeight: 0,
+                    createdAt: c.created_at,
+                };
+            }
+        }));
+        setAvailableCassettes(withSheets);
+    } catch (err) {
+        console.error('Ошибка загрузки готовых кассет:', err);
+    }
+}, []);
 
     const loadAllData = useCallback(async () => {
         setRefreshing(true);
@@ -602,27 +625,30 @@ export default function TemperingHMI() {
         return () => clearInterval(iv);
     }, [loadAllData]);
 
-    const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
-        try {
-            await api.post('/tempering/load', { furnaceNo, cassetteNumber });
-            showMessage(`Кассета CAS${String(cassetteNumber).padStart(7, '0')} → Печь №${furnaceNo}`, 'success');
-            await loadAllData();
-        } catch (err) {
-            showMessage(err.response?.data?.message || 'Ошибка при загрузке кассеты', 'error');
-            throw err;
-        }
-    };
+const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
+    try {
+        await api.post('/tempering/load', { furnaceNo, cassetteNumber });
+        showMessage(`Кассета №${cassetteNumber} → Печь №${furnaceNo}`, 'success');
+        await loadAllData();
+    } catch (err) {
+        showMessage(err.response?.data?.message || 'Ошибка при загрузке кассеты', 'error');
+        throw err;
+    }
+};
 
     const handleUnloadCassette = async (furnaceNo) => {
-        try {
-            await api.post('/tempering/unload', { furnaceNo });
-            showMessage(`Кассета выгружена из печи №${furnaceNo}`, 'success');
-            await loadAllData();
-        } catch (err) {
-            showMessage(err.response?.data?.message || 'Ошибка при выгрузке кассеты', 'error');
-            throw err;
-        }
-    };
+    try {
+        await api.post('/tempering/unload', { furnaceNo });
+        showMessage(`Кассета выгружена из печи №${furnaceNo}`, 'success');
+        await loadAllData();
+    } catch (err) {
+        showMessage(
+            err.response?.data?.message || 'Ошибка при выгрузке кассеты', 
+            'error'
+        );
+        throw err;
+    }
+};
 
     const getActiveSession = (n) => activeSessions.find(s => s.furnaceNumber === n);
     const getPlcData = (n) => plcDataList.find(f => f.furnace_no === n);
@@ -714,27 +740,23 @@ export default function TemperingHMI() {
                 ) : (
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         {availableCassettes.map(c => (
-                            <Chip
-                                key={c.cassetteId}
-                                label={
-                                    <Stack direction="row" spacing={0.75} alignItems="baseline">
-                                        <Typography sx={{ fontFamily: T.monoFont, fontSize: '0.72rem', fontWeight: 700, color: T.accent }}>
-                                            {c.cassetteId}
-                                        </Typography>
-                                        <Typography sx={{ fontFamily: T.sansFont, fontSize: '0.65rem', color: T.textSecondary }}>
-                                            {c.sheetsCount} л · {c.totalWeight} кг
-                                        </Typography>
-                                    </Stack>
-                                }
-                                size="small"
-                                sx={{
-                                    bgcolor: T.surfaceAlt,
-                                    border: `1px solid ${T.border}`,
-                                    height: 28,
-                                    '& .MuiChip-label': { px: 1 },
-                                }}
-                            />
-                        ))}
+    <MenuItem key={c.cassetteId} value={c.cassetteNumber}>
+        <Stack direction="row" spacing={1.5} alignItems="baseline">
+            <Typography sx={{ 
+                fontFamily: T.monoFont, fontSize: '0.8rem', color: T.accent, fontWeight: 600 
+            }}>
+                №{c.cassetteNumber}
+            </Typography>
+            <Typography sx={{ 
+                fontFamily: T.sansFont, fontSize: '0.68rem', color: T.textSecondary 
+            }}>
+                {c.sheetsCount} л · {new Date(c.createdAt).toLocaleTimeString('ru-RU', {
+                    hour: '2-digit', minute: '2-digit'
+                })}
+            </Typography>
+        </Stack>
+    </MenuItem>
+))}
                     </Box>
                 )}
             </Paper>

@@ -29,10 +29,6 @@ public class TemperingController : ControllerBase
 
     private string GetUserName() => User.Identity?.Name ?? "UNKNOWN";
 
-    /// <summary>
-    /// GET /api/tempering/current
-    /// Последние данные PLC по каждой печи (текущие температуры, таймеры и т.д.)
-    /// </summary>
     [HttpGet("current")]
     public async Task<IActionResult> GetCurrentPlcData()
     {
@@ -57,32 +53,32 @@ public class TemperingController : ControllerBase
 
     /// <summary>
     /// GET /api/tempering/active-sessions
-    /// Активные сессии (кассеты в печах) — из НОВОЙ таблицы
+    /// Активные сессии — из НОВОЙ таблицы mes.tempering_sessions_new
     /// </summary>
     [HttpGet("active-sessions")]
     public async Task<IActionResult> GetActiveSessions()
     {
         await using var con = await _dataSource.OpenConnectionAsync();
         var result = await con.QueryAsync(@"
-        SELECT 
-            id,
-            furnace_number AS ""furnaceNumber"",      
-            business_key AS ""businessKey"",          
-            cassette_number AS ""cassetteNumber"",    
-            loaded_at AS ""loadedAt"",                
-            loaded_by AS ""loadedBy"",               
-            status AS ""status"",
-            completed_by_plc AS ""completedByPlc""
-        FROM mes.tempering_sessions_new
-        WHERE unloaded_at IS NULL
-        ORDER BY furnace_number
-    ");
+            SELECT 
+                id,
+                furnace_number AS ""furnaceNumber"",
+                business_key   AS ""businessKey"",
+                cassette_number AS ""cassetteNumber"",
+                loaded_at      AS ""loadedAt"",
+                loaded_by      AS ""loadedBy"",
+                status         AS ""status"",
+                completed_by_plc AS ""completedByPlc""
+            FROM mes.tempering_sessions_new
+            WHERE unloaded_at IS NULL
+            ORDER BY furnace_number
+        ");
         return Ok(result);
     }
 
     /// <summary>
     /// POST /api/tempering/load
-    /// Загрузить кассету в печь отпуска — в НОВУЮ таблицу
+    /// Загрузка кассеты — в НОВУЮ таблицу
     /// </summary>
     [HttpPost("load")]
     public async Task<IActionResult> LoadCassette([FromBody] LoadCassetteRequest request)
@@ -101,12 +97,12 @@ public class TemperingController : ControllerBase
         if (activeInFurnace > 0)
             return BadRequest($"В печи №{request.FurnaceNo} уже есть кассета. Сначала выгрузите её.");
 
-        // 2. Ищем закрытую кассету
+        // 2. Ищем закрытую кассету в active_cassettes
         var cassette = await con.QueryFirstOrDefaultAsync(
             @"SELECT business_key, cassette_number, is_closed 
-          FROM mes.active_cassettes 
-          WHERE cassette_number = @Num 
-          ORDER BY created_at DESC LIMIT 1",
+              FROM mes.active_cassettes 
+              WHERE cassette_number = @Num 
+              ORDER BY created_at DESC LIMIT 1",
             new { Num = request.CassetteNumber });
 
         if (cassette == null)
@@ -125,11 +121,11 @@ public class TemperingController : ControllerBase
         if (sheets.Count == 0)
             return BadRequest("Кассета пуста");
 
-        // 4. Создаём сессию в НОВОЙ таблице
+        // 4. ✅ Создаём сессию в НОВОЙ таблице (без FK, с полным businessKey)
         await con.ExecuteAsync(
             @"INSERT INTO mes.tempering_sessions_new 
-          (furnace_number, business_key, cassette_number, loaded_at, loaded_by, status)
-          VALUES (@Furnace, @BusinessKey, @CassNum, NOW(), @User, 'Загружена')",
+              (furnace_number, business_key, cassette_number, loaded_at, loaded_by, status)
+              VALUES (@Furnace, @BusinessKey, @CassNum, NOW(), @User, 'Загружена')",
             new
             {
                 Furnace = request.FurnaceNo,
@@ -169,7 +165,7 @@ public class TemperingController : ControllerBase
 
     /// <summary>
     /// POST /api/tempering/unload
-    /// Ручная выгрузка кассеты из печи — в НОВОЙ таблице
+    /// Ручная выгрузка — из НОВОЙ таблицы
     /// </summary>
     [HttpPost("unload")]
     public async Task<IActionResult> UnloadCassette([FromBody] UnloadCassetteRequest request)
@@ -183,9 +179,9 @@ public class TemperingController : ControllerBase
         // 1. Находим активную сессию (в НОВОЙ таблице)
         var session = await con.QueryFirstOrDefaultAsync(
             @"SELECT id, business_key, cassette_number
-          FROM mes.tempering_sessions_new 
-          WHERE furnace_number = @F AND unloaded_at IS NULL
-          ORDER BY loaded_at DESC LIMIT 1",
+              FROM mes.tempering_sessions_new 
+              WHERE furnace_number = @F AND unloaded_at IS NULL
+              ORDER BY loaded_at DESC LIMIT 1",
             new { F = request.FurnaceNo });
 
         if (session == null)
@@ -196,11 +192,11 @@ public class TemperingController : ControllerBase
         // 2. Обновляем сессию
         await con.ExecuteAsync(
             @"UPDATE mes.tempering_sessions_new 
-          SET unloaded_at = NOW(), 
-              unloaded_by = @User, 
-              completed_by_plc = FALSE,
-              status = 'Выгружена вручную'
-          WHERE id = @Id",
+              SET unloaded_at = NOW(), 
+                  unloaded_by = @User, 
+                  completed_by_plc = FALSE,
+                  status = 'Выгружена вручную'
+              WHERE id = @Id",
             new { Id = session.id, User = userName });
 
         // 3. Обновляем статусы листов
@@ -232,7 +228,6 @@ public class TemperingController : ControllerBase
     }
 }
 
-// ── DTOs ──
 public class LoadCassetteRequest
 {
     public int FurnaceNo { get; set; }

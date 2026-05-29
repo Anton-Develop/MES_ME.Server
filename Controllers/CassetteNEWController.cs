@@ -443,8 +443,9 @@ namespace MES_ME.Server.Controllers
         {
             await using var con = await _dataSource.OpenConnectionAsync();
             var sessions = await con.QueryAsync(
-                @"SELECT furnace_number, business_key, cassette_number, loaded_at, loaded_by, status
-          FROM mes.tempering_sessions_new
+                @"SELECT furnace_number, business_key AS cassette_id, cassette_number, 
+                 loaded_at, loaded_by, status
+          FROM mes.tempering_sessions_new   -- ✅ НОВАЯ таблица
           WHERE unloaded_at IS NULL
           ORDER BY furnace_number");
 
