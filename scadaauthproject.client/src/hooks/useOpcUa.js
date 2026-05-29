@@ -6,9 +6,9 @@ const HUB_URL = process.env.REACT_APP_API_URL
     ? process.env.REACT_APP_API_URL.replace('/api', '/hubs/opc')
     : 'http://localhost:5000/hubs/opc';
 
-// Синглтон соединения — одно на всё приложение
+// Синглтон соединения
 let _connection = null;
-let _connecting = false;
+let _connectionPromise = null; // ← Фикс race condition
 const _subscribers = new Set();
 
 function getConnection() {
@@ -21,7 +21,7 @@ function getConnection() {
             .configureLogging(signalR.LogLevel.Warning)
             .build();
 
-        // Все подписчики получают обновления
+        // Глобальный диспетчер тегов
         _connection.on('TagUpdate', ({ alias, value }) => {
             _subscribers.forEach(fn => fn(alias, value));
         });
@@ -29,30 +29,35 @@ function getConnection() {
     return _connection;
 }
 
+// Фикс: Promise-based ensureConnected — все ждут ОДНО подключение
 async function ensureConnected() {
     const conn = getConnection();
     if (conn.state === signalR.HubConnectionState.Connected) return conn;
-    if (_connecting) return conn;
+    
+    // Если уже идёт подключение — ждём тот же Promise
+    if (_connectionPromise) return _connectionPromise;
 
-    _connecting = true;
-    try {
-        await conn.start();
-        console.log('[OPC UA] SignalR connected');
-    } catch (e) {
-        console.error('[OPC UA] Connection failed', e);
-    } finally {
-        _connecting = false;
-    }
-    return conn;
+    _connectionPromise = (async () => {
+        try {
+            await conn.start();
+            console.log('[OPC UA] SignalR connected');
+            return conn;
+        } catch (e) {
+            console.error('[OPC UA] Connection failed:', e);
+            throw e;
+        } finally {
+            _connectionPromise = null;
+        }
+    })();
+
+    return _connectionPromise;
 }
 
-// ---------------------------------------------------------------------------
-// Основной хук
-// ---------------------------------------------------------------------------
 export function useOpcUa(aliases = []) {
-    // values: { f1_occup: { value, timestamp, isGood }, ... }
     const [values, setValues] = useState({});
     const [connected, setConnected] = useState(false);
+    const [connecting, setConnecting] = useState(false); // ← Новое состояние
+    const [error, setError] = useState(null);              // ← Новое состояние
     const [snapshot, setSnapshot] = useState(false);
 
     const aliasSet = useRef(new Set(aliases));
@@ -65,8 +70,8 @@ export function useOpcUa(aliases = []) {
         let mounted = true;
         const conn = getConnection();
 
-        // Snapshot — все текущие значения при подключении
-        conn.on('Snapshot', (all) => {
+        // ✅ ИМЕНОВАННАЯ функция для Snapshot — чтобы корректно отписаться
+        const snapshotHandler = (all) => {
             if (!mounted) return;
             const filtered = {};
             for (const [alias, val] of Object.entries(all)) {
@@ -75,9 +80,9 @@ export function useOpcUa(aliases = []) {
             }
             setValues(filtered);
             setSnapshot(true);
-        });
+        };
+        conn.on('Snapshot', snapshotHandler);
 
-        // Подписчик на отдельные обновления
         const handler = (alias, val) => {
             if (!mounted) return;
             if (aliasSet.current.size > 0 && !aliasSet.current.has(alias)) return;
@@ -86,37 +91,53 @@ export function useOpcUa(aliases = []) {
         _subscribers.add(handler);
 
         // Состояние соединения
-        const onReconnected = () => mounted && setConnected(true);
-        const onReconnecting = () => mounted && setConnected(false);
-        const onClose = () => mounted && setConnected(false);
+        const onReconnected = () => mounted && (setConnected(true), setConnecting(false), setError(null));
+        const onReconnecting = () => mounted && (setConnected(false), setConnecting(true));
+        const onClose = (err) => mounted && (setConnected(false), setConnecting(false), setError(err?.message || 'Соединение закрыто'));
 
         conn.onreconnected(onReconnected);
         conn.onreconnecting(onReconnecting);
         conn.onclose(onClose);
 
-        ensureConnected().then(async (c) => {
-            if (!mounted) return;
-            setConnected(c.state === signalR.HubConnectionState.Connected);
-            if (aliases.length > 0) {
-                try { await c.invoke('Subscribe', aliases); } catch (e) { console.warn('[OPC UA] Subscribe failed', e); }
-            }
-            // Запрашиваем снимок — нужен когда компонент монтируется
-            // после уже установленного синглтон-соединения
-            try { await c.invoke('GetSnapshot'); } catch (e) { console.warn('[OPC UA] GetSnapshot failed', e); }
-        });
+        // Подключаемся
+        setConnecting(true);
+        setError(null);
+
+        ensureConnected()
+            .then(async (c) => {
+                if (!mounted) return;
+                setConnected(c.state === signalR.HubConnectionState.Connected);
+                setConnecting(false);
+                
+                if (aliases.length > 0) {
+                    try { await c.invoke('Subscribe', aliases); } 
+                    catch (e) { console.warn('[OPC UA] Subscribe failed', e); }
+                }
+                try { await c.invoke('GetSnapshot'); } 
+                catch (e) { console.warn('[OPC UA] GetSnapshot failed', e); }
+            })
+            .catch((e) => {
+                if (!mounted) return;
+                setConnected(false);
+                setConnecting(false);
+                setError(e?.message || 'Ошибка подключения к OPC UA серверу');
+            });
 
         return () => {
             mounted = false;
             _subscribers.delete(handler);
-            conn.off('Snapshot');
-            // Отписываемся от тегов при размонтировании
+            // ✅ Корректная отписка — только наш handler
+            conn.off('Snapshot', snapshotHandler);
+            conn.off('reconnected', onReconnected);
+            conn.off('reconnecting', onReconnecting);
+            conn.off('close', onClose);
+            
             if (aliases.length > 0 && conn.state === signalR.HubConnectionState.Connected) {
                 conn.invoke('Unsubscribe', aliases).catch(() => { });
             }
         };
     }, []); // eslint-disable-line
 
-    // Функция записи
     const write = useCallback(async (alias, value) => {
         const conn = getConnection();
         if (conn.state !== signalR.HubConnectionState.Connected) {
@@ -131,19 +152,18 @@ export function useOpcUa(aliases = []) {
         }
     }, []);
 
-    return { values, connected, snapshot, write };
+    return { values, connected, connecting, error, snapshot, write };
 }
 
-// ---------------------------------------------------------------------------
-// Упрощённый хук — только одно значение
-// ---------------------------------------------------------------------------
 export function useOpcTag(alias) {
-    const { values, connected, write } = useOpcUa([alias]);
+    const { values, connected, connecting, error, write } = useOpcUa([alias]);
     return {
         value: values[alias]?.value ?? null,
         timestamp: values[alias]?.timestamp,
         isGood: values[alias]?.isGood ?? false,
         connected,
+        connecting,
+        error,
         write: (val) => write(alias, val),
     };
 }

@@ -564,7 +564,7 @@ export default function TemperingHMI() {
     const loadReadyCassettes = useCallback(async () => {
         try {
             const [casR, sesR] = await Promise.all([
-                api.get('/cassette'),
+                api.get('/cassettenew/list'),
                 api.get('/tempering/active-sessions'),
             ]);
             const activeCasIds = sesR.data.map(s => s.cassetteId);

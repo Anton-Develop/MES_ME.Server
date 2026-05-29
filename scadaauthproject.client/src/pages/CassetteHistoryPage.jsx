@@ -33,7 +33,7 @@ export default function CassetteHistoryPage() {
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/cassette/history', { params: { page, pageSize } });
+      const res = await api.get('/cassettenew/history', { params: { page, pageSize } });
       setSessions(res.data.sessions);
       setTotalCount(res.data.totalCount);
     } catch (err) {
@@ -52,7 +52,7 @@ export default function CassetteHistoryPage() {
       // Формируем businessKey из cassette_id и loaded_at
       const date = new Date(session.loaded_at);
       const bk = `${session.cassette_id}/${date.toISOString().slice(0, 10).replace(/-/g, '')}-${date.toISOString().slice(11, 16).replace(':', '')}`;
-      const res = await api.get(`/cassette/${encodeURIComponent(bk)}/audit`);
+      const res = await api.get(`/cassettenew/${encodeURIComponent(bk)}/audit`);
       setAuditLog(res.data);
     } catch (err) {
       console.error('Ошибка загрузки аудита:', err);

@@ -106,6 +106,7 @@ namespace MES_ME.Server.Controllers
         [HttpGet("{businessKey}/sheets")]
         public async Task<IActionResult> GetCassetteSheets(string businessKey)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             var sheets = await _context.Set<CassetteSheet>()
                 .Where(cs => cs.CassetteBusinessKey == businessKey)
                 .OrderBy(cs => cs.SortOrder)
@@ -170,6 +171,7 @@ namespace MES_ME.Server.Controllers
         {
             var userName = GetUserName();
 
+            businessKey = Uri.UnescapeDataString(businessKey);
             // Проверяем, что лист существует и прошёл закалку
             var sheet = await _context.InputData
                 .FirstOrDefaultAsync(s => s.MatId == request.MatId);
@@ -228,6 +230,7 @@ namespace MES_ME.Server.Controllers
         public async Task<IActionResult> RemoveSheetFromCassette(
             string businessKey, string matId, [FromBody] EditReasonRequest? request)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             if (!IsMasterOrAbove())
                 return Forbid("Удаление листов из кассеты доступно только мастеру или администратору");
 
@@ -261,6 +264,7 @@ namespace MES_ME.Server.Controllers
         public async Task<IActionResult> EditMeasurement(
             string businessKey, string matId, [FromBody] EditMeasurementRequest request)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             if (!IsMasterOrAbove())
                 return Forbid("Редактирование замеров доступно только мастеру или администратору");
 
@@ -344,6 +348,7 @@ namespace MES_ME.Server.Controllers
         [HttpPost("{businessKey}/finish")]
         public async Task<IActionResult> FinishCassette(string businessKey, [FromBody] FinishCassetteRequest request)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             var userName = GetUserName();
 
             var sheets = await _context.Set<CassetteSheet>()
@@ -440,6 +445,7 @@ namespace MES_ME.Server.Controllers
             NpgsqlConnection con, string businessKey, string action,
             string? matId, string user, object? details)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             await con.ExecuteAsync(
                 @"INSERT INTO mes.cassette_audit_log 
               (cassette_business_key, action, mat_id, details, performed_by)
@@ -463,6 +469,7 @@ namespace MES_ME.Server.Controllers
         [HttpPost("{businessKey}/close")]
         public async Task<IActionResult> CloseCassette(string businessKey)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             var userName = GetUserName();
 
             await using var con = await _dataSource.OpenConnectionAsync();
@@ -507,6 +514,7 @@ namespace MES_ME.Server.Controllers
         [HttpGet("{businessKey}/status")]
         public async Task<IActionResult> GetCassetteStatus(string businessKey)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             await using var con = await _dataSource.OpenConnectionAsync();
 
             var status = await con.QueryFirstOrDefaultAsync(
@@ -558,6 +566,7 @@ namespace MES_ME.Server.Controllers
         [HttpGet("{businessKey}/audit")]
         public async Task<IActionResult> GetAuditLog(string businessKey)
         {
+            businessKey = Uri.UnescapeDataString(businessKey);
             await using var con = await _dataSource.OpenConnectionAsync();
             var logs = await con.QueryAsync(
                 @"SELECT action, mat_id, details, performed_by, performed_at
@@ -568,8 +577,187 @@ namespace MES_ME.Server.Controllers
 
             return Ok(logs);
         }
+
+     /// <summary>
+/// GET /api/cassettenew/active
+/// Получить текущую активную кассету (последнюю созданную, не отправленную в печь)
+/// </summary>
+[HttpGet("active")]
+public async Task<IActionResult> GetActiveCassette()
+{
+    await using var con = await _dataSource.OpenConnectionAsync();
+
+    // ✅ Ищем любую кассету в active_cassettes (независимо от is_closed)
+    // Кассета удаляется оттуда только при отправке в печь
+    var cassette = await con.QueryFirstOrDefaultAsync(
+        @"SELECT business_key, cassette_number, created_at, created_by, is_closed, closed_at
+          FROM mes.active_cassettes
+          ORDER BY created_at DESC
+          LIMIT 1");
+
+    if (cassette == null)
+        return NotFound(new { message = "Нет активной кассеты" });
+
+    var businessKey = (string)cassette.business_key;
+
+    var sheets = await _context.Set<CassetteSheet>()
+        .Where(cs => cs.CassetteBusinessKey == businessKey)
+        .OrderBy(cs => cs.SortOrder)
+        .Select(cs => new
+        {
+            cs.Id,
+            cs.MatId,
+            cs.AddedAt,
+            cs.AddedBy,
+            cs.SortOrder,
+            Sheet = new
+            {
+                cs.Sheet!.MeltNumber,
+                cs.Sheet.BatchNumber,
+                cs.Sheet.PackNumber,
+                cs.Sheet.SheetNumber,
+                cs.Sheet.SteelGrade,
+                cs.Sheet.SheetDimensions,
+                cs.Sheet.Status,
+            },
+            Measurement = _context.Set<SheetMeasurement>()
+                .Where(m => m.MatId == cs.MatId && m.MeasuredAt != null)
+                .OrderByDescending(m => m.MeasuredAt)
+                .Select(m => new
+                {
+                    m.Id,
+                    m.H1Before, m.H2Before, m.H3Before, m.H4Before,
+                    m.H5Before, m.H6Before, m.H7Before, m.H8Before,
+                    m.H1After, m.H2After, m.H3After, m.H4After,
+                    m.H5After, m.H6After, m.H7After, m.H8After,
+                    m.MeasuredAt,
+                    m.MeasuredBy
+                })
+                .FirstOrDefault()
+        })
+        .ToListAsync();
+
+    return Ok(new
+    {
+        businessKey = cassette.business_key,
+        cassetteNumber = cassette.cassette_number,
+        createdAt = cassette.created_at,
+        createdBy = cassette.created_by,
+        isClosed = cassette.is_closed,
+        sheets
+    });
+}
+
+        /// <summary>
+        /// GET /api/cassettenew/list
+        /// Список всех активных кассет (не отправленных в печь) для выбора
+        /// </summary>
+        [HttpGet("list")]
+        public async Task<IActionResult> GetActiveCassettesList()
+        {
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            var cassettes = await con.QueryAsync(
+                @"SELECT 
+                    ac.business_key,
+                    ac.cassette_number,
+                    ac.created_at,
+                    ac.created_by,
+                    ac.is_closed,
+                    (SELECT COUNT(*) FROM mes.cassette_sheets cs 
+                    WHERE cs.cassette_business_key = ac.business_key) AS sheet_count
+                FROM mes.active_cassettes ac
+                ORDER BY ac.created_at DESC");
+
+            return Ok(cassettes);
+        }
+
+            /// <summary>
+    /// GET /api/cassettenew/available-sheets?search=123
+    /// Получить список листов, прошедших закалку и не добавленных в активные кассеты (для ручного добавления мастером)
+    /// </summary>
+    [HttpGet("available-sheets")]
+    public async Task<IActionResult> GetAvailableSheets([FromQuery] string? search = null)
+    {
+        // Находим все MatId, которые уже добавлены в активные кассеты
+        var activeMatIds = await _context.Set<CassetteSheet>()
+            .Select(cs => cs.MatId)
+            .ToListAsync();
+
+        // Берем только те, что прошли закалку и не в кассете
+        var query = _context.InputData
+            .Where(s => (s.Status == "Закалка пройдена" || s.Status == "Закалка пройдена, измерен") 
+                        && !activeMatIds.Contains(s.MatId));
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(s => 
+                s.MeltNumber.Contains(term) || 
+                s.SheetNumber.Contains(term) || 
+                s.MatId.Contains(term) ||
+                s.PackNumber.Contains(term));
+        }
+
+        var sheets = await query
+            .OrderByDescending(s => s.MatId) 
+            .Take(100)
+            .Select(s => new 
+            {
+                s.MatId,
+                s.MeltNumber,
+                s.BatchNumber,
+                s.PackNumber,
+                s.SheetNumber,
+                s.SteelGrade,
+                s.SheetDimensions,
+                s.Status
+            })
+            .ToListAsync();
+
+        return Ok(sheets);
     }
 
+    /// <summary>
+/// POST /api/cassettenew/{businessKey}/reopen
+/// Переоткрыть закрытую кассету для редактирования. ТОЛЬКО master+.
+/// </summary>
+[HttpPost("{businessKey}/reopen")]
+public async Task<IActionResult> ReopenCassette(string businessKey, [FromBody] EditReasonRequest request)
+{
+    if (!IsMasterOrAbove())
+        return Forbid("Переоткрытие кассеты доступно только мастеру или администратору");
+
+    var userName = GetUserName();
+    businessKey = Uri.UnescapeDataString(businessKey); // ← не забываем про URL-кодирование!
+
+    await using var con = await _dataSource.OpenConnectionAsync();
+
+    var exists = await con.QueryFirstOrDefaultAsync<bool>(
+        "SELECT COUNT(*) > 0 FROM mes.active_cassettes WHERE business_key = @Key",
+        new { Key = businessKey });
+
+    if (!exists)
+        return NotFound(new { message = "Активная кассета не найдена (возможно, уже в печи)" });
+
+    await con.ExecuteAsync(
+        @"UPDATE mes.active_cassettes 
+          SET is_closed = FALSE, closed_at = NULL, closed_by = NULL
+          WHERE business_key = @Key",
+        new { Key = businessKey });
+
+    // Лог
+    await LogAuditAsync(con, businessKey, "reopen", null, userName,
+        new { reason = request?.Reason ?? "Не указана" });
+
+    _logger.LogWarning(
+        "🔓 Кассета {Key} ПЕРЕОТКРЫТА мастером {User}. Причина: {Reason}",
+        businessKey, userName, request?.Reason);
+
+    return Ok(new { message = "Кассета переоткрыта" });
+}
+    
+}
 
 }
 // ── DTOs ──────────────────────────────────────────────────────────────
