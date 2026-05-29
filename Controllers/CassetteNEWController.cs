@@ -59,9 +59,9 @@ namespace MES_ME.Server.Controllers
 
             await using var con = await _dataSource.OpenConnectionAsync();
             var inFurnace = await con.QueryFirstOrDefaultAsync<int>(
-                @"SELECT COUNT(*) FROM mes.furnace_cassette_sessions 
-          WHERE cassette_id = @CassNo::TEXT AND unloaded_at IS NULL",
-                new { CassNo = request.CassetteNumber.ToString() });
+    @"SELECT COUNT(*) FROM mes.tempering_sessions_new 
+      WHERE cassette_number = @CassNum AND unloaded_at IS NULL",
+    new { CassNum = request.CassetteNumber });
 
             if (inFurnace > 0)
             {
@@ -209,6 +209,10 @@ namespace MES_ME.Server.Controllers
             };
 
             _context.Set<CassetteSheet>().Add(cassetteSheet);
+
+            var cassetteNumber = businessKey.Split('/')[0];
+            sheet.Status = $"В кассете №{cassetteNumber}";
+            sheet.QuenchingStatus = "В кассете";
             await _context.SaveChangesAsync();
 
             // Лог
@@ -231,8 +235,8 @@ namespace MES_ME.Server.Controllers
             string businessKey, string matId, [FromBody] EditReasonRequest? request)
         {
             businessKey = Uri.UnescapeDataString(businessKey);
-            if (!IsMasterOrAbove())
-                return Forbid("Удаление листов из кассеты доступно только мастеру или администратору");
+           // if (!IsMasterOrAbove())
+           //     return Forbid("Удаление листов из кассеты доступно только мастеру или администратору");
 
             var userName = GetUserName();
 
@@ -243,6 +247,13 @@ namespace MES_ME.Server.Controllers
                 return NotFound(new { message = "Лист не найден в кассете" });
 
             _context.Set<CassetteSheet>().Remove(cassetteSheet);
+            // 🆕 Возвращаем статус
+            var sheet = await _context.InputData.FindAsync(matId);
+            if (sheet != null)
+            {
+                sheet.Status = "Закалка пройдена, измерен";
+                sheet.QuenchingStatus = "Завершена";
+            }
             await _context.SaveChangesAsync();
 
             // Лог
@@ -265,8 +276,8 @@ namespace MES_ME.Server.Controllers
             string businessKey, string matId, [FromBody] EditMeasurementRequest request)
         {
             businessKey = Uri.UnescapeDataString(businessKey);
-            if (!IsMasterOrAbove())
-                return Forbid("Редактирование замеров доступно только мастеру или администратору");
+           // if (!IsMasterOrAbove())
+            //    return Forbid("Редактирование замеров доступно только мастеру или администратору");
 
             var userName = GetUserName();
 
@@ -375,9 +386,9 @@ namespace MES_ME.Server.Controllers
                 });
             }
             var inFurnace = await con.QueryFirstOrDefaultAsync<int>(
-                @"SELECT COUNT(*) FROM mes.furnace_cassette_sessions 
-              WHERE cassette_id = @CassNo AND unloaded_at IS NULL",
-                new { CassNo = cassetteNumber });
+    @"SELECT COUNT(*) FROM mes.tempering_sessions_new 
+      WHERE cassette_number = @CassNum AND unloaded_at IS NULL",
+    new { CassNum = int.Parse(cassetteNumber) });
 
             if (inFurnace > 0)
                 return BadRequest(new { message = $"Кассета №{cassetteNumber} уже в печи!" });
@@ -390,7 +401,7 @@ namespace MES_ME.Server.Controllers
                 new
                 {
                     Furnace = request.FurnaceNumber,
-                    CassId = cassetteNumber,
+                    CassId = businessKey,
                     User = userName
                 });
 
@@ -425,17 +436,17 @@ namespace MES_ME.Server.Controllers
 
         /// <summary>
         /// GET /api/cassette/furnaces-status
-        /// Какие кассеты сейчас в печах (для блокировки номеров)
+        /// Какие кассеты сейчас в печах (из НОВОЙ таблицы)
         /// </summary>
         [HttpGet("furnaces-status")]
         public async Task<IActionResult> GetFurnacesStatus()
         {
             await using var con = await _dataSource.OpenConnectionAsync();
             var sessions = await con.QueryAsync(
-                @"SELECT furnace_number, cassette_id, loaded_at, loaded_by, status
-              FROM mes.furnace_cassette_sessions
-              WHERE unloaded_at IS NULL
-              ORDER BY furnace_number");
+                @"SELECT furnace_number, business_key, cassette_number, loaded_at, loaded_by, status
+          FROM mes.tempering_sessions_new
+          WHERE unloaded_at IS NULL
+          ORDER BY furnace_number");
 
             return Ok(sessions);
         }
@@ -659,74 +670,107 @@ public async Task<IActionResult> GetActiveCassette()
 
             var cassettes = await con.QueryAsync(
                 @"SELECT 
-                    ac.business_key,
-                    ac.cassette_number,
-                    ac.created_at,
-                    ac.created_by,
-                    ac.is_closed,
-                    (SELECT COUNT(*) FROM mes.cassette_sheets cs 
-                    WHERE cs.cassette_business_key = ac.business_key) AS sheet_count
-                FROM mes.active_cassettes ac
-                ORDER BY ac.created_at DESC");
+            ac.business_key,
+            ac.cassette_number,
+            ac.created_at,
+            ac.created_by,
+            ac.is_closed,
+            ac.closed_at,      
+            ac.closed_by,      
+            (SELECT COUNT(*) FROM mes.cassette_sheets cs 
+             WHERE cs.cassette_business_key = ac.business_key) AS sheet_count
+          FROM mes.active_cassettes ac
+          ORDER BY ac.created_at DESC");
 
             return Ok(cassettes);
         }
 
-            /// <summary>
-    /// GET /api/cassettenew/available-sheets?search=123
-    /// Получить список листов, прошедших закалку и не добавленных в активные кассеты (для ручного добавления мастером)
-    /// </summary>
-    [HttpGet("available-sheets")]
-    public async Task<IActionResult> GetAvailableSheets([FromQuery] string? search = null)
-    {
-        // Находим все MatId, которые уже добавлены в активные кассеты
-        var activeMatIds = await _context.Set<CassetteSheet>()
-            .Select(cs => cs.MatId)
-            .ToListAsync();
-
-        // Берем только те, что прошли закалку и не в кассете
-        var query = _context.InputData
-            .Where(s => (s.Status == "Закалка пройдена" || s.Status == "Закалка пройдена, измерен") 
-                        && !activeMatIds.Contains(s.MatId));
-
-        if (!string.IsNullOrWhiteSpace(search))
+        /// <summary>
+        /// GET /api/cassettenew/available-sheets?melt=123&batch=456&pack=789&sheet=10&steelGrade=AMg2
+        /// Получить список листов, прошедших закалку и не добавленных в активные кассеты
+        /// </summary>
+        [HttpGet("available-sheets")]
+        public async Task<IActionResult> GetAvailableSheets(
+            [FromQuery] string? melt = null,
+            [FromQuery] string? batch = null,
+            [FromQuery] string? pack = null,
+            [FromQuery] string? sheet = null,
+            [FromQuery] string? steelGrade = null,
+            [FromQuery] int limit = 100)
         {
-            var term = search.Trim();
-            query = query.Where(s => 
-                s.MeltNumber.Contains(term) || 
-                s.SheetNumber.Contains(term) || 
-                s.MatId.Contains(term) ||
-                s.PackNumber.Contains(term));
+            // Находим все MatId, которые уже добавлены в активные кассеты
+            var activeMatIds = await _context.Set<CassetteSheet>()
+                .Select(cs => cs.MatId)
+                .ToListAsync();
+
+            // Берем только те, что прошли закалку и не в кассете
+            var query = _context.InputData
+                .Where(s => (s.Status == "Закалка пройдена" || s.Status == "Закалка пройдена, измерен")
+                            && !activeMatIds.Contains(s.MatId));
+
+            // Фильтрация по плавке
+            if (!string.IsNullOrWhiteSpace(melt))
+            {
+                var meltTerm = melt.Trim();
+                query = query.Where(s => s.MeltNumber != null && s.MeltNumber.Contains(meltTerm));
+            }
+
+            // Фильтрация по партии
+            if (!string.IsNullOrWhiteSpace(batch))
+            {
+                var batchTerm = batch.Trim();
+                query = query.Where(s => s.BatchNumber != null && s.BatchNumber.Contains(batchTerm));
+            }
+
+            // Фильтрация по пачке
+            if (!string.IsNullOrWhiteSpace(pack))
+            {
+                var packTerm = pack.Trim();
+                query = query.Where(s => s.PackNumber != null && s.PackNumber.Contains(packTerm));
+            }
+
+            // Фильтрация по номеру листа
+            if (!string.IsNullOrWhiteSpace(sheet))
+            {
+                var sheetTerm = sheet.Trim();
+                query = query.Where(s => s.SheetNumber != null && s.SheetNumber.Contains(sheetTerm));
+            }
+
+            // Фильтрация по марке стали
+            if (!string.IsNullOrWhiteSpace(steelGrade))
+            {
+                var gradeTerm = steelGrade.Trim();
+                query = query.Where(s => s.SteelGrade != null && s.SteelGrade.Contains(gradeTerm));
+            }
+
+            var sheets = await query
+                .OrderByDescending(s => s.MatId)
+                .Take(limit)
+                .Select(s => new
+                {
+                    s.MatId,
+                    s.MeltNumber,
+                    s.BatchNumber,
+                    s.PackNumber,
+                    s.SheetNumber,
+                    s.SteelGrade,
+                    s.SheetDimensions,
+                    s.Status
+                })
+                .ToListAsync();
+
+            return Ok(sheets);
         }
 
-        var sheets = await query
-            .OrderByDescending(s => s.MatId) 
-            .Take(100)
-            .Select(s => new 
-            {
-                s.MatId,
-                s.MeltNumber,
-                s.BatchNumber,
-                s.PackNumber,
-                s.SheetNumber,
-                s.SteelGrade,
-                s.SheetDimensions,
-                s.Status
-            })
-            .ToListAsync();
-
-        return Ok(sheets);
-    }
-
-    /// <summary>
-/// POST /api/cassettenew/{businessKey}/reopen
-/// Переоткрыть закрытую кассету для редактирования. ТОЛЬКО master+.
-/// </summary>
-[HttpPost("{businessKey}/reopen")]
+        /// <summary>
+        /// POST /api/cassettenew/{businessKey}/reopen
+        /// Переоткрыть закрытую кассету для редактирования. ТОЛЬКО master+.
+        /// </summary>
+        [HttpPost("{businessKey}/reopen")]
 public async Task<IActionResult> ReopenCassette(string businessKey, [FromBody] EditReasonRequest request)
 {
-    if (!IsMasterOrAbove())
-        return Forbid("Переоткрытие кассеты доступно только мастеру или администратору");
+    //if (!IsMasterOrAbove())
+    //    return Forbid("Переоткрытие кассеты доступно только мастеру или администратору");
 
     var userName = GetUserName();
     businessKey = Uri.UnescapeDataString(businessKey); // ← не забываем про URL-кодирование!

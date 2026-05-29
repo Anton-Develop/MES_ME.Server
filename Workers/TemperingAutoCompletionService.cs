@@ -1,13 +1,18 @@
 ﻿using Dapper;
-using MES_ME.Server.Infrastructure;
 using Npgsql;
 
 namespace MES_ME.Server.Workers;
 
+/// <summary>
+/// Автоматически отслеживает завершение цикла отпуска в печах через PLC (proc_end = TRUE)
+/// и выгружает кассету, обновляя статусы всех её листов.
+/// Работает с новой изолированной таблицей mes.tempering_sessions_new.
+/// </summary>
 public class TemperingAutoCompletionService : BackgroundService
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<TemperingAutoCompletionService> _logger;
+    private const int POLL_INTERVAL_SEC = 30;
 
     public TemperingAutoCompletionService(
         IServiceProvider services,
@@ -19,38 +24,46 @@ public class TemperingAutoCompletionService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("TemperingAutoCompletionService started");
+        _logger.LogInformation(
+            "TemperingAutoCompletionService запущен. Интервал опроса: {Interval}с",
+            POLL_INTERVAL_SEC);
 
-        // ✅ Используем PeriodicTimer вместо Timer
-        // Он автоматически ждёт завершения предыдущей итерации
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        // ✅ Используем PeriodicTimer вместо Timer — корректно работает с CancellationToken
+        // и не запускает следующую итерацию, пока не завершена предыдущая
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(POLL_INTERVAL_SEC));
 
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        try
         {
-            try
+            while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                await CheckCompletionsAsync(stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            // ✅ Перехватываем штатное прерывание запроса при остановке контейнера
-            catch (PostgresException ex) when (ex.SqlState == "57014" && stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogWarning("Запрос прерван из-за остановки сервиса (Graceful Shutdown)");
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "TemperingAutoCompletionService iteration failed");
+                try
+                {
+                    await CheckCompletionsAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                // ✅ Обработка штатного прерывания запроса при остановке контейнера
+                catch (PostgresException ex) when (ex.SqlState == "57014" && stoppingToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Запрос прерван из-за остановки сервиса (Graceful Shutdown)");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Ошибка в итерации TemperingAutoCompletionService");
+                }
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Штатное завершение
+        }
 
-        _logger.LogInformation("TemperingAutoCompletionService stopped");
+        _logger.LogInformation("TemperingAutoCompletionService остановлен");
     }
 
-    // ✅ Вынесли логику в отдельный async Task метод (без async void)
     private async Task CheckCompletionsAsync(CancellationToken ct)
     {
         using var scope = _services.CreateScope();
@@ -58,89 +71,115 @@ public class TemperingAutoCompletionService : BackgroundService
 
         await using var con = await dataSource.OpenConnectionAsync(ct);
 
-        _logger.LogDebug("Checking for completed furnaces...");
+        // Находим все печи, где PLC выставил proc_end = TRUE и есть активная сессия
+        var completedFurnaces = (await con.QueryAsync<FurnaceCompletionDto>(
+            new CommandDefinition(@"
+                WITH latest_data AS (
+                    SELECT DISTINCT ON (furnace_no)
+                        furnace_no, proc_end, time
+                    FROM plc.tempering_data
+                    ORDER BY furnace_no, time DESC
+                )
+                SELECT 
+                    ld.furnace_no   AS FurnaceNo,
+                    ld.proc_end     AS ProcEnd,
+                    ts.id           AS SessionId,
+                    ts.business_key AS BusinessKey,
+                    ts.cassette_number AS CassetteNumber
+                FROM latest_data ld
+                INNER JOIN mes.tempering_sessions_new ts
+                    ON ts.furnace_number = ld.furnace_no 
+                    AND ts.unloaded_at IS NULL
+                WHERE ld.proc_end = TRUE",
+                cancellationToken: ct)
+        )).ToList();
 
-        // Находим все печи с завершённым процессом и активными сессиями
-        var completedFurnaces = await con.QueryAsync<CompletedFurnaceDto>(
-            new CommandDefinition(
-                Sql.FindCompletedTemperingFurnaces,
-                cancellationToken: ct));
-
-        if (completedFurnaces.Count() == 0)
-        {
-            _logger.LogDebug("No completed furnaces found");
+        if (completedFurnaces.Count == 0)
             return;
-        }
 
-        _logger.LogInformation("Found {Count} completed furnaces", completedFurnaces.Count());
+        _logger.LogInformation(
+            "🔥 PLC зафиксировал завершение отпуска в {Count} печах",
+            completedFurnaces.Count);
 
-        int processedCount = 0;
-
-        foreach (var furnace in completedFurnaces)
+        int processed = 0;
+        foreach (var item in completedFurnaces)
         {
             ct.ThrowIfCancellationRequested();
 
             try
             {
-                await ProcessCompletedFurnaceAsync(con, furnace, ct);
-                processedCount++;
+                await ProcessCompletedFurnaceAsync(con, item, ct);
+                processed++;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при обработке печи {FurnaceNo}, сессия {SessionId}",
-                    furnace.FurnaceNo, furnace.SessionId);
+                _logger.LogError(ex,
+                    "Ошибка при автозавершении печи №{Furnace}, сессия {SessionId}",
+                    item.FurnaceNo, item.SessionId);
             }
         }
 
-        _logger.LogInformation("Processed {Count} completed furnaces", processedCount);
+        if (processed > 0)
+            _logger.LogInformation("✅ Автозавершение: обработано {Count} печей", processed);
     }
 
-    private async Task ProcessCompletedFurnaceAsync(NpgsqlConnection con, CompletedFurnaceDto furnace, CancellationToken ct)
+    private async Task ProcessCompletedFurnaceAsync(
+        NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
     {
-        // Обновляем сессию
-        var cassetteId = await con.QueryFirstOrDefaultAsync<string>(
-            new CommandDefinition(
-                Sql.UpdateTemperingSessionAsCompleted,
+        // 1. Обновляем сессию — помечаем как выгруженную PLC'ом
+        var updatedBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
+            new CommandDefinition(@"
+                UPDATE mes.tempering_sessions_new 
+                SET unloaded_at = @UnloadedAt, 
+                    completed_by_plc = TRUE, 
+                    unloaded_by = 'PLC_AUTO',
+                    status = 'Отпуск завершён'
+                WHERE id = @SessionId
+                  AND unloaded_at IS NULL
+                RETURNING business_key",
                 new
                 {
                     UnloadedAt = DateTime.UtcNow,
-                    SessionId = furnace.SessionId
+                    SessionId = item.SessionId
                 },
                 cancellationToken: ct));
 
-        if (string.IsNullOrEmpty(cassetteId))
+        if (string.IsNullOrEmpty(updatedBusinessKey))
         {
-            _logger.LogWarning("Не удалось обновить сессию {SessionId}", furnace.SessionId);
+            _logger.LogWarning(
+                "Сессия {SessionId} уже была выгружена (race condition)",
+                item.SessionId);
             return;
         }
 
+        // 2. Обновляем статусы всех листов кассеты через mes.cassette_sheets
+        var updatedCount = await con.ExecuteAsync(
+            new CommandDefinition(@"
+                UPDATE mes.input_data 
+                SET status = 'Отпуск пройден',
+                    quenching_status = 'Отпуск пройден'
+                WHERE mat_id IN (
+                    SELECT cs.mat_id 
+                    FROM mes.cassette_sheets cs
+                    WHERE cs.cassette_business_key = @BusinessKey
+                ) 
+                AND status IN ('В печи отпуска', 'Добавлен в кассету', 'В кассете')",
+                new { BusinessKey = updatedBusinessKey },
+                cancellationToken: ct));
+
         _logger.LogInformation(
-            "Печь {FurnaceNo}: сессия {SessionId} завершена, кассета {CassetteId}",
-            furnace.FurnaceNo, furnace.SessionId, cassetteId);
-
-        // Обновляем статус кассеты
-        await con.ExecuteAsync(
-            new CommandDefinition(
-                Sql.UpdateCassetteStatusToTemperingCompleted,
-                new { CassetteId = cassetteId },
-                cancellationToken: ct));
-
-        // Обновляем статусы листов
-        await con.ExecuteAsync(
-            new CommandDefinition(
-                Sql.UpdateSheetsStatusToTemperingCompleted,
-                new { CassetteId = cassetteId },
-                cancellationToken: ct));
-
-        _logger.LogInformation("Кассета {CassetteId} и связанные листы обновлены", cassetteId);
+            "📤 Печь №{Furnace}: кассета №{Cassette} (key={Key}) автовыгружена PLC. " +
+            "Обновлено {Count} листов → 'Отпуск пройден'",
+            item.FurnaceNo, item.CassetteNumber, updatedBusinessKey, updatedCount);
     }
-}
 
-// ✅ Типизированный DTO вместо dynamic
-public class CompletedFurnaceDto
-{
-    public int FurnaceNo { get; set; }
-    public bool ProcEnd { get; set; }
-    public long SessionId { get; set; }
-    public string? CassetteId { get; set; }
+    // DTO для результата запроса
+    private class FurnaceCompletionDto
+    {
+        public int FurnaceNo { get; set; }
+        public bool ProcEnd { get; set; }
+        public long SessionId { get; set; }
+        public string BusinessKey { get; set; } = string.Empty;
+        public int CassetteNumber { get; set; }
+    }
 }

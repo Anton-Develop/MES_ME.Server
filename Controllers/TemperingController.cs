@@ -1,484 +1,245 @@
 ﻿using Dapper;
 using MES_ME.Server.Data;
 using MES_ME.Server.Models;
-using MES_ME.Server.Repositories;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using static MES_ME.Server.DTOs.TemperingSessionDTO;
 
-namespace MES_ME.Server.Controllers
+namespace MES_ME.Server.Controllers;
+
+[Authorize]
+[Route("api/[controller]")]
+[ApiController]
+public class TemperingController : ControllerBase
 {
-    [ApiController]
-    [Route("api/tempering")]
-    public sealed class TemperingController : ControllerBase
+    private readonly AppDbContext _context;
+    private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<TemperingController> _logger;
+
+    public TemperingController(
+        AppDbContext context,
+        NpgsqlDataSource dataSource,
+        ILogger<TemperingController> logger)
     {
-         private readonly IFurnaceRepository _furnaceRepo;
-        private readonly NpgsqlDataSource _ds;
-        private readonly AppDbContext _context;
-        private readonly ILogger<TemperingController> _logger;
+        _context = context;
+        _dataSource = dataSource;
+        _logger = logger;
+    }
 
-        public TemperingController(NpgsqlDataSource ds, AppDbContext context,IFurnaceRepository furnaceRepo, ILogger<TemperingController> log) 
-        {
-            _ds = ds;
-            _context = context;
-            _logger = log;
-            _furnaceRepo = furnaceRepo;
-        }
+    private string GetUserName() => User.Identity?.Name ?? "UNKNOWN";
 
-        // GET /api/tempering/current — текущее состояние всех 4 печей
-        [HttpGet("current")]
-        public async Task<IActionResult> GetCurrentState(CancellationToken ct)
-        {
-            await using var con = await _ds.OpenConnectionAsync(ct);
-            var rows = await con.QueryAsync("""
+    /// <summary>
+    /// GET /api/tempering/current
+    /// Последние данные PLC по каждой печи (текущие температуры, таймеры и т.д.)
+    /// </summary>
+    [HttpGet("current")]
+    public async Task<IActionResult> GetCurrentPlcData()
+    {
+        await using var con = await _dataSource.OpenConnectionAsync();
+        var result = await con.QueryAsync(@"
             SELECT DISTINCT ON (furnace_no)
                 furnace_no, time,
-                proc_run, proc_end, proc_fault,
                 temp_act, temp_ref, t1, t2, t_average_furn,
-                act_time_total, act_time_heat_acc, act_time_heat_wait,
-                time_proc_set, time_to_proc_end, proc_time_min,
+                time_proc_set, time_to_proc_end,
+                act_time_heat_acc, act_time_heat_wait, act_time_total,
+                proc_fault, proc_run, proc_end,
                 point_ref_1, point_time_1, point_dtime_2,
+                burn1_te_lower, burn1_te_upper, burn1_air_prs, burn1_gas_prs,
                 cassette_no, cass_day, cass_month, cass_year, cass_hour,
                 cass1_no, cass1_day, cass1_month, cass1_year, cass1_hour,
-                cass2_no, cass2_day, cass2_month, cass2_year, cass2_hour,
-                furn_prs, burn1_air_prs, burn1_gas_prs,
-                burn1_te_lower, burn1_te_upper, burn2_air_prs, burn2_gas_prs,
-                burn2_te_lower, burn2_te_upper,
-                return_cassette_cmd
+                cass2_no, cass2_day, cass2_month, cass2_year, cass2_hour
             FROM plc.tempering_data
             ORDER BY furnace_no, time DESC
-            """);
-            return Ok(rows);
-        }
+        ");
+        return Ok(result);
+    }
 
-        // GET /api/tempering/history?furnaceNo=1&from=...&to=...&intervalMin=1
-        [HttpGet("history")]
-        public async Task<IActionResult> GetHistory(
-            [FromQuery] int furnaceNo,
-            [FromQuery] DateTime from,
-            [FromQuery] DateTime to,
-            [FromQuery] int intervalMin = 1,
-            CancellationToken ct = default)
-        {
-            if (from >= to)
-                return BadRequest(new { error = "from должен быть меньше to" });
-
-            // Авто-увеличение интервала для больших периодов
-            if ((to - from).TotalHours > 24 && intervalMin < 5) intervalMin = 5;
-
-            await using var con = await _ds.OpenConnectionAsync(ct);
-            var rows = await con.QueryAsync("""
-            SELECT
-                date_trunc('minute', time) +
-                (floor(EXTRACT(MINUTE FROM time) / @Interval) * @Interval)
-                    * INTERVAL '1 minute' AS time,
-                AVG(temp_act)        AS temp_act,
-                AVG(temp_ref)        AS temp_ref,
-                AVG(t1)              AS t1,
-                AVG(t2)              AS t2,
-                AVG(t_average_furn)  AS t_average_furn,
-                AVG(act_time_total)  AS act_time_total,
-                AVG(time_to_proc_end) AS time_to_proc_end,
-                BOOL_OR(proc_run)    AS proc_run,
-                BOOL_OR(proc_end)    AS proc_end,
-                BOOL_OR(proc_fault)  AS proc_fault,
-                AVG(furn_prs)        AS furn_prs,
-                AVG(burn1_air_prs)   AS burn1_air_prs,
-                AVG(burn1_gas_prs)   AS burn1_gas_prs,
-                AVG(burn1_te_lower)  AS burn1_te_lower,
-                AVG(burn1_te_upper)  AS burn1_te_upper,
-                AVG(burn2_air_prs)   AS burn2_air_prs,
-                AVG(burn2_gas_prs)   AS burn2_gas_prs,
-                AVG(burn2_te_lower)  AS burn2_te_lower,
-                AVG(burn2_te_upper)  AS burn2_te_upper
-            FROM plc.tempering_data
-            WHERE furnace_no = @FurnaceNo
-              AND time BETWEEN @From AND @To
-            GROUP BY 1
-            ORDER BY 1
-            """,
-                new
-                {
-                    FurnaceNo = furnaceNo,
-                    From = DateTime.SpecifyKind(from, DateTimeKind.Utc),
-                    To = DateTime.SpecifyKind(to, DateTimeKind.Utc),
-                    Interval = intervalMin,
-                });
-            return Ok(rows);
-        }
-
-        // GET /api/tempering/sessions?furnaceNo=1&from=...&to=...
-        // Завершённые циклы отпуска (proc_end = true)
-        [HttpGet("sessions")]
-        public async Task<IActionResult> GetSessions(
-            [FromQuery] int? furnaceNo = null,
-            [FromQuery] DateTime? from = null,
-            [FromQuery] DateTime? to = null,
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 50,
-            CancellationToken ct = default)
-        {
-            await using var con = await _ds.OpenConnectionAsync(ct);
-
-            // Находим моменты завершения цикла: proc_end = true
-            var sessions = await con.QueryAsync("""
-            WITH proc_ends AS (
-                SELECT
-                    furnace_no, time AS ended_at,
-                    temp_act, act_time_total, act_time_heat_acc,
-                    point_ref_1, time_proc_set,
-                    cassette_no, cass_day, cass_month, cass_year, cass_hour,
-                    cass1_no, cass2_no,
-                    ROW_NUMBER() OVER (PARTITION BY furnace_no ORDER BY time DESC) AS rn
-                FROM plc.tempering_data
-                WHERE proc_end = TRUE
-                  AND (@FurnaceNo IS NULL OR furnace_no = @FurnaceNo)
-                  AND (@From IS NULL OR time >= @From)
-                  AND (@To   IS NULL OR time <= @To)
-            )
-            SELECT * FROM proc_ends
-            ORDER BY ended_at DESC
-            LIMIT @PageSize OFFSET @Offset
-            """,
-                new
-                {
-                    FurnaceNo = furnaceNo,
-                    From = from.HasValue ? DateTime.SpecifyKind(from.Value, DateTimeKind.Utc) : (DateTime?)null,
-                    To = to.HasValue ? DateTime.SpecifyKind(to.Value, DateTimeKind.Utc) : (DateTime?)null,
-                    PageSize = pageSize,
-                    Offset = (page - 1) * pageSize,
-                });
-            return Ok(sessions);
-        }
-
-
-        // GET /api/tempering/report/heat?furnaceNo=1&from=...&to=...
-        [HttpGet("report/heat")]
-        public async Task<IActionResult> GetHeatReport(
-            [FromQuery] int furnaceNo,
-            [FromQuery] DateTime from,
-            [FromQuery] DateTime to,
-            [FromQuery] int? sessionId = null,
-            CancellationToken ct = default)
-        {
-            if (from >= to)
-                return BadRequest(new { error = "from должен быть меньше to" });
-
-            await using var con = await _ds.OpenConnectionAsync(ct);
-
-            if (sessionId.HasValue)
-            {
-                // Получение конкретной сессии по её времени начала
-                var session = await con.QueryFirstOrDefaultAsync("""
-            WITH session_boundaries AS (
-                SELECT 
-                    furnace_no,
-                    time AS session_start,
-                    LEAD(time) OVER (PARTITION BY furnace_no ORDER BY time) AS session_end
-                FROM plc.tempering_data
-                WHERE furnace_no = @FurnaceNo
-                  AND proc_end = TRUE
-                ORDER BY time DESC
-                LIMIT 1 OFFSET @SessionOffset
-            )
-            SELECT 
-                sb.session_start,
-                COALESCE(sb.session_end, @To::timestamptz) AS session_end,
-                td.*
-            FROM session_boundaries sb
-            JOIN plc.tempering_data td ON td.furnace_no = sb.furnace_no
-                AND td.time BETWEEN sb.session_start AND COALESCE(sb.session_end, @To::timestamptz)
-            ORDER BY td.time
-            """, new { FurnaceNo = furnaceNo, SessionOffset = sessionId.Value - 1, To = to });
-
-                return Ok(session);
-            }
-
-            // Статистика по всем сессиям в периоде
-            var sessionsStats = await con.QueryAsync("""
-        WITH session_groups AS (
-            SELECT 
-                furnace_no,
-                time AS session_start,
-                LEAD(time) OVER (PARTITION BY furnace_no ORDER BY time) AS session_end
-            FROM plc.tempering_data
-            WHERE furnace_no = @FurnaceNo
-              AND proc_end = TRUE
-              AND time BETWEEN @From AND @To
-        )
+    /// <summary>
+    /// GET /api/tempering/active-sessions
+    /// Активные сессии (кассеты в печах) — из НОВОЙ таблицы
+    /// </summary>
+    [HttpGet("active-sessions")]
+    public async Task<IActionResult> GetActiveSessions()
+    {
+        await using var con = await _dataSource.OpenConnectionAsync();
+        var result = await con.QueryAsync(@"
         SELECT 
-            ROW_NUMBER() OVER (ORDER BY sg.session_start DESC) AS session_num,
-            sg.session_start,
-            sg.session_end,
-            MIN(td.temp_act) AS temp_min,
-            MAX(td.temp_act) AS temp_max,
-            AVG(td.temp_act) AS temp_avg,
-            MAX(td.time_proc_set) AS target_time_min,
-            MAX(td.point_ref_1) AS target_temp,
-            MAX(td.cassette_no) AS cassette_no,
-            MAX(td.cass1_no) AS cass1_no,
-            MAX(td.cass2_no) AS cass2_no,
-            MAX(td.cass_day) AS cass_day,
-            MAX(td.cass_month) AS cass_month,
-            MAX(td.cass_year) AS cass_year,
-            MAX(td.cass_hour) AS cass_hour,
-            COUNT(*) AS data_points
-        FROM session_groups sg
-        JOIN plc.tempering_data td ON td.furnace_no = sg.furnace_no
-            AND td.time BETWEEN sg.session_start AND COALESCE(sg.session_end, @To::timestamptz)
-        GROUP BY sg.session_start, sg.session_end
-        ORDER BY sg.session_start DESC
-        """, new { FurnaceNo = furnaceNo, From = from, To = to });
+            id,
+            furnace_number AS ""furnaceNumber"",      
+            business_key AS ""businessKey"",          
+            cassette_number AS ""cassetteNumber"",    
+            loaded_at AS ""loadedAt"",                
+            loaded_by AS ""loadedBy"",               
+            status AS ""status"",
+            completed_by_plc AS ""completedByPlc""
+        FROM mes.tempering_sessions_new
+        WHERE unloaded_at IS NULL
+        ORDER BY furnace_number
+    ");
+        return Ok(result);
+    }
 
-            return Ok(sessionsStats);
-        }
+    /// <summary>
+    /// POST /api/tempering/load
+    /// Загрузить кассету в печь отпуска — в НОВУЮ таблицу
+    /// </summary>
+    [HttpPost("load")]
+    public async Task<IActionResult> LoadCassette([FromBody] LoadCassetteRequest request)
+    {
+        if (request.FurnaceNo < 1 || request.FurnaceNo > 4)
+            return BadRequest("Некорректный номер печи (1-4)");
 
-        // GET /api/tempering/report/heat/details
-        [HttpGet("report/heat/details")]
-        public async Task<IActionResult> GetHeatReportDetails(
-            [FromQuery] int furnaceNo,
-            [FromQuery] DateTime from,
-            [FromQuery] DateTime to,
-            [FromQuery] int intervalMin = 1,
-            CancellationToken ct = default)
-        {
-                if (from >= to)
-                    return BadRequest(new { error = "from должен быть меньше to" });
+        var userName = GetUserName();
+        await using var con = await _dataSource.OpenConnectionAsync();
 
-                await using var con = await _ds.OpenConnectionAsync(ct);
+        // 1. Проверяем, свободна ли печь (в НОВОЙ таблице)
+        var activeInFurnace = await con.QueryFirstOrDefaultAsync<int>(
+            "SELECT COUNT(*) FROM mes.tempering_sessions_new WHERE furnace_number = @F AND unloaded_at IS NULL",
+            new { F = request.FurnaceNo });
 
-                var data = await con.QueryAsync("""
-            SELECT 
-                time,
-                temp_act,
-                temp_ref,
-                t1,
-                t2,
-                t_average_furn,
-                act_time_total,
-                act_time_heat_acc,
-                act_time_heat_wait,
-                time_to_proc_end,
-                proc_run,
-                proc_end,
-                proc_fault,
-                cassette_no,
-                cass1_no,
-                cass2_no
-            FROM plc.tempering_data
-            WHERE furnace_no = @FurnaceNo
-            AND time BETWEEN @From AND @To
-            ORDER BY time ASC
-            """, new { FurnaceNo = furnaceNo, From = from, To = to });
+        if (activeInFurnace > 0)
+            return BadRequest($"В печи №{request.FurnaceNo} уже есть кассета. Сначала выгрузите её.");
 
-                return Ok(data);
-        }
+        // 2. Ищем закрытую кассету
+        var cassette = await con.QueryFirstOrDefaultAsync(
+            @"SELECT business_key, cassette_number, is_closed 
+          FROM mes.active_cassettes 
+          WHERE cassette_number = @Num 
+          ORDER BY created_at DESC LIMIT 1",
+            new { Num = request.CassetteNumber });
 
-        [HttpGet("sessions-legacy")]
-        public async Task<IActionResult> GetSessions([FromQuery] TemperingSessionFilter filter, CancellationToken ct)
-        {
-             var result = await _furnaceRepo.GetTemperingSessionsAsync(filter, ct);
-             return Ok(result);
-        }
+        if (cassette == null)
+            return NotFound($"Кассета №{request.CassetteNumber} не найдена среди активных");
 
-        [HttpGet("sessions/{id:long}")]
-        public async Task<IActionResult> GetSessionById(long id, CancellationToken ct)
-        {
-            var session = await _furnaceRepo.GetTemperingSessionByIdAsync(id, ct);
-            if (session == null)
-                return NotFound();
+        if (!(bool)cassette.is_closed)
+            return BadRequest($"Кассета №{request.CassetteNumber} ещё не закрыта оператором");
 
-            var details = session.EndedAt.HasValue
-                ? await _furnaceRepo.GetTemperingSessionDetailsAsync(session.FurnaceNo, session.StartedAt, session.EndedAt.Value, ct)
-                : Enumerable.Empty<TemperingDetailDto>();
+        var businessKey = (string)cassette.business_key;
 
-            return Ok(new { Session = session, Details = details });
-        }
+        // 3. Получаем листы
+        var sheets = await _context.Set<CassetteSheet>()
+            .Where(cs => cs.CassetteBusinessKey == businessKey)
+            .ToListAsync();
 
-        // GET: /api/tempering/active-sessions
-        [HttpGet("active-sessions")]
-        public async Task<IActionResult> GetActiveSessions(CancellationToken ct)
-        {
-            var sessions = await _context.FurnaceCassetteSessions
-                .Include(s => s.Cassette)
-                .Where(s => s.UnloadedAt == null)
-                .OrderBy(s => s.LoadedAt)
-                .ToListAsync(ct);
+        if (sheets.Count == 0)
+            return BadRequest("Кассета пуста");
 
-            return Ok(sessions.Select(s => new
+        // 4. Создаём сессию в НОВОЙ таблице
+        await con.ExecuteAsync(
+            @"INSERT INTO mes.tempering_sessions_new 
+          (furnace_number, business_key, cassette_number, loaded_at, loaded_by, status)
+          VALUES (@Furnace, @BusinessKey, @CassNum, NOW(), @User, 'Загружена')",
+            new
             {
-                s.Id,
-                s.FurnaceNumber,
-                s.CassetteId,
-                s.LoadedAt,
-                s.LoadedBy,
-                cassette_status = s.Cassette?.Status
-            }));
-        }
+                Furnace = request.FurnaceNo,
+                BusinessKey = businessKey,
+                CassNum = request.CassetteNumber,
+                User = userName
+            });
 
-        // GET: /api/tempering/session-history/{cassetteId}
-        [HttpGet("session-history/{cassetteId}")]
-        public async Task<IActionResult> GetSessionHistory(string cassetteId, CancellationToken ct)
+        // 5. Обновляем статусы листов
+        foreach (var cs in sheets)
         {
-            var sessions = await _context.FurnaceCassetteSessions
-                .Where(s => s.CassetteId == cassetteId)
-                .OrderByDescending(s => s.LoadedAt)
-                .ToListAsync(ct);
-
-            return Ok(sessions);
-        }
-
-        // POST: /api/tempering/load
-        [HttpPost("load")]
-        public async Task<IActionResult> LoadCassette([FromBody] LoadCassetteRequest request, CancellationToken ct)
-        {
-            // 1. Находим кассету
-            var cassetteId = $"CAS{request.CassetteNumber:D7}";
-            var cassette = await _context.Cassettes.FindAsync(new object[] { cassetteId }, ct);
-
-            if (cassette == null)
-                return NotFound(new { message = $"Кассета {cassetteId} не найдена" });
-
-            if (cassette.Status != "Готова к отправке")
-                return BadRequest(new { message = $"Кассета имеет статус '{cassette.Status}'" });
-
-            // 2. Проверяем, не занята ли печь (по данным из БД сессий)
-            var existingSession = await _context.FurnaceCassetteSessions
-                .FirstOrDefaultAsync(s => s.FurnaceNumber == request.FurnaceNo && s.UnloadedAt == null, ct);
-
-            if (existingSession != null)
-                return Conflict(new { message = $"Печь {request.FurnaceNo} уже занята кассетой {existingSession.CassetteId}" });
-
-            // 3. Создаём сессию
-            var session = new FurnaceCassetteSession
-            {
-                FurnaceNumber = request.FurnaceNo,
-                CassetteId = cassetteId,
-                LoadedAt = DateTime.UtcNow,
-                LoadedBy = User.Identity?.Name ?? "system",
-                Source = "HMI"
-            };
-
-            cassette.Status = "Отправлена в печь";
-
-            // Обновляем статусы листов в кассете
-            var sheetLinks = await _context.SheetCassetteLinks
-                .Where(l => l.CassetteId == cassetteId)
-                .Select(l => l.MatId)
-                .ToListAsync(ct);
-
-            var sheets = await _context.InputData
-                .Where(s => sheetLinks.Contains(s.MatId))
-                .ToListAsync(ct);
-
-            foreach (var sheet in sheets)
+            var sheet = await _context.InputData.FindAsync(cs.MatId);
+            if (sheet != null)
             {
                 sheet.Status = "В печи отпуска";
+                sheet.QuenchingStatus = "В печи отпуска";
             }
-
-            _context.FurnaceCassetteSessions.Add(session);
-            await _context.SaveChangesAsync(ct);
-
-            _logger.LogInformation("Кассета {CassetteId} загружена в печь {FurnaceNo} оператором {User}",
-                cassetteId, request.FurnaceNo, User.Identity?.Name ?? "system");
-
-            return Ok(new
-            {
-                message = $"Кассета {cassetteId} загружена в печь {request.FurnaceNo}",
-                sessionId = session.Id
-            });
         }
+        await _context.SaveChangesAsync();
 
-        // POST: /api/tempering/unload
-        [HttpPost("unload")]
-        public async Task<IActionResult> UnloadCassette([FromBody] UnloadCassetteRequest request, CancellationToken ct)
+        // 6. Удаляем из active_cassettes
+        await con.ExecuteAsync(
+            "DELETE FROM mes.active_cassettes WHERE business_key = @Key",
+            new { Key = businessKey });
+
+        _logger.LogInformation(
+            "🔥 Кассета №{Cassette} ({Count} л.) загружена в печь №{Furnace} оператором {User}",
+            request.CassetteNumber, sheets.Count, request.FurnaceNo, userName);
+
+        return Ok(new
         {
-            var session = await _context.FurnaceCassetteSessions
-                .Include(s => s.Cassette)
-                .FirstOrDefaultAsync(s => s.FurnaceNumber == request.FurnaceNo && s.UnloadedAt == null, ct);
+            message = $"Кассета №{request.CassetteNumber} загружена в печь №{request.FurnaceNo}",
+            businessKey,
+            sheetCount = sheets.Count
+        });
+    }
 
-            if (session == null)
-                return NotFound(new { message = $"Нет активной сессии для печи {request.FurnaceNo}" });
+    /// <summary>
+    /// POST /api/tempering/unload
+    /// Ручная выгрузка кассеты из печи — в НОВОЙ таблице
+    /// </summary>
+    [HttpPost("unload")]
+    public async Task<IActionResult> UnloadCassette([FromBody] UnloadCassetteRequest request)
+    {
+        if (request.FurnaceNo < 1 || request.FurnaceNo > 4)
+            return BadRequest("Некорректный номер печи");
 
-            session.UnloadedAt = DateTime.UtcNow;
-            session.UnloadedBy = User.Identity?.Name ?? "system";
+        var userName = GetUserName();
+        await using var con = await _dataSource.OpenConnectionAsync();
 
-            if (session.Cassette != null)
+        // 1. Находим активную сессию (в НОВОЙ таблице)
+        var session = await con.QueryFirstOrDefaultAsync(
+            @"SELECT id, business_key, cassette_number
+          FROM mes.tempering_sessions_new 
+          WHERE furnace_number = @F AND unloaded_at IS NULL
+          ORDER BY loaded_at DESC LIMIT 1",
+            new { F = request.FurnaceNo });
+
+        if (session == null)
+            return NotFound($"Нет активной кассеты в печи №{request.FurnaceNo}");
+
+        var businessKey = (string)session.business_key;
+
+        // 2. Обновляем сессию
+        await con.ExecuteAsync(
+            @"UPDATE mes.tempering_sessions_new 
+          SET unloaded_at = NOW(), 
+              unloaded_by = @User, 
+              completed_by_plc = FALSE,
+              status = 'Выгружена вручную'
+          WHERE id = @Id",
+            new { Id = session.id, User = userName });
+
+        // 3. Обновляем статусы листов
+        var sheets = await _context.Set<CassetteSheet>()
+            .Where(cs => cs.CassetteBusinessKey == businessKey)
+            .ToListAsync();
+
+        foreach (var cs in sheets)
+        {
+            var sheet = await _context.InputData.FindAsync(cs.MatId);
+            if (sheet != null)
             {
-                session.Cassette.Status = "Отпуск завершён";
-
-                // Обновляем статусы листов
-                var sheetLinks = await _context.SheetCassetteLinks
-                    .Where(l => l.CassetteId == session.CassetteId)
-                    .Select(l => l.MatId)
-                    .ToListAsync(ct);
-
-                var sheets = await _context.InputData
-                    .Where(s => sheetLinks.Contains(s.MatId))
-                    .ToListAsync(ct);
-
-                foreach (var sheet in sheets)
-                {
-                    sheet.Status = "Отпуск пройден";
-                }
+                sheet.Status = "Отпуск пройден";
+                sheet.QuenchingStatus = "Отпуск пройден";
             }
-
-            await _context.SaveChangesAsync(ct);
-
-            _logger.LogInformation("Кассета {CassetteId} выгружена из печи {FurnaceNo} оператором {User}",
-                session.CassetteId, request.FurnaceNo, User.Identity?.Name ?? "system");
-
-            return Ok(new
-            {
-                message = $"Кассета {session.CassetteId} выгружена из печи {request.FurnaceNo}",
-                sessionId = session.Id
-            });
         }
+        await _context.SaveChangesAsync();
 
-        // GET: /api/tempering/furnace/{no}/status
-        [HttpGet("furnace/{no}/status")]
-        public async Task<IActionResult> GetFurnaceStatus(int no, CancellationToken ct)
+        _logger.LogWarning(
+            "📤 Кассета {Key} ВЫГРУЖЕНА ВРУЧНУЮ из печи №{Furnace} оператором {User}",
+            businessKey, request.FurnaceNo, userName);
+
+        return Ok(new
         {
-            // Получаем текущие данные печи из PLC
-            await using var con = await _ds.OpenConnectionAsync(ct);
-            var plcData = await con.QueryFirstOrDefaultAsync("""
-                SELECT furnace_no, proc_run, proc_end, proc_fault,
-                       cassette_no, cass1_no, cass2_no
-                FROM plc.tempering_data
-                WHERE furnace_no = @FurnaceNo
-                ORDER BY time DESC
-                LIMIT 1
-                """, new { FurnaceNo = no });
-
-            // Получаем активную сессию из БД
-            var activeSession = await _context.FurnaceCassetteSessions
-                .FirstOrDefaultAsync(s => s.FurnaceNumber == no && s.UnloadedAt == null, ct);
-
-            return Ok(new
-            {
-                furnace_no = no,
-                plc = plcData,
-                active_session = activeSession == null ? null : new
-                {
-                    activeSession.CassetteId,
-                    activeSession.LoadedAt,
-                    activeSession.LoadedBy
-                }
-            });
-        }
+            message = $"Кассета выгружена из печи №{request.FurnaceNo}",
+            businessKey,
+            sheetCount = sheets.Count
+        });
     }
-    // DTOs
-    public class LoadCassetteRequest
-    {
-        public int FurnaceNo { get; set; }
-        public int CassetteNumber { get; set; }
-    }
+}
 
-    public class UnloadCassetteRequest
-    {
-        public int FurnaceNo { get; set; }
-    }
+// ── DTOs ──
+public class LoadCassetteRequest
+{
+    public int FurnaceNo { get; set; }
+    public int CassetteNumber { get; set; }
+}
 
+public class UnloadCassetteRequest
+{
+    public int FurnaceNo { get; set; }
 }
