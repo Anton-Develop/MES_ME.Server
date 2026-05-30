@@ -1,59 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Container,
-    Paper,
-    Typography,
-    Button,
-    Box,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    TextField,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogContentText,
-    DialogActions,
-    Alert,
-    CircularProgress,
-    Chip,
-    IconButton,
-
-    Tooltip,
-    InputAdornment,
-    Autocomplete, // Для поиска листа по MatId (может быть не использован в новом DnD интерфейсе, но оставим для возможного поиска в списке)
-    Pagination, // Для пагинации
-    Grid, // Для фильтров
-    Accordion,
-    AccordionSummary,
-    AccordionDetails,
-    List,
-    ListItem,
-    ListItemText,
-    Card,
-    CardHeader,
-    CardContent,
-    ListItemSecondaryAction,
+    Container, Paper, Typography, Button, Box, Table, TableBody, TableCell,
+    TableContainer, TableHead, TableRow, TextField, FormControl, InputLabel,
+    Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogContentText,
+    DialogActions, Alert, CircularProgress, Chip, IconButton, Tooltip,
+    Pagination, Grid, Accordion, AccordionSummary, AccordionDetails,
+    List, ListItem, ListItemText, Card, CardHeader, CardContent
 } from '@mui/material';
 import {
-    Add as AddIcon,
-    Save as SaveIcon,
-    Close as CloseIcon,
-    Edit as EditIcon,
-    CheckCircle as CheckCircleIcon,
-    RoomService as RoomService,
-    Clear as ClearIcon,
-    ExpandMore as ExpandMoreIcon,
-    Delete as DeleteIcon, // Импортируем иконку удаления для кнопки в списке
+    Add as AddIcon, Save as SaveIcon, Close as CloseIcon, Edit as EditIcon,
+    CheckCircle as CheckCircleIcon, RoomService as RoomService, Clear as ClearIcon,
+    ExpandMore as ExpandMoreIcon, Delete as DeleteIcon, Search as SearchIcon
 } from '@mui/icons-material';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'; // Импортируем DnD
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import api from '../api';
 import PlanDetailsDialog from './PlanDetailsDialog';
 
@@ -64,705 +23,376 @@ const AnnealingBatchPlanPage = () => {
     const [totalCount, setTotalCount] = useState(0);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
-    // Новый стейт для диалога
+
     const [selectedPlanId, setSelectedPlanId] = useState(null);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-    // Состояния для фильтров
-    const [filters, setFilters] = useState({
-        statusFilter: '',
-        furnaceNumberFilter: '',
+    const [filters, setFilters] = useState({ statusFilter: '', furnaceNumberFilter: '' });
+
+    const [availableSheets, setAvailableSheets] = useState([]);
+    const [selectedSheets, setSelectedSheets] = useState([]);
+    const [loadingAvailable, setLoadingAvailable] = useState(false);
+
+    // Состояния для фильтров листов
+    const [createSheetFilters, setCreateSheetFilters] = useState({
+        meltNumber: '', batchNumber: '', packNumber: '', sheetNumber: '', steelGrade: ''
+    });
+    const [editSheetFilters, setEditSheetFilters] = useState({
+        meltNumber: '', batchNumber: '', packNumber: '', sheetNumber: '', steelGrade: ''
     });
 
-    // --- НОВЫЕ СОСТОЯНИЯ ДЛЯ УПРАВЛЕНИЯ ЛИСТАМИ В ДИАЛОГЕ ---
-    const [availableSheets, setAvailableSheets] = useState([]); // Список доступных листов
-    const [selectedSheets, setSelectedSheets] = useState([]); // Список выбранных листов для плана
-    const [loadingAvailable, setLoadingAvailable] = useState(false); // Для спиннера загрузки доступных
-
-    // Состояния для создания нового плана
     const [openCreateDialog, setOpenCreateDialog] = useState(false);
     const [newPlanData, setNewPlanData] = useState({
-        planName: '',
-        furnaceNumber: '',
-        scheduledStartTime: '',
-        scheduledEndTime: '',
-        notes: '',
+        planName: '', furnaceNumber: '1', scheduledStartTime: '', scheduledEndTime: '', notes: '',
     });
-    const [newPlanMatIds, setNewPlanMatIds] = useState([]); // Теперь не используется напрямую для DnD, но может быть вспомогательным
-    const [availableSheetsForAutocomplete, setAvailableSheetsForAutocomplete] = useState([]); // Для Autocomplete (если используется)
-    const [loadingSheetsForAutocomplete, setLoadingSheetsForAutocomplete] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
 
-    // Состояния для обновления статуса плана
     const [openUpdateDialog, setOpenUpdateDialog] = useState(false);
     const [planToUpdate, setPlanToUpdate] = useState(null);
-    const [updateStatusData, setUpdateStatusData] = useState({
-        status: '',
-        actualStartTime: '', // <-- Новое состояние для фактического начала
-        actualEndTime: '',   // <-- Новое состояние для фактического окончания
-        comment: '', // Комментарий не используется в этом API, но можно добавить поле в Notes или отдельно
-    });
+    const [updateStatusData, setUpdateStatusData] = useState({ status: '', actualStartTime: '', actualEndTime: '', comment: '' });
     const [isUpdating, setIsUpdating] = useState(false);
 
-    // Состояния для удаления плана
     const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
     const [planToDelete, setPlanToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    // --- Состояния и функции для редактирования (ОБНОВЛЕННЫЕ) ---
     const [openEditDialog, setOpenEditDialog] = useState(false);
     const [planToEdit, setPlanToEdit] = useState(null);
-    const [editPlanData, setEditPlanData] = useState({
-        planName: '',
-        furnaceNumber: '',
-        scheduledStartTime: '',
-        scheduledEndTime: '',
-        notes: ''
-    });
-
-    // --- НОВЫЕ СОСТОЯНИЯ ДЛЯ УПРАВЛЕНИЯ ЛИСТАМИ В ДИАЛОГЕ РЕДАКТИРОВАНИЯ ---
+    const [editPlanData, setEditPlanData] = useState({ planName: '', furnaceNumber: '', scheduledStartTime: '', scheduledEndTime: '', notes: '' });
     const [editingAvailableSheets, setEditingAvailableSheets] = useState([]);
     const [editingSelectedSheets, setEditingSelectedSheets] = useState([]);
-    const [loadingEditingSheets, setLoadingEditingSheets] = useState(false); // Для спиннера загрузки листов при редактировании
-
-    const handleOpenEditDialog = async (plan) => {
-        console.log("handleOpenEditDialog вызван с:", plan.planName); // <-- Логируем полученный объект
-        if (plan.status !== 'Создан') {
-            alert(`Невозможно редактировать план "${plan.planName}", так как его статус '${plan.status}'. Редактирование возможно только для планов со статусом 'Создан'.`);
-            return;
-        }
-
-        setPlanToEdit(plan);
-        // Инициализируем форму текущими значениями плана
-        setEditPlanData({
-            planName: plan.planName || '',
-            furnaceNumber: plan.furnaceNumber || '',
-            scheduledStartTime: plan.scheduledStartTime || '',
-            scheduledEndTime: plan.scheduledEndTime || '',
-            notes: plan.notes || ''
-        });
-
-        // --- ЗАГРУЗКА ЛИСТОВ ДЛЯ ДИАЛОГА РЕДАКТИРОВАНИЯ ---
-        setLoadingEditingSheets(true);
-        setError(''); // Очищаем предыдущую ошибку
-        try {
-            // 1. Загрузить все доступные листы (так же, как в create)
-            const availableResponse = await api.get('/inputdata/for-annealing-plan', { params: { page: 1, pageSize: 50 } });
-            let allAvailable = availableResponse.data.data || [];
-
-            // 2. Загрузить листы, уже входящие в этот конкретный план (используем существующий endpoint)
-            const planDetailsResponse = await api.get(`/annealingbatchplan/${plan.planId}/details`);
-            const planSheets = planDetailsResponse.data.sheets || [];
-
-            // 3. Исключить листы, уже находящиеся в этом плане, из списка доступных
-            const availableFiltered = allAvailable.filter(availSheet =>
-                !planSheets.some(planSheet => planSheet.matId === availSheet.matId)
-            );
-
-            // 4. Установить состояния
-            setEditingAvailableSheets(availableFiltered);
-            setEditingSelectedSheets(planSheets); // Устанавливаем листы, которые уже в плане
-
-        } catch (err) {
-            console.error('Ошибка загрузки листов для редактирования плана:', err);
-            setError(err.response?.data?.message || err.message || 'Ошибка при загрузке листов для редактирования.');
-            setEditingAvailableSheets([]);
-            setEditingSelectedSheets([]);
-        } finally {
-            setLoadingEditingSheets(false);
-        }
-
-        setOpenEditDialog(true);
-    };
-
-    const handleCloseEditDialog = () => {
-        setOpenEditDialog(false);
-        setPlanToEdit(null);
-        setEditPlanData({
-            planName: '',
-            furnaceNumber: '',
-            scheduledStartTime: '',
-            scheduledEndTime: '',
-            notes: ''
-        });
-        setEditingAvailableSheets([]);
-        setEditingSelectedSheets([]);
-        setIsEditing(false);
-        setError(''); // Очистим ошибку при закрытии
-    };
-
+    const [loadingEditingSheets, setLoadingEditingSheets] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
 
-    const handleEditPlanDataChange = (field, value) => {
-        setEditPlanData(prev => ({ ...prev, [field]: value }));
+    const possibleExecutionStatuses = ['Создан', 'Готов к работе', 'В работе', 'Завершён', 'Прерван', 'Отменён'];
+
+    // --- ХЕЛПЕРЫ ДЛЯ ИСПРАВЛЕНИЯ ПРОБЛЕМЫ СО ВРЕМЕНЕМ (+5 ЧАСОВ) ---
+    // Парсит дату с сервера как локальную, игнорируя часовой пояс (Z или +05:00)
+    const parseAsLocal = (dateStr) => {
+        if (!dateStr) return null;
+        // Извлекаем YYYY-MM-DDTHH:mm:ss и игнорируем таймзоны, чтобы JS парсил как локальное время
+        const match = String(dateStr).match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+        const str = match ? match[1] : String(dateStr).replace('Z', '');
+        return new Date(str);
     };
 
-    // --- НОВЫЕ ОБРАБОТЧИКИ ДЛЯ DND В ДИАЛОГЕ РЕДАКТИРОВАНИЯ ---
-    const onEditDragEnd = (result) => {
-        const { destination, source } = result;
-
-        if (!destination) return;
-
-        if (destination.droppableId === source.droppableId) {
-            // Переупорядочивание внутри одного списка (опционально, можно не реализовывать)
-            const items = source.droppableId === 'editing-available-sheets-list' ? [...editingAvailableSheets] : [...editingSelectedSheets];
-            const [reorderedItem] = items.splice(source.index, 1);
-            items.splice(destination.index, 0, reorderedItem);
-
-            if (source.droppableId === 'editing-available-sheets-list') {
-                setEditingAvailableSheets(items);
-            } else {
-                setEditingSelectedSheets(items);
-            }
-        } else {
-            // Перемещение между списками
-            const sourceItems = source.droppableId === 'editing-available-sheets-list' ? [...editingAvailableSheets] : [...editingSelectedSheets];
-            const destItems = destination.droppableId === 'editing-available-sheets-list' ? [...editingAvailableSheets] : [...editingSelectedSheets];
-
-            const [movedItem] = sourceItems.splice(source.index, 1);
-            destItems.splice(destination.index, 0, movedItem);
-
-            if (source.droppableId === 'editing-available-sheets-list') {
-                setEditingAvailableSheets(sourceItems);
-                setEditingSelectedSheets(destItems);
-            } else {
-                setEditingSelectedSheets(sourceItems);
-                setEditingAvailableSheets(destItems);
-            }
-        }
-    };
-    // --- АЛЬТЕРНАТИВНЫЕ ОБРАБОТЧИКИ ДЛЯ КНОПОК (Если DnD не нужен) ---
-    // const handleAddSheetToEditingPlan = (sheet) => {
-    //   if (!editingSelectedSheets.some(s => s.matId === sheet.matId)) {
-    //     setEditingSelectedSheets(prev => [...prev, sheet]);
-    //     setEditingAvailableSheets(prev => prev.filter(s => s.matId !== sheet.matId));
-    //   }
-    // };
-
-    // const handleRemoveSheetFromEditingPlan = (matId) => {
-    //   setEditingSelectedSheets(prev => prev.filter(s => s.matId !== matId));
-    //   const sheetToReturn = editingSelectedSheets.find(s => s.matId === matId);
-    //   if (sheetToReturn) {
-   // AvailableSheets(prev => [...prev, sheetToReturn]);
-    //   }
-    // };
-    const handleEditPlan = async () => {
-        if (!planToEdit) return;
-
-        // Проверим, что план можно редактировать (статус "Создан")
-        if (planToEdit.status !== 'Создан') {
-            setError(`Невозможно редактировать план "${planToEdit.planName}", так как его статус '${planToEdit.status}'. Редактирование возможно только для планов со статусом 'Создан'.`);
-            return;
-        }
-
-        // Проверим, выбраны ли листы
-        if (editingSelectedSheets.length === 0) {
-            setError('Необходимо выбрать хотя бы один лист для плана.');
-            return;
-        }
-
-        setIsEditing(true);
-        setError('');
-        try {
-            // Подготовим данные для отправки
-            const payload = { ...editPlanData }; // Основные данные плана
-            payload.matIds = editingSelectedSheets.map(s => s.matId); // Список MatId листов, которые должны быть в плане
-
-            await api.put(`/annealingbatchplan/${planToEdit.planId}`, payload);
-
-            handleCloseEditDialog();
-            fetchPlans(); // Обновить список планов
-            alert(`План закалки "${planToEdit.planName}" обновлён.`);
-        } catch (err) {
-            console.error('Ошибка редактирования плана закалки:', err);
-            console.error('Response data:', err.response?.data);
-            console.error('Response status:', err.response?.status);
-            setError(err.response?.data?.message || err.message || 'Ошибка при редактировании плана закалки.');
-        } finally {
-            setIsEditing(false);
-        }
+    const formatDisplayDate = (dateStr) => {
+        const d = parseAsLocal(dateStr);
+        return d ? d.toLocaleString('ru-RU') : 'N/A';
     };
 
-    // Обработчик клика по строке или кнопке "Отчет"
-    const handleOpenDetails = (id) => {
-        console.log("Открываем отчет для плана:", id);
-        setSelectedPlanId(id);
-        setIsDetailsOpen(true);
+    // Форматирует дату для вставки в input type="datetime-local"
+    const formatForInput = (dateStr) => {
+        if (!dateStr) return '';
+        const match = String(dateStr).match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
+        return match ? match[1] : '';
     };
+    // ---------------------------------------------------------------
 
-    const handleCloseDetails = () => {
-        setIsDetailsOpen(false);
-        setSelectedPlanId(null);
-    };
-
-    // Возможные статусы выполнения плана
-    const possibleExecutionStatuses = [
-        'Создан',
-        'Готов к работе',
-        'В работе',
-        'Завершён',
-        'Прерван',
-        'Отменён',
-    ];
-
-    // Возможные типы печей
-    const possibleFurnaceTypes = ['Закалочная'];
-
-    // Загрузка списка планов
     const fetchPlans = async () => {
         setLoading(true);
         setError('');
         try {
-            const params = {
-                page,
-                pageSize,
-                statusFilter: filters.statusFilter,
-                furnaceNumberFilter: filters.furnaceNumberFilter,
-            };
-
-            // Убираем пустые фильтры из параметров
+            const params = { page, pageSize, statusFilter: filters.statusFilter, furnaceNumberFilter: filters.furnaceNumberFilter };
             Object.keys(params).forEach(key => (params[key] === '' || params[key] === null) && delete params[key]);
-
             const response = await api.get('/annealingbatchplan', { params });
             setPlans(response.data.data);
             setTotalCount(response.data.totalCount);
         } catch (err) {
-            console.error('Ошибка загрузки плана закалки:', err);
             setError(err.response?.data?.message || err.message || 'Ошибка при загрузке плана закалки.');
-        } finally {
-            setLoading(false);
-        }
+        } finally { setLoading(false); }
     };
 
-    // Загрузка всех листов для Autocomplete при открытии диалога создания или изменении ввода
-    const fetchAllSheetsForAutocomplete = async (inputValue = '') => {
-        setLoadingSheetsForAutocomplete(true);
-        try {
-            // Используем эндпоинт для получения всех листов из inputdata
-            const response = await api.get('/inputdata', { params: { page: 1, pageSize: 1000 } }); // Пример с большим pageSize
-            const allSheets = response.data.data.map(s => ({ label: s.matId, value: s.matId }));
-            // Фильтруем на клиенте по вводу, если inputValue есть
-            if (inputValue) {
-                setAvailableSheetsForAutocomplete(allSheets.filter(s => s.label.toLowerCase().includes(inputValue.toLowerCase())));
-            } else {
-                setAvailableSheetsForAutocomplete(allSheets);
-            }
-        } catch (err) {
-            console.error('Ошибка загрузки листов для Autocomplete:', err);
-            setAvailableSheetsForAutocomplete([]);
-        } finally {
-            setLoadingSheetsForAutocomplete(false);
-        }
-    };
+    useEffect(() => { fetchPlans(); }, [page, pageSize, filters]);
 
-    // --- НОВАЯ ФУНКЦИЯ: Загрузка доступных листов ---
-    const fetchAvailableSheets = async (page = 1, searchParams = {}) => {
-        setLoadingAvailable(true);
-        setError('');
-        try {
-            // ИСПОЛЬЗУЕМ НОВЫЙ ЭНДПОИНТ, КОТОРЫЙ ВОЗВРАЩАЕТ ТОЛЬКО ЛИСТЫ СО СТАТУСОМ "Подготовлен к прокату"
-            // Добавляем к параметрам фильтрации статус "Подготовлен к прокату"
-            // В новом эндпоинте этот статус уже зашит, но параметры searchParams могут добавлять другие фильтры
-            const response = await api.get('/inputdata/for-annealing-plan', { params: { page, pageSize: 50, ...searchParams } });
-            // Больше не нужно фильтровать на клиенте по статусу "Подготовлен к прокату", так как API уже вернул правильный список
-            const available = response.data.data;
-            setAvailableSheets(available);
-        } catch (err) {
-            console.error('Ошибка загрузки доступных листов для плана закалки:', err);
-            setError(err.response?.data?.message || err.message || 'Ошибка при загрузке доступных листов для плана закалки.');
-            setAvailableSheets([]);
-        } finally {
-            setLoadingAvailable(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchPlans();
-    }, [page, pageSize, filters]);
-
-    // Обработчик изменения фильтра
-    const handleFilterChange = (field, value) => {
-        setFilters(prev => ({ ...prev, [field]: value }));
-        setPage(1); // Сброс на первую страницу при изменении фильтра
-    };
-
-    // Обработчик сброса фильтров
-    const handleClearFilters = () => {
-        setFilters({
-            statusFilter: '',
-            furnaceNumberFilter: '',
-        });
-        setPage(1);
-    };
-
-    // Обработчик изменения страницы
-    const handlePageChange = (event, newPage) => {
-        setPage(newPage);
-    };
-
-    // Обработчик изменения размера страницы
-    const handlePageSizeChange = (event) => {
-        setPageSize(parseInt(event.target.value, 10));
-        setPage(1); // Сброс на первую страницу при изменении размера
-    };
-
-    // --- Обработчики для создания нового плана ---
+    const handleFilterChange = (field, value) => { setFilters(prev => ({ ...prev, [field]: value })); setPage(1); };
+    const handleClearFilters = () => { setFilters({ statusFilter: '', furnaceNumberFilter: '' }); setPage(1); };
+    const handlePageChange = (event, newPage) => { setPage(newPage); };
+    const handlePageSizeChange = (event) => { setPageSize(parseInt(event.target.value, 10)); setPage(1); };
 
     const updateSheetStatus = async (matIds, newStatus) => {
         try {
-            await api.put('/inputdata/update-status', {
-                matIds: matIds,
-                newStatus: newStatus
-            });
-            // console.log(`Статус обновлён для ${matIds.length} листов на '${newStatus}'`);
-            // Можно добавить опциональный успех, если нужно показать пользователю
+            await api.put('/inputdata/update-status', { matIds: matIds, newStatus: newStatus });
+        } catch (err) { console.error(`Ошибка обновления статуса листов:`, err); }
+    };
+
+    const fetchAvailableSheets = async (page = 1, searchParams = {}) => {
+        setLoadingAvailable(true);
+        try {
+            const response = await api.get('/inputdata/for-annealing-plan', { params: { page, pageSize: 50, ...searchParams } });
+            setAvailableSheets(response.data.data || []);
         } catch (err) {
-            console.error(`Ошибка обновления статуса листов в '${newStatus}':`, err);
-            // Важно: не блокировать основной процесс (создание/удаление плана) из-за этой ошибки,
-            // но стоит логировать её. В реальной системе можно показать предупреждение.
-            // setError(err.response?.data?.message || err.message || `Ошибка при обновлении статуса листов в '${newStatus}'.`);
-        }
+            setError(err.response?.data?.message || 'Ошибка при загрузке доступных листов.');
+            setAvailableSheets([]);
+        } finally { setLoadingAvailable(false); }
     };
 
-    // Обработчик открытия диалога создания (обновлён)
+    const fetchEditingAvailableSheets = async (searchParams = {}) => {
+        setLoadingEditingSheets(true);
+        try {
+            const response = await api.get('/inputdata/for-annealing-plan', { params: { page: 1, pageSize: 50, ...searchParams } });
+            let allAvailable = response.data.data || [];
+            const availableFiltered = allAvailable.filter(availSheet =>
+                !editingSelectedSheets.some(planSheet => planSheet.matId === availSheet.matId)
+            );
+            setEditingAvailableSheets(availableFiltered);
+        } catch (err) {
+            console.error('Ошибка загрузки листов для редактирования:', err);
+            setEditingAvailableSheets([]);
+        } finally { setLoadingEditingSheets(false); }
+    };
+
+    const buildFilterParams = (filterState) => {
+        const params = {};
+        if (filterState.meltNumber) params.meltNumberFilter = filterState.meltNumber;
+        if (filterState.batchNumber) params.batchNumberFilter = filterState.batchNumber;
+        if (filterState.packNumber) params.packNumberFilter = filterState.packNumber;
+        if (filterState.sheetNumber) params.sheetNumberFilter = filterState.sheetNumber;
+        if (filterState.steelGrade) params.steelGradeFilter = filterState.steelGrade;
+        return params;
+    };
+
+    const handleApplyCreateFilters = () => fetchAvailableSheets(1, buildFilterParams(createSheetFilters));
+    const handleClearCreateFilters = () => {
+        setCreateSheetFilters({ meltNumber: '', batchNumber: '', packNumber: '', sheetNumber: '', steelGrade: '' });
+        fetchAvailableSheets(1, {});
+    };
+
+    const handleApplyEditFilters = () => fetchEditingAvailableSheets(buildFilterParams(editSheetFilters));
+    const handleClearEditFilters = () => {
+        setEditSheetFilters({ meltNumber: '', batchNumber: '', packNumber: '', sheetNumber: '', steelGrade: '' });
+        fetchEditingAvailableSheets({});
+    };
+
+    // --- ДИАЛОГ СОЗДАНИЯ ---
     const handleOpenCreateDialog = () => {
-        const now = new Date();
-        const formattedNow = now.toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-        setNewPlanData({
-            planName: '',
-            furnaceNumber: '1',
-            scheduledStartTime: '',
-            scheduledEndTime: '',
-            actualStartTime: '', // <-- Инициализация нового поля
-            actualEndTime: '',   // <-- Инициализация нового поля
-            notes: '',
-        });
-        // Очищаем списки листов при открытии
-        setAvailableSheets([]);
-        setSelectedSheets([]);
+        setNewPlanData({ planName: '', furnaceNumber: '1', scheduledStartTime: '', scheduledEndTime: '', notes: '' });
+        setAvailableSheets([]); setSelectedSheets([]);
+        setCreateSheetFilters({ meltNumber: '', batchNumber: '', packNumber: '', sheetNumber: '', steelGrade: '' });
         setOpenCreateDialog(true);
-        // Загружаем доступные листы при открытии диалога
-        fetchAvailableSheets(1);
+        fetchAvailableSheets(1, {});
     };
+    const handleCloseCreateDialog = () => { setOpenCreateDialog(false); setIsCreating(false); setError(''); };
+    const handleNewPlanDataChange = (field, value) => setNewPlanData(prev => ({ ...prev, [field]: value }));
 
-    const handleCloseCreateDialog = () => {
-        setOpenCreateDialog(false);
-        setIsCreating(false);
-        setError(''); // Очистим ошибку при закрытии
-    };
-
-    const handleNewPlanDataChange = (field, value) => {
-        setNewPlanData(prev => ({ ...prev, [field]: value }));
-    };
-
-    // --- НОВЫЕ ОБРАБОТЧИКИ ДЛЯ DND ---
-
-    // Обработчик Drag-and-Drop
     const onDragEnd = (result) => {
-        const { destination, source, draggableId } = result;
-
+        const { destination, source } = result;
         if (!destination) return;
-
         if (destination.droppableId === source.droppableId) {
-            // Переупорядочивание внутри одного списка
             const items = source.droppableId === 'available-sheets-list' ? [...availableSheets] : [...selectedSheets];
             const [reorderedItem] = items.splice(source.index, 1);
             items.splice(destination.index, 0, reorderedItem);
-
-            if (source.droppableId === 'available-sheets-list') {
-                setAvailableSheets(items);
-            } else {
-                setSelectedSheets(items);
-            }
-            return;
-        }
-
-        // Перемещение между списками
-        const sourceItems = source.droppableId === 'available-sheets-list' ? [...availableSheets] : [...selectedSheets];
-        const destItems = destination.droppableId === 'available-sheets-list' ? [...availableSheets] : [...selectedSheets];
-
-        const [movedItem] = sourceItems.splice(source.index, 1);
-        destItems.splice(destination.index, 0, movedItem);
-
-        if (source.droppableId === 'available-sheets-list') {
-            setAvailableSheets(sourceItems);
-            setSelectedSheets(destItems);
+            if (source.droppableId === 'available-sheets-list') setAvailableSheets(items); else setSelectedSheets(items);
         } else {
-            setSelectedSheets(sourceItems);
-            setAvailableSheets(destItems);
+            const sourceItems = source.droppableId === 'available-sheets-list' ? [...availableSheets] : [...selectedSheets];
+            const destItems = destination.droppableId === 'available-sheets-list' ? [...availableSheets] : [...selectedSheets];
+            const [movedItem] = sourceItems.splice(source.index, 1);
+            destItems.splice(destination.index, 0, movedItem);
+            if (source.droppableId === 'available-sheets-list') { setAvailableSheets(sourceItems); setSelectedSheets(destItems); }
+            else { setSelectedSheets(sourceItems); setAvailableSheets(destItems); }
         }
     };
 
-    // Обработчик добавления листа в план (через кнопку)
     const handleAddSheetToPlan = (sheet) => {
-        // Проверяем, не добавлен ли уже
         if (!selectedSheets.some(s => s.matId === sheet.matId)) {
             setSelectedSheets(prev => [...prev, sheet]);
             setAvailableSheets(prev => prev.filter(s => s.matId !== sheet.matId));
         }
     };
-
-    // Обработчик удаления листа из плана (через кнопку)
     const handleRemoveSheetFromPlan = (matId) => {
         setSelectedSheets(prev => prev.filter(s => s.matId !== matId));
-        // Возвращаем лист в доступные (предполагаем, что он был в доступных изначально)
-        // Это может быть неточно, если листы загружаются по-другому, но для простоты
         const sheetToReturn = selectedSheets.find(s => s.matId === matId);
-        if (sheetToReturn) {
-            setAvailableSheets(prev => [...prev, sheetToReturn]);
-        }
+        if (sheetToReturn) setAvailableSheets(prev => [...prev, sheetToReturn]);
     };
 
-    // Обработчик создания плана (обновлён)
     const handleCreatePlan = async () => {
-        if (!newPlanData.planName || selectedSheets.length === 0) { // Проверяем selectedSheets
-            setError('Необходимо указать название плана и выбрать хотя бы один лист.');
-            return;
-        }
-
-        setIsCreating(true);
-        setError('');
+        if (!newPlanData.planName || selectedSheets.length === 0) { setError('Необходимо указать название плана и выбрать хотя бы один лист.'); return; }
+        setIsCreating(true); setError('');
         try {
-            const requestPayload = {
-                ...newPlanData,
-                matIds: selectedSheets.map(s => s.matId) // Отправляем matId из selectedSheets
-            };
+            const requestPayload = { ...newPlanData, matIds: selectedSheets.map(s => s.matId) };
             const response = await api.post('/annealingbatchplan', requestPayload);
-
-            // --- НОВАЯ ЛОГИКА: Обновление статуса листов ПОСЛЕ успешного создания плана ---
-            const matIdsAdded = requestPayload.matIds;
-            await updateSheetStatus(matIdsAdded, `В плане закалки "${response.data.planName}"`);
-
-            handleCloseCreateDialog();
-            fetchPlans(); // Обновить список
+            await updateSheetStatus(requestPayload.matIds, `В плане закалки "${response.data.planName}"`);
+            handleCloseCreateDialog(); fetchPlans();
             alert('План закалки создан успешно.');
-        } catch (err) {
-            console.error('Ошибка создания плана закалки:', err);
-            console.error('Ошибка создания плана закалки:', err); // <-- Логируйте полный объект ошибки
-            console.error('Response data:', err.response?.data); // <-- Логируйте тело ответа сервера
-            console.error('Response status:', err.response?.status); // <-- Логируйте статус
-            setError(err.response?.data?.message || err.message || 'Ошибка при создании плана закалки.');
-        } finally {
-            setIsCreating(false);
+        } catch (err) { setError(err.response?.data?.message || err.message || 'Ошибка при создании плана.'); } 
+        finally { setIsCreating(false); }
+    };
+
+    // --- ДИАЛОГ РЕДАКТИРОВАНИЯ ---
+    const handleOpenEditDialog = async (plan) => {
+        if (plan.status !== 'Создан') { alert(`Редактирование возможно только для планов со статусом 'Создан'.`); return; }
+        setPlanToEdit(plan);
+        setEditPlanData({
+            planName: plan.planName || '', furnaceNumber: plan.furnaceNumber || '',
+            scheduledStartTime: plan.scheduledStartTime || '', scheduledEndTime: plan.scheduledEndTime || '', notes: plan.notes || ''
+        });
+        setEditSheetFilters({ meltNumber: '', batchNumber: '', packNumber: '', sheetNumber: '', steelGrade: '' });
+        setLoadingEditingSheets(true); setError('');
+        try {
+            const planDetailsResponse = await api.get(`/annealingbatchplan/${plan.planId}/details`);
+            const planSheets = planDetailsResponse.data.sheets || [];
+            setEditingSelectedSheets(planSheets);
+            
+            const availableResponse = await api.get('/inputdata/for-annealing-plan', { params: { page: 1, pageSize: 50 } });
+            let allAvailable = availableResponse.data.data || [];
+            const availableFiltered = allAvailable.filter(availSheet => !planSheets.some(planSheet => planSheet.matId === availSheet.matId));
+            setEditingAvailableSheets(availableFiltered);
+        } catch (err) { setError('Ошибка при загрузке листов для редактирования.'); } 
+        finally { setLoadingEditingSheets(false); setOpenEditDialog(true); }
+    };
+    const handleCloseEditDialog = () => { setOpenEditDialog(false); setPlanToEdit(null); setEditingAvailableSheets([]); setEditingSelectedSheets([]); setIsEditing(false); setError(''); };
+    const handleEditPlanDataChange = (field, value) => setEditPlanData(prev => ({ ...prev, [field]: value }));
+
+    // Обработчики кнопок + и - для редактирования
+    const handleAddSheetToEditingPlan = (sheet) => {
+        if (!editingSelectedSheets.some(s => s.matId === sheet.matId)) {
+            setEditingSelectedSheets(prev => [...prev, sheet]);
+            setEditingAvailableSheets(prev => prev.filter(s => s.matId !== sheet.matId));
         }
     };
 
-    // --- Обработчики для обновления статуса плана ---
+    const handleRemoveSheetFromEditingPlan = (matId) => {
+        setEditingSelectedSheets(prev => prev.filter(s => s.matId !== matId));
+        const sheetToReturn = editingSelectedSheets.find(s => s.matId === matId);
+        if (sheetToReturn) {
+            setEditingAvailableSheets(prev => [...prev, sheetToReturn]);
+        }
+    };
 
+    const onEditDragEnd = (result) => {
+        const { destination, source } = result;
+        if (!destination) return;
+        if (destination.droppableId === source.droppableId) {
+            const items = source.droppableId === 'editing-available-sheets-list' ? [...editingAvailableSheets] : [...editingSelectedSheets];
+            const [reorderedItem] = items.splice(source.index, 1); items.splice(destination.index, 0, reorderedItem);
+            if (source.droppableId === 'editing-available-sheets-list') setEditingAvailableSheets(items); else setEditingSelectedSheets(items);
+        } else {
+            const sourceItems = source.droppableId === 'editing-available-sheets-list' ? [...editingAvailableSheets] : [...editingSelectedSheets];
+            const destItems = destination.droppableId === 'editing-available-sheets-list' ? [...editingAvailableSheets] : [...editingSelectedSheets];
+            const [movedItem] = sourceItems.splice(source.index, 1); destItems.splice(destination.index, 0, movedItem);
+            if (source.droppableId === 'editing-available-sheets-list') { setEditingAvailableSheets(sourceItems); setEditingSelectedSheets(destItems); }
+            else { setEditingSelectedSheets(sourceItems); setEditingAvailableSheets(destItems); }
+        }
+    };
+
+    const handleEditPlan = async () => {
+        if (!planToEdit || editingSelectedSheets.length === 0) { setError('Необходимо выбрать хотя бы один лист.'); return; }
+        setIsEditing(true); setError('');
+        try {
+            const payload = { ...editPlanData, matIds: editingSelectedSheets.map(s => s.matId) };
+            await api.put(`/annealingbatchplan/${planToEdit.planId}`, payload);
+            handleCloseEditDialog(); fetchPlans(); alert('План обновлён.');
+        } catch (err) { setError(err.response?.data?.message || 'Ошибка при редактировании.'); } 
+        finally { setIsEditing(false); }
+    };
+
+    // --- ОСТАЛЬНЫЕ ОБРАБОТЧИКИ ---
+    const handleOpenDetails = (id) => { setSelectedPlanId(id); setIsDetailsOpen(true); };
+    const handleCloseDetails = () => { setIsDetailsOpen(false); setSelectedPlanId(null); };
+    
     const handleOpenUpdateDialog = (plan) => {
         setPlanToUpdate(plan);
-        // Инициализируем значениями из плана или пустыми строками
-        setUpdateStatusData({
-            status: plan.status || '',
-            actualStartTime: plan.actualStartTime || '', // <-- Инициализация поля
-            actualEndTime: plan.actualEndTime || '',     // <-- Инициализация поля
-            comment: '', // Комментарий не используется в этом API, но можно добавить поле в Notes или отдельно
-        });
+        setUpdateStatusData({ status: plan.status || '', actualStartTime: plan.actualStartTime || '', actualEndTime: plan.actualEndTime || '', comment: '' });
         setOpenUpdateDialog(true);
     };
-
-    const handleCloseUpdateDialog = () => {
-        setOpenUpdateDialog(false);
-        setPlanToUpdate(null);
-        setUpdateStatusData({ status: '', actualStartTime: '', actualEndTime: '', comment: '' }); // <-- Сброс состояния при закрытии
-        setIsUpdating(false);
-        setError(''); // Очистим ошибку при закрытии
-    };
-
-    const handleUpdateStatusDataChange = (field, value) => {
-        setUpdateStatusData(prev => ({ ...prev, [field]: value }));
-    };
-
+    const handleCloseUpdateDialog = () => { setOpenUpdateDialog(false); setPlanToUpdate(null); setIsUpdating(false); setError(''); };
+    const handleUpdateStatusDataChange = (field, value) => setUpdateStatusData(prev => ({ ...prev, [field]: value }));
+    
     const handleUpdatePlanStatus = async () => {
-        // Проверяем, что статус выбран
-        if (!planToUpdate || !updateStatusData.status) {
-            setError('Необходимо выбрать статус.');
-            return;
-        }
-
-        // Проверяем, что время окончания не раньше времени начала (если оба установлены)
-        if (updateStatusData.actualStartTime && updateStatusData.actualEndTime) {
-            const startTime = new Date(updateStatusData.actualStartTime);
-            const endTime = new Date(updateStatusData.actualEndTime);
-            if (endTime < startTime) {
-                setError('Время окончания не может быть раньше времени начала.');
-                return;
-            }
-        }
-
-        setIsUpdating(true);
-        setError('');
+        if (!planToUpdate || !updateStatusData.status) { setError('Необходимо выбрать статус.'); return; }
+        setIsUpdating(true); setError('');
         try {
-            // Подготовим payload, включая новые поля, если они заполнены
-            const payload = {
-                status: updateStatusData.status,
-                comment: updateStatusData.comment, // Если API принимает комментарий
-            };
-
-            if (updateStatusData.actualStartTime) {
-                payload.actualStartTime = updateStatusData.actualStartTime;
-            }
-            if (updateStatusData.actualEndTime) {
-                payload.actualEndTime = updateStatusData.actualEndTime;
-            }
-
-            await api.put(`/annealingbatchplan/${planToUpdate.planId}/status`, payload); // или /${planToUpdate.planId} если обновление целиком
-            handleCloseUpdateDialog();
-            fetchPlans(); // Обновить список
-            alert(`Статус плана "${planToUpdate.planName}" обновлён.`);
-        } catch (err) {
-            console.error('Ошибка обновления статуса плана:', err);
-            console.error('Response data:', err.response?.data); // <-- Логируйте тело ответа сервера
-            console.error('Response status:', err.response?.status); // <-- Логируйте статус
-            setError(err.response?.data?.message || err.message || 'Ошибка при обновлении статуса плана.');
-        } finally {
-            setIsUpdating(false);
-        }
+            const payload = { status: updateStatusData.status };
+            if (updateStatusData.actualStartTime) payload.actualStartTime = updateStatusData.actualStartTime;
+            if (updateStatusData.actualEndTime) payload.actualEndTime = updateStatusData.actualEndTime;
+            await api.put(`/annealingbatchplan/${planToUpdate.planId}/status`, payload);
+            handleCloseUpdateDialog(); fetchPlans(); alert('Статус обновлён.');
+        } catch (err) { setError(err.response?.data?.message || 'Ошибка обновления статуса.'); } 
+        finally { setIsUpdating(false); }
     };
 
-    // --- Обработчики для удаления плана ---
-
-    const handleOpenDeleteDialog = (plan) => {
-        setPlanToDelete(plan);
-        setOpenDeleteDialog(true);
-    };
-
-    const handleCloseDeleteDialog = () => {
-        setOpenDeleteDialog(false);
-        setPlanToDelete(null);
-        setIsDeleting(false);
-        setError(''); // Очистим ошибку при закрытии
-    };
-
+    const handleOpenDeleteDialog = (plan) => { setPlanToDelete(plan); setOpenDeleteDialog(true); };
+    const handleCloseDeleteDialog = () => { setOpenDeleteDialog(false); setPlanToDelete(null); setIsDeleting(false); setError(''); };
+    
     const handleDeletePlan = async () => {
         if (!planToDelete) return;
-
-        setIsDeleting(true);
-        setError('');
+        setIsDeleting(true); setError('');
         try {
-            // Получаем план перед удалением, чтобы знать его статус и листы
             const planDetailsResponse = await api.get(`/annealingbatchplan/${planToDelete.planId}/details`);
             const planDetails = planDetailsResponse.data;
-
             await api.delete(`/annealingbatchplan/${planToDelete.planId}`);
-
-            // --- НОВАЯ ЛОГИКА: Обновление статуса листов ПОСЛЕ успешного удаления ---
-            // Проверяем статус плана перед удалением
-            if (planDetails.status === 'Создан') { // Только если план был "Создан"
-                const matIdsToRemove = planDetails.sheets.map(s => s.matId); // Используем список листов из деталей плана
-                // Сбрасываем статус на "Подготовлен к прокату", так как он был в этом состоянии до добавления в план
+            if (planDetails.status === 'Создан') {
+                const matIdsToRemove = planDetails.sheets.map(s => s.matId);
                 await updateSheetStatus(matIdsToRemove, 'Подготовлен к прокату');
             }
-
-            handleCloseDeleteDialog();
-            fetchPlans(); // Обновить список планов
-            // fetchAvailableSheets(1); // Опционально: обновить список доступных листов
-            alert(`План закалки "${planToDelete.planName}" удалён.`);
-        } catch (err) {
-            console.error('Ошибка удаления плана закалки:', err);
-            setError(err.response?.data?.message || err.message || 'Ошибка при удалении плана закалки.');
-        } finally {
-            setIsDeleting(false);
-        }
+            handleCloseDeleteDialog(); fetchPlans(); alert('План удалён.');
+        } catch (err) { setError('Ошибка удаления плана.'); } 
+        finally { setIsDeleting(false); }
     };
 
-    // Функция для получения цвета чипа статуса
     const getStatusColor = (status) => {
         switch (status) {
-            case 'Создан':
-                return 'default';
-            case 'Готов к работе':
-                return 'info';
-            case 'В работе':
-                return 'warning';
-            case 'Завершён':
-                return 'success';
-            case 'Прерван':
-                return 'error';
-            case 'Отменён':
-                return 'secondary';
-            default:
-                return 'default';
+            case 'Создан': return 'default'; case 'Готов к работе': return 'info';
+            case 'В работе': return 'warning'; case 'Завершён': return 'success';
+            case 'Прерван': return 'error'; case 'Отменён': return 'secondary'; default: return 'default';
         }
     };
+
+    // Компонент фильтров
+    const SheetFiltersUI = ({ filtersState, setFiltersState, onApply, onClear }) => (
+        <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none', } }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 36, px: 2, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
+                <Typography variant="subtitle2" color="primary">Фильтры поиска листов</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ p: 1, pt: 0 }}>
+                <Grid container spacing={1}>
+                    <Grid item xs={6}><TextField size="small" label="Плавка" fullWidth value={filtersState.meltNumber} onChange={e => setFiltersState(p => ({...p, meltNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={6}><TextField size="small" label="Партия" fullWidth value={filtersState.batchNumber} onChange={e => setFiltersState(p => ({...p, batchNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={6}><TextField size="small" label="Пачка" fullWidth value={filtersState.packNumber} onChange={e => setFiltersState(p => ({...p, packNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={6}><TextField size="small" label="№ Листа" fullWidth value={filtersState.sheetNumber} onChange={e => setFiltersState(p => ({...p, sheetNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={12}><TextField size="small" label="Марка стали" fullWidth value={filtersState.steelGrade} onChange={e => setFiltersState(p => ({...p, steelGrade: e.target.value}))} /></Grid>
+                    <Grid item xs={12} container spacing={1} justifyContent="flex-end">
+                        <Grid item><Button size="small" onClick={onClear} startIcon={<ClearIcon />}>Сбросить</Button></Grid>
+                        <Grid item><Button size="small" variant="contained" onClick={onApply} startIcon={<SearchIcon />}>Найти</Button></Grid>
+                    </Grid>
+                </Grid>
+            </AccordionDetails>
+        </Accordion>
+    );
 
     return (
         <Container maxWidth="xl" sx={{ mt: 4 }}>
             <Paper sx={{ p: 3 }}>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                    <Typography variant="h5" gutterBottom>
-                        План закалки листов (Групповой)
-                    </Typography>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={handleOpenCreateDialog}
-                    // disabled={isCreating} // Не отключаем кнопку, если диалог открыт
-                    >
-                        Создать план
-                    </Button>
+                    <Typography variant="h5" gutterBottom>План закалки листов (Групповой)</Typography>
+                    <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreateDialog}>Создать план</Button>
                 </Box>
 
-                {/* Фильтры */}
                 <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                    <Typography variant="subtitle2" gutterBottom>
-                        Фильтры
-                    </Typography>
                     <Grid container spacing={2} alignItems="flex-end">
                         <Grid item xs={12} sm={6} md={3}>
-                            <TextField
-                                label="Статус плана"
-                                select
-                                value={filters.statusFilter}
-                                onChange={(e) => handleFilterChange('statusFilter', e.target.value)}
-                                size="small"
-                                fullWidth
-                                sx={{ minWidth: 300 }}
-                            >
+                            <TextField label="Статус плана" select value={filters.statusFilter} onChange={(e) => handleFilterChange('statusFilter', e.target.value)} size="small" fullWidth>
                                 <MenuItem value="">Все</MenuItem>
-                                {possibleExecutionStatuses.map((status) => (
-                                    <MenuItem key={status} value={status}>{status}</MenuItem>
-                                ))}
+                                {possibleExecutionStatuses.map((status) => (<MenuItem key={status} value={status}>{status}</MenuItem>))}
                             </TextField>
                         </Grid>
-
                         <Grid item xs={12} sm={6} md={3}>
-                            <Button
-                                variant="outlined"
-                                startIcon={<ClearIcon />}
-                                onClick={handleClearFilters}
-                                fullWidth
-                            >
-                                Сбросить
-                            </Button>
+                            <Button variant="outlined" startIcon={<ClearIcon />} onClick={handleClearFilters} fullWidth>Сбросить</Button>
                         </Grid>
                     </Grid>
                 </Box>
 
-                {/* Таблица планов */}
-                {error && <Alert severity="error">{error}</Alert>}
+                {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
                 {loading ? (
-                    <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
-                        <CircularProgress />
-                    </Box>
+                    <Box display="flex" justifyContent="center" minHeight="200px"><CircularProgress /></Box>
                 ) : (
                     <>
                         <TableContainer component={Paper}>
                             <Table stickyHeader>
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>ID Плана</TableCell>
-                                        <TableCell>Название</TableCell>
-                                        <TableCell>Статус</TableCell>
-                                        <TableCell>Печь</TableCell>
-                                        <TableCell>Запл. начало</TableCell>
-                                        <TableCell>Запл. окончание</TableCell>
-                                        {/* --- Добавлены новые колонки --- */}
-                                        {/*  <TableCell>Факт. начало</TableCell>*/}
-                                        {/*<TableCell>Факт. окончание</TableCell>*/}
-                                        {/* ----------------------------- */}
-                                        <TableCell>Примечания</TableCell>
-                                        <TableCell>Листы</TableCell>
-                                        <TableCell>Действия</TableCell>
+                                        <TableCell>ID</TableCell><TableCell>Название</TableCell><TableCell>Статус</TableCell>
+                                        <TableCell>Печь</TableCell><TableCell>Запл. начало</TableCell><TableCell>Запл. окончание</TableCell>
+                                        <TableCell>Примечания</TableCell><TableCell>Листы</TableCell><TableCell>Действия</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -770,19 +400,12 @@ const AnnealingBatchPlanPage = () => {
                                         <TableRow key={plan.planId}>
                                             <TableCell>{plan.planId}</TableCell>
                                             <TableCell>{plan.planName}</TableCell>
-                                            <TableCell>
-                                                <Chip label={plan.status} color={getStatusColor(plan.status)} size="small" />
-                                            </TableCell>
+                                            <TableCell><Chip label={plan.status} color={getStatusColor(plan.status)} size="small" /></TableCell>
                                             <TableCell>{plan.furnaceNumber || 'N/A'}</TableCell>
-                                            <TableCell>{plan.scheduledStartTime ? new Date(plan.scheduledStartTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
-                                            <TableCell>{plan.scheduledEndTime ? new Date(plan.scheduledEndTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
-                                            {/* --- Отображение новых полей --- */}
-                                            {/* <TableCell>{plan.actualStartTime ? new Date(plan.actualStartTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>
-                      <TableCell>{plan.actualEndTime ? new Date(plan.actualEndTime).toLocaleString('ru-RU') : 'N/A'}</TableCell>*/}
-                                            {/* ---------------------------------- */}
+                                            <TableCell>{formatDisplayDate(plan.scheduledStartTime)}</TableCell>
+                                            <TableCell>{formatDisplayDate(plan.scheduledEndTime)}</TableCell>
                                             <TableCell>{plan.notes || 'N/A'}</TableCell>
                                             <TableCell>
-                                                {/* Аккордеон для списка листов */}
                                                 <Accordion disableGutters sx={{ boxShadow: 'none', border: '1px solid rgba(0, 0, 0, .125)' }}>
                                                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                                                         <Typography variant="body2">{plan.linkedSheets?.length || 0} листов</Typography>
@@ -793,234 +416,84 @@ const AnnealingBatchPlanPage = () => {
                                                                 plan.linkedSheets.map((link, index) => (
                                                                     <ListItem key={index}>
                                                                         <ListItemText
-                                                                            primary={link.sheet?.matId || link.matId} // Показываем matId листа
-                                                                            secondary={`${link.sheet?.status || 'N/A'} | ${link.sheet?.meltNumber || 'N/A'}-${link.sheet?.batchNumber || 'N/A'}-${link.sheet?.packNumber || 'N/A'}-${link.sheet?.sheetNumber || 'N/A'}`}
+                                                                            primary={link.sheet?.matId || link.matId}
+                                                                            secondary={`${link.sheet?.status || 'N/A'} | ${link.sheet?.meltNumber || 'N/A'}`}
                                                                         />
                                                                     </ListItem>
                                                                 ))
                                                             ) : (
-                                                                <ListItem>
-                                                                    <ListItemText primary="Нет листов" />
-                                                                </ListItem>
+                                                                <ListItem><ListItemText primary="Нет листов" /></ListItem>
                                                             )}
                                                         </List>
                                                     </AccordionDetails>
                                                 </Accordion>
                                             </TableCell>
                                             <TableCell>
-                                                <Tooltip title="Отметить статус выполнения">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => handleOpenUpdateDialog(plan)}
-                                                        color="primary"
-                                                    >
-                                                        <CheckCircleIcon fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                <Tooltip title="Отчет по плану">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => handleOpenDetails(plan.planId)}
-                                                        color="primary"
-                                                    >
-                                                        <RoomService fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                {/* --- НОВАЯ КНОПКА РЕДАКТИРОВАНИЯ --- */}
-                                                <Tooltip title="Редактировать план">
-                                                    <span>
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={() => handleOpenEditDialog(plan)}
-                                                            color="warning" // Используем warning для редактирования
-                                                            disabled={plan.status !== 'Создан'} // Пример: редактировать можно только созданные
-                                                        >
-                                                            <EditIcon fontSize="small" />
-                                                        </IconButton>
-                                                    </span>
-                                                </Tooltip>
-                                                <Tooltip title="Удалить план">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => handleOpenDeleteDialog(plan)}
-                                                        color="error"
-                                                    >
-                                                        <DeleteIcon fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
+                                                <IconButton size="small" onClick={() => handleOpenUpdateDialog(plan)} color="primary"><CheckCircleIcon fontSize="small" /></IconButton>
+                                                <IconButton size="small" onClick={() => handleOpenDetails(plan.planId)} color="primary"><RoomService fontSize="small" /></IconButton>
+                                                <IconButton size="small" onClick={() => handleOpenEditDialog(plan)} color="warning" disabled={plan.status !== 'Создан'}><EditIcon fontSize="small" /></IconButton>
+                                                <IconButton size="small" onClick={() => handleOpenDeleteDialog(plan)} color="error"><DeleteIcon fontSize="small" /></IconButton>
                                             </TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
                             </Table>
                         </TableContainer>
-
-                        {/* Пагинация */}
                         <Box display="flex" justifyContent="space-between" alignItems="center" mt={2}>
-                            <Box>
-                                <TextField
-                                    select
-                                    label="На странице"
-                                    value={pageSize}
-                                    onChange={handlePageSizeChange}
-                                    size="small"
-                                    sx={{ minWidth: 100 }}
-                                >
-                                    {[5, 10, 25, 50].map((size) => (
-                                        <MenuItem key={size} value={size}>{size}</MenuItem>
-                                    ))}
-                                </TextField>
-                            </Box>
-                            <Box>
-                                <Pagination
-                                    count={Math.ceil(totalCount / pageSize)}
-                                    page={page}
-                                    onChange={handlePageChange}
-                                    color="primary"
-                                    size="small"
-                                />
-                            </Box>
+                            <TextField select label="На странице" value={pageSize} onChange={handlePageSizeChange} size="small" sx={{ minWidth: 100 }}>
+                                {[5, 10, 25, 50].map((size) => (<MenuItem key={size} value={size}>{size}</MenuItem>))}
+                            </TextField>
+                            <Pagination count={Math.ceil(totalCount / pageSize)} page={page} onChange={handlePageChange} color="primary" size="small" />
                         </Box>
                     </>
                 )}
             </Paper>
 
-            {/* --- ОБНОВЛЁННЫЙ ДИАЛОГ СОЗДАНИЯ --- */}
-            <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} maxWidth="lg" fullWidth>
-                <DialogTitle>
-                    Создать новый план закалки
-                </DialogTitle>
+            {/* --- ДИАЛОГ СОЗДАНИЯ (УВЕЛИЧЕН) --- */}
+            <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} maxWidth="xl" fullWidth PaperProps={{ sx: { minHeight: '85vh' } }}>
+                <DialogTitle>Создать новый план закалки</DialogTitle>
                 <DialogContent dividers>
-                    {/* Форма основных данных плана */}
+                    {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+                    
                     <Box display="flex" flexDirection="column" gap={2} mb={2}>
-                        <TextField
-                            label="Название плана"
-                            value={newPlanData.planName}
-                            onChange={(e) => handleNewPlanDataChange('planName', e.target.value)}
-                            size="small"
-                            required
-                            fullWidth
-                        />
-                        <TextField
-                            label="Номер закалочной печи"
-                            value={newPlanData.furnaceNumber}
-                            onChange={(e) => handleNewPlanDataChange('furnaceNumber', e.target.value)}
-                            size="small"
-                            fullWidth
-                        />
-                        <TextField
-                            label="Запланированное время начала"
-                            type="datetime-local"
-                            value={newPlanData.scheduledStartTime}
-                            onChange={(e) => handleNewPlanDataChange('scheduledStartTime', e.target.value)}
-                            size="small"
-                            fullWidth
-                            InputLabelProps={{
-                                shrink: true,
-                            }}
-                        />
-                        <TextField
-                            label="Запланированное время окончания"
-                            type="datetime-local"
-                            value={newPlanData.scheduledEndTime}
-                            onChange={(e) => handleNewPlanDataChange('scheduledEndTime', e.target.value)}
-                            size="small"
-                            fullWidth
-                            InputLabelProps={{
-                                shrink: true,
-                            }}
-                        />
-                        {/* --- Новые поля для фактического времени (обычно не заполняются при создании) --- */}
-                        {/*<TextField
-              label="Фактическое время начала (если известно)"
-              type="datetime-local"
-              value={newPlanData.actualStartTime}
-              onChange={(e) => handleNewPlanDataChange('actualStartTime', e.target.value)}
-              size="small"
-              fullWidth
-              InputLabelProps={{
-                shrink: true,
-              }}
-              disabled // <-- Обычно поле недоступно при создании
-            />
-            <TextField
-              label="Фактическое время окончания (если известно)"
-              type="datetime-local"
-              value={newPlanData.actualEndTime}
-              onChange={(e) => handleNewPlanDataChange('actualEndTime', e.target.value)}
-              size="small"
-              fullWidth
-              InputLabelProps={{
-                shrink: true,
-              }}
-              disabled // <-- Обычно поле недоступно при создании
-            />*/}
-                        {/* ------------------------------------------------------------------------------- */}
-                        <TextField
-                            label="Примечания (необязательно)"
-                            value={newPlanData.notes}
-                            onChange={(e) => handleNewPlanDataChange('notes', e.target.value)}
-                            size="small"
-                            multiline
-                            rows={2}
-                            fullWidth
-                        />
+                        <TextField label="Название плана" value={newPlanData.planName} onChange={(e) => handleNewPlanDataChange('planName', e.target.value)} size="small" required fullWidth />
+                        <Grid container spacing={2}>
+                            <Grid item xs={12} sm={4}><TextField label="Номер печи" value={newPlanData.furnaceNumber} onChange={(e) => handleNewPlanDataChange('furnaceNumber', e.target.value)} size="small" fullWidth /></Grid>
+                            <Grid item xs={12} sm={4}><TextField label="Запл. начало" type="datetime-local" value={formatForInput(newPlanData.scheduledStartTime)} onChange={(e) => handleNewPlanDataChange('scheduledStartTime', e.target.value)} size="small" fullWidth InputLabelProps={{ shrink: true }} /></Grid>
+                            <Grid item xs={12} sm={4}><TextField label="Запл. окончание" type="datetime-local" value={formatForInput(newPlanData.scheduledEndTime)} onChange={(e) => handleNewPlanDataChange('scheduledEndTime', e.target.value)} size="small" fullWidth InputLabelProps={{ shrink: true }} /></Grid>
+                        </Grid>
+                        <TextField label="Примечания" value={newPlanData.notes} onChange={(e) => handleNewPlanDataChange('notes', e.target.value)} size="small" multiline rows={2} fullWidth />
                     </Box>
 
-                    {/* Списки листов */}
                     <DragDropContext onDragEnd={onDragEnd}>
-                        <Box display="flex" gap={2} minHeight="400px">
-                            {/* Список доступных листов */}
-                            <Card sx={{ flex: 1, minWidth: 300 }}>
-                                <CardHeader
-                                    title={`Доступные листы (${availableSheets.length})`}
-                                    sx={{ pb: 0 }}
-                                />
-                                <CardContent sx={{ p: 1, height: '100%' }}>
+                        <Box display="flex" gap={2} minHeight="60vh">
+                            <Card sx={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
+                                <CardHeader title={`Доступные листы (${availableSheets.length})`} sx={{ pb: 0 }} />
+                                <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                                    <SheetFiltersUI filtersState={createSheetFilters} setFiltersState={setCreateSheetFilters} onApply={handleApplyCreateFilters} onClear={handleClearCreateFilters} />
+                                </Box>
+                                <CardContent sx={{ p: 1, flex: 1, overflow: 'auto' }}>
                                     {loadingAvailable ? (
-                                        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-                                            <CircularProgress size={24} />
-                                        </Box>
+                                        <Box display="flex" justifyContent="center" height="100%"><CircularProgress size={24} /></Box>
                                     ) : (
                                         <Droppable droppableId="available-sheets-list">
                                             {(provided) => (
-                                                <List
-                                                    {...provided.droppableProps}
-                                                    ref={provided.innerRef}
-                                                    dense
-                                                    sx={{ maxHeight: 400, overflow: 'auto', bgcolor: 'background.paper' }}
-                                                >
+                                                <List {...provided.droppableProps} ref={provided.innerRef} dense sx={{ bgcolor: 'background.paper' }}>
                                                     {availableSheets.map((sheet, index) => (
                                                         <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
-                                                            {(provided, snapshot) => ( // <-- Функция передаётся как children
-                                                                <div // <-- Обязательная обёртка
-                                                                    ref={provided.innerRef} // <-- innerRef на обёртку
-                                                                    {...provided.draggableProps} // <-- draggableProps на обёртку
-                                                                >
-                                                                    <ListItem
-                                                                        {...provided.dragHandleProps} // <-- dragHandleProps на ListItem (или на его часть)
-                                                                        secondaryAction={
-                                                                            <Tooltip title="Добавить в план">
-                                                                                <IconButton edge="end" aria-label="add" size="small" onClick={() => handleAddSheetToPlan(sheet)}>
-                                                                                    <AddIcon />
-                                                                                </IconButton>
-                                                                            </Tooltip>
-                                                                        }
-                                                                    >
-                                                                        <ListItemText
-                                                                            primary={
-                                                                                <Typography variant="body2">
-                                                                                    <strong>ID:</strong> {sheet.matId} <br />
-                                                                                    <strong>Статус:</strong> {sheet.status} <br />
-                                                                                    <strong>Плавка:</strong> {sheet.meltNumber} <br />
-                                                                                    <strong>Партия:</strong> {sheet.batchNumber} <br />
-                                                                                    <strong>Пачка:</strong> {sheet.packNumber} <br />
-                                                                                    <strong>№ Листа:</strong> {sheet.sheetNumber}
-                                                                                </Typography>
-                                                                            }
-                                                                        />
+                                                            {(provided) => (
+                                                                <div ref={provided.innerRef} {...provided.draggableProps}>
+                                                                    <ListItem {...provided.dragHandleProps} secondaryAction={
+                                                                        <Tooltip title="Добавить в план"><IconButton edge="end" size="small" onClick={() => handleAddSheetToPlan(sheet)}><AddIcon /></IconButton></Tooltip>
+                                                                    }>
+                                                                        <ListItemText primary={
+                                                                            <Typography variant="body2">
+                                                                                <strong>ID:</strong> {sheet.matId} | <strong>Сталь:</strong> {sheet.steelGrade}<br/>
+                                                                                <strong>Плавка:</strong> {sheet.meltNumber} | <strong>Партия:</strong> {sheet.batchNumber} | <strong>Пачка:</strong> {sheet.packNumber} | <strong>№:</strong> {sheet.sheetNumber}
+                                                                            </Typography>
+                                                                        } />
                                                                     </ListItem>
-                                                                    {provided.placeholder} {/* <-- ВАЖНО: Добавлен placeholder */}
+                                                                    {provided.placeholder}
                                                                 </div>
                                                             )}
                                                         </Draggable>
@@ -1033,53 +506,27 @@ const AnnealingBatchPlanPage = () => {
                                 </CardContent>
                             </Card>
 
-                            {/* Список листов в плане */}
-                            <Card sx={{ flex: 1, minWidth: 300 }}>
-                                <CardHeader
-                                    title={`Листы в плане (${selectedSheets.length})`}
-                                    subheader={`Название: ${newPlanData.planName || 'Не задано'}`}
-                                    sx={{ pb: 0 }}
-                                />
-                                <CardContent sx={{ p: 1, height: '100%' }}>
+                            <Card sx={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
+                                <CardHeader title={`Листы в плане (${selectedSheets.length})`} subheader={newPlanData.planName || 'Без названия'} sx={{ pb: 0 }} />
+                                <CardContent sx={{ p: 1, flex: 1, overflow: 'auto' }}>
                                     <Droppable droppableId="selected-sheets-list">
                                         {(provided) => (
-                                            <List
-                                                {...provided.droppableProps}
-                                                ref={provided.innerRef}
-                                                dense
-                                                sx={{ maxHeight: 400, overflow: 'auto', bgcolor: 'background.paper' }}
-                                            >
+                                            <List {...provided.droppableProps} ref={provided.innerRef} dense sx={{ bgcolor: 'background.paper' }}>
                                                 {selectedSheets.map((sheet, index) => (
                                                     <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
-                                                        {(provided, snapshot) => ( // <-- Функция передаётся как children
-                                                            <div // <-- Обязательная обёртка
-                                                                ref={provided.innerRef} // <-- innerRef на обёртку
-                                                                {...provided.draggableProps} // <-- draggableProps на обёртку
-                                                            >
-                                                                <ListItem
-                                                                    {...provided.dragHandleProps} // <-- dragHandleProps на ListItem
-                                                                    secondaryAction={
-                                                                        <Tooltip title="Удалить из плана">
-                                                                            <IconButton edge="end" aria-label="delete" size="small" onClick={() => handleRemoveSheetFromPlan(sheet.matId)}>
-                                                                                <DeleteIcon />
-                                                                            </IconButton>
-                                                                        </Tooltip>
-                                                                    }
-                                                                >
-                                                                    <ListItemText
-                                                                        primary={
-                                                                            <Typography variant="body2">
-                                                                                <strong>ID:</strong> {sheet.matId} <br />
-                                                                                <strong>Статус:</strong> {sheet.status} <br />
-                                                                                <strong>Плавка:</strong> {sheet.meltNumber} <br />
-                                                                                <strong>Партия:</strong> {sheet.batchNumber} <br />
-                                                                                <strong>Пачка:</strong> {sheet.packNumber} <br />
-                                                                                <strong>№ Листа:</strong> {sheet.sheetNumber}
-                                                                            </Typography>
-                                                                        }
-                                                                    />
+                                                        {(provided) => (
+                                                            <div ref={provided.innerRef} {...provided.draggableProps}>
+                                                                <ListItem {...provided.dragHandleProps} secondaryAction={
+                                                                    <Tooltip title="Удалить"><IconButton edge="end" size="small" onClick={() => handleRemoveSheetFromPlan(sheet.matId)}><DeleteIcon /></IconButton></Tooltip>
+                                                                }>
+                                                                    <ListItemText primary={
+                                                                        <Typography variant="body2">
+                                                                            <strong>ID:</strong> {sheet.matId} | <strong>Сталь:</strong> {sheet.steelGrade}<br/>
+                                                                            <strong>Плавка:</strong> {sheet.meltNumber} | <strong>Партия:</strong> {sheet.batchNumber}
+                                                                        </Typography>
+                                                                    } />
                                                                 </ListItem>
-                                                                {provided.placeholder} {/* <-- ВАЖНО: Добавлен placeholder */}
+                                                                {provided.placeholder}
                                                             </div>
                                                         )}
                                                     </Draggable>
@@ -1092,326 +539,137 @@ const AnnealingBatchPlanPage = () => {
                             </Card>
                         </Box>
                     </DragDropContext>
-
-                    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleCloseCreateDialog} startIcon={<CloseIcon />}>
-                        Отмена
-                    </Button>
-                    <Button
-                        onClick={handleCreatePlan}
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        disabled={isCreating}
-                        autoFocus
-                    >
-                        {isCreating ? 'Создание...' : 'Создать план'}
-                    </Button>
+                    <Button onClick={handleCloseCreateDialog}>Отмена</Button>
+                    <Button onClick={handleCreatePlan} variant="contained" disabled={isCreating}>{isCreating ? 'Создание...' : 'Создать план'}</Button>
                 </DialogActions>
             </Dialog>
 
-            {/* --- Диалог обновления статуса плана (обновлён) --- */}
-            <Dialog open={openUpdateDialog} onClose={handleCloseUpdateDialog} maxWidth="sm" fullWidth>
-                <DialogTitle>
-                    Отметить статус выполнения для плана "{planToUpdate?.planName}"
-                </DialogTitle>
+            {/* --- ДИАЛОГ РЕДАКТИРОВАНИЯ (УВЕЛИЧЕН, С КНОПКАМИ +/-) --- */}
+            <Dialog open={openEditDialog} onClose={handleCloseEditDialog} maxWidth="xl" fullWidth PaperProps={{ sx: { minHeight: '85vh' } }}>
+                <DialogTitle>Редактировать план "{planToEdit?.planName}"</DialogTitle>
                 <DialogContent dividers>
-                    {planToUpdate && (
-                        <>
-                            <Typography variant="body2" color="text.secondary" gutterBottom>
-                                Текущий статус: <strong>{planToUpdate.status}</strong>
-                            </Typography>
-                            <Box display="flex" flexDirection="column" gap={2}>
-                                <FormControl fullWidth margin="dense">
-                                    <InputLabel id="status-update-select-label">Новый статус плана</InputLabel>
-                                    <Select
-                                        labelId="status-update-select-label"
-                                        id="status-update-select"
-                                        value={updateStatusData.status}
-                                        label="Новый статус плана"
-                                        onChange={(e) => handleUpdateStatusDataChange('status', e.target.value)}
-                                        size="small"
-                                    >
-                                        {possibleExecutionStatuses.map((status) => (
-                                            <MenuItem key={status} value={status}>
-                                                {status}
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                {/* --- Добавлены поля для фактического времени --- */}
-                                {updateStatusData.status === 'В работе' && (
-                                    <TextField
-                                        label="Фактическое время начала"
-                                        type="datetime-local"
-                                        value={updateStatusData.actualStartTime}
-                                        onChange={(e) => handleUpdateStatusDataChange('actualStartTime', e.target.value)}
-                                        size="small"
-                                        fullWidth
-                                        InputLabelProps={{
-                                            shrink: true,
-                                        }}
-                                    />
-                                )}
-                                {(updateStatusData.status === 'Завершён' || updateStatusData.status === 'Прерван') && (
-                                    <TextField
-                                        label="Фактическое время окончания"
-                                        type="datetime-local"
-                                        value={updateStatusData.actualEndTime}
-                                        onChange={(e) => handleUpdateStatusDataChange('actualEndTime', e.target.value)}
-                                        size="small"
-                                        fullWidth
-                                        InputLabelProps={{
-                                            shrink: true,
-                                        }}
-                                    />
-                                )}
-                                {/* ------------------------------------------------ */}
-                            </Box>
-                        </>
-                    )}
-                    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={handleCloseUpdateDialog} startIcon={<CloseIcon />}>
-                        Отмена
-                    </Button>
-                    <Button
-                        onClick={handleUpdatePlanStatus}
-                        variant="contained"
-                        startIcon={<CheckCircleIcon />}
-                        disabled={isUpdating || !updateStatusData.status}
-                        autoFocus
-                    >
-                        {isUpdating ? 'Сохранение...' : 'Отметить'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
-            {/* --- ПОДКЛЮЧЕНИЕ КОМПОНЕНТА ДИАЛОГА ОТЧЕТА --- */}
-            <PlanDetailsDialog
-                open={isDetailsOpen}
-                planId={selectedPlanId}
-                onClose={handleCloseDetails}
-            />
+                    {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+                    {planToEdit?.status !== 'Создан' && <Alert severity="warning" sx={{ mb: 2 }}>Редактирование возможно только для планов со статусом "Создан".</Alert>}
+                    
+                    <Box display="flex" flexDirection="column" gap={2} mb={2}>
+                        <TextField label="Название плана" value={editPlanData.planName} onChange={(e) => handleEditPlanDataChange('planName', e.target.value)} size="small" required fullWidth disabled={planToEdit?.status !== 'Создан'} />
+                        <Grid container spacing={2}>
+                            <Grid item xs={12} sm={4}><TextField label="Номер печи" value={editPlanData.furnaceNumber} onChange={(e) => handleEditPlanDataChange('furnaceNumber', e.target.value)} size="small" fullWidth disabled={planToEdit?.status !== 'Создан'} /></Grid>
+                            <Grid item xs={12} sm={4}><TextField label="Запл. начало" type="datetime-local" value={formatForInput(editPlanData.scheduledStartTime)} onChange={(e) => handleEditPlanDataChange('scheduledStartTime', e.target.value)} size="small" fullWidth InputLabelProps={{ shrink: true }} disabled={planToEdit?.status !== 'Создан'} /></Grid>
+                            <Grid item xs={12} sm={4}><TextField label="Запл. окончание" type="datetime-local" value={formatForInput(editPlanData.scheduledEndTime)} onChange={(e) => handleEditPlanDataChange('scheduledEndTime', e.target.value)} size="small" fullWidth InputLabelProps={{ shrink: true }} disabled={planToEdit?.status !== 'Создан'} /></Grid>
+                        </Grid>
+                        <TextField label="Примечания" value={editPlanData.notes} onChange={(e) => handleEditPlanDataChange('notes', e.target.value)} size="small" multiline rows={2} fullWidth disabled={planToEdit?.status !== 'Создан'} />
+                    </Box>
 
-            {/* --- ДИАЛОГ РЕДАКТИРОВАНИЯ (ОБНОВЛЁН) --- */}
-            <Dialog open={openEditDialog} onClose={handleCloseEditDialog} maxWidth="lg" fullWidth>
-                <DialogTitle>
-                    Редактировать план "{planToEdit?.planName}"
-                </DialogTitle>
-                <DialogContent dividers>
-                    {loadingEditingSheets ? (
-                        <Box display="flex" justifyContent="center" py={5}>
-                            <CircularProgress />
-                        </Box>
-                    ) : (
-                        <>
-                            {planToEdit?.status !== 'Создан' ? (
-                                <Alert severity="warning" sx={{ mb: 2 }}>
-                                    План "{planToEdit?.planName}" имеет статус "{planToEdit?.status}". Редактирование возможно только для планов со статусом "Создан".
-                                </Alert>
-                            ) : null}
-                            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-                            <Box display="flex" flexDirection="column" gap={2} mb={2}>
-                                <TextField
-                                    label="Название плана"
-                                    value={editPlanData.planName}
-                                    onChange={(e) => handleEditPlanDataChange('planName', e.target.value)}
-                                    size="small"
-                                    required // Сделаем обязательным, если нужно
-                                    fullWidth
-                                    disabled={planToEdit?.status !== 'Создан'} // Блокируем ввод, если статус не "Создан"
-                                />
-                                <TextField
-                                    label="Номер закалочной печи"
-                                    value={editPlanData.furnaceNumber}
-                                    onChange={(e) => handleEditPlanDataChange('furnaceNumber', e.target.value)}
-                                    size="small"
-                                    fullWidth
-                                    disabled={planToEdit?.status !== 'Создан'} // Блокируем ввод, если статус не "Создан"
-                                />
-                                <TextField
-                                    label="Запланированное время начала"
-                                    type="datetime-local"
-                                    value={editPlanData.scheduledStartTime}
-                                    onChange={(e) => handleEditPlanDataChange('scheduledStartTime', e.target.value)}
-                                    size="small"
-                                    fullWidth
-                                    InputLabelProps={{
-                                        shrink: true,
-                                    }}
-                                    disabled={planToEdit?.status !== 'Создан'} // Блокируем ввод, если статус не "Создан"
-                                />
-                                <TextField
-                                    label="Запланированное время окончания"
-                                    type="datetime-local"
-                                    value={editPlanData.scheduledEndTime}
-                                    onChange={(e) => handleEditPlanDataChange('scheduledEndTime', e.target.value)}
-                                    size="small"
-                                    fullWidth
-                                    InputLabelProps={{
-                                        shrink: true,
-                                    }}
-                                    disabled={planToEdit?.status !== 'Создан'} // Блокируем ввод, если статус не "Создан"
-                                />
-                                <TextField
-                                    label="Примечания"
-                                    value={editPlanData.notes}
-                                    onChange={(e) => handleEditPlanDataChange('notes', e.target.value)}
-                                    size="small"
-                                    multiline
-                                    minRows={2}
-                                    maxRows={4}
-                                    fullWidth
-                                    disabled={planToEdit?.status !== 'Создан'} // Блокируем ввод, если статус не "Создан"
-                                />
-                            </Box>
-
-                            {/* --- СПИСКИ ЛИСТОВ ДЛЯ РЕДАКТИРОВАНИЯ --- */}
-                            <DragDropContext onDragEnd={onEditDragEnd}>
-                                <Box display="flex" gap={2} minHeight="400px">
-                                    {/* Список доступных листов для редактирования */}
-                                    <Card sx={{ flex: 1, minWidth: 300 }}>
-                                        <CardHeader
-                                            title={`Доступные листы (${editingAvailableSheets.length})`}
-                                            sx={{ pb: 0 }}
-                                        />
-                                        <CardContent sx={{ p: 1, height: '100%' }}>
-                                            <Droppable droppableId="editing-available-sheets-list">
-                                                {(provided) => (
-                                                    <List
-                                                        {...provided.droppableProps}
-                                                        ref={provided.innerRef}
-                                                        dense
-                                                        sx={{ maxHeight: '400px', overflowY: 'auto', bgcolor: 'grey.50', p: 1 }}
-                                                    >
-                                                        {editingAvailableSheets.map((sheet, index) => (
-                                                            <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
-                                                                {(provided) => (
-                                                                    <div
-                                                                        ref={provided.innerRef}
-                                                                        {...provided.draggableProps}
-                                                                        {...provided.dragHandleProps}
-                                                                    >
-                                                                        <ListItem
-                                                                          
-                                                                        >
-                                                                            <ListItemText
-                                                                                primary={
-                                                                                    <Typography variant="body2">
-                                                                                        <strong>ID:</strong> {sheet.matId} <br />
-                                                                                        <strong>Статус:</strong> {sheet.status} <br />
-                                                                                        <strong>Плавка:</strong> {sheet.meltNumber} <br />
-                                                                                        <strong>Партия:</strong> {sheet.batchNumber} <br />
-                                                                                        <strong>Пачка:</strong> {sheet.packNumber} <br />
-                                                                                        <strong>№ Листа:</strong> {sheet.sheetNumber}
-                                                                                    </Typography>
-                                                                                }
-                                                                            />
-                                                                        </ListItem>
-                                                                        {provided.placeholder}
-                                                                    </div>
-                                                                )}
-                                                            </Draggable>
-                                                        ))}
-                                                        {provided.placeholder}
-                                                    </List>
-                                                )}
-                                            </Droppable>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Список листов в плане для редактирования */}
-                                    <Card sx={{ flex: 1, minWidth: 300 }}>
-                                        <CardHeader
-                                            title={`Листы в плане (${editingSelectedSheets.length})`}
-                                            subheader={`Название: ${editPlanData.planName || 'Не задано'}`}
-                                            sx={{ pb: 0 }}
-                                        />
-                                        <CardContent sx={{ p: 1, height: '100%' }}>
-                                            <Droppable droppableId="editing-selected-sheets-list">
-                                                {(provided) => (
-                                                    <List
-                                                        {...provided.droppableProps}
-                                                        ref={provided.innerRef}
-                                                        dense
-                                                        sx={{ maxHeight: '400px', overflowY: 'auto', bgcolor: 'lightblue', p: 1 }}
-                                                    >
-                                                        {editingSelectedSheets.map((sheet, index) => (
-                                                            <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
-                                                                {(provided) => (
-                                                                    <div
-                                                                        ref={provided.innerRef}
-                                                                        {...provided.draggableProps}
-                                                                        {...provided.dragHandleProps}
-                                                                    >
-                                                                        <ListItem
-                                                                            
-                                                                        >
-                                                                            <ListItemText
-                                                                                primary={
-                                                                                    <Typography variant="body2">
-                                                                                        <strong>ID:</strong> {sheet.matId} <br />
-                                                                                        <strong>Статус:</strong> {sheet.status} <br />
-                                                                                        <strong>Плавка:</strong> {sheet.meltNumber} <br />
-                                                                                        <strong>Партия:</strong> {sheet.batchNumber} <br />
-                                                                                        <strong>Пачка:</strong> {sheet.packNumber} <br />
-                                                                                        <strong>№ Листа:</strong> {sheet.sheetNumber}
-                                                                                    </Typography>
-                                                                                }
-                                                                            />
-                                                                        </ListItem>
-                                                                        {provided.placeholder}
-                                                                    </div>
-                                                                )}
-                                                            </Draggable>
-                                                        ))}
-                                                        {provided.placeholder}
-                                                    </List>
-                                                )}
-                                            </Droppable>
-                                        </CardContent>
-                                    </Card>
+                    <DragDropContext onDragEnd={onEditDragEnd}>
+                        <Box display="flex" gap={2} minHeight="60vh">
+                            <Card sx={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
+                                <CardHeader title={`Доступные листы (${editingAvailableSheets.length})`} sx={{ pb: 0 }} />
+                                <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                                    <SheetFiltersUI filtersState={editSheetFilters} setFiltersState={setEditSheetFilters} onApply={handleApplyEditFilters} onClear={handleClearEditFilters} />
                                 </Box>
-                            </DragDropContext>
-                        </>
+                                <CardContent sx={{ p: 1, flex: 1, overflow: 'auto' }}>
+                                    {loadingEditingSheets ? <CircularProgress /> : (
+                                        <Droppable droppableId="editing-available-sheets-list">
+                                            {(provided) => (
+                                                <List {...provided.droppableProps} ref={provided.innerRef} dense>
+                                                    {editingAvailableSheets.map((sheet, index) => (
+                                                        <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
+                                                            {(provided) => (
+                                                                <div ref={provided.innerRef} {...provided.draggableProps}>
+                                                                    <ListItem {...provided.dragHandleProps} secondaryAction={
+                                                                        <Tooltip title="Добавить в план">
+                                                                            <IconButton edge="end" size="small" onClick={() => handleAddSheetToEditingPlan(sheet)}><AddIcon /></IconButton>
+                                                                        </Tooltip>
+                                                                    }>
+                                                                        <ListItemText primary={<Typography variant="body2"><strong>ID:</strong> {sheet.matId} | <strong>Сталь:</strong> {sheet.steelGrade}<br/><strong>Плавка:</strong> {sheet.meltNumber} | <strong>Партия:</strong> {sheet.batchNumber}</Typography>} />
+                                                                    </ListItem>
+                                                                    {provided.placeholder}
+                                                                </div>
+                                                            )}
+                                                        </Draggable>
+                                                    ))}
+                                                    {provided.placeholder}
+                                                </List>
+                                            )}
+                                        </Droppable>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            <Card sx={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column', bgcolor: 'lightblue' }}>
+                                <CardHeader title={`Листы в плане (${editingSelectedSheets.length})`} sx={{ pb: 0 }} />
+                                <CardContent sx={{ p: 1, flex: 1, overflow: 'auto' }}>
+                                    <Droppable droppableId="editing-selected-sheets-list">
+                                        {(provided) => (
+                                            <List {...provided.droppableProps} ref={provided.innerRef} dense>
+                                                {editingSelectedSheets.map((sheet, index) => (
+                                                    <Draggable key={sheet.matId} draggableId={sheet.matId} index={index}>
+                                                        {(provided) => (
+                                                            <div ref={provided.innerRef} {...provided.draggableProps}>
+                                                                <ListItem {...provided.dragHandleProps} secondaryAction={
+                                                                    <Tooltip title="Удалить из плана">
+                                                                        <IconButton edge="end" size="small" onClick={() => handleRemoveSheetFromEditingPlan(sheet.matId)}><DeleteIcon /></IconButton>
+                                                                    </Tooltip>
+                                                                }>
+                                                                    <ListItemText primary={<Typography variant="body2"><strong>ID:</strong> {sheet.matId} | <strong>Сталь:</strong> {sheet.steelGrade}<br/><strong>Плавка:</strong> {sheet.meltNumber} | <strong>Партия:</strong> {sheet.batchNumber}</Typography>} />
+                                                                </ListItem>
+                                                                {provided.placeholder}
+                                                            </div>
+                                                        )}
+                                                    </Draggable>
+                                                ))}
+                                                {provided.placeholder}
+                                            </List>
+                                        )}
+                                    </Droppable>
+                                </CardContent>
+                            </Card>
+                        </Box>
+                    </DragDropContext>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseEditDialog}>Отмена</Button>
+                    <Button onClick={handleEditPlan} variant="contained" disabled={isEditing || planToEdit?.status !== 'Создан'}>{isEditing ? 'Сохранение...' : 'Сохранить изменения'}</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={openUpdateDialog} onClose={handleCloseUpdateDialog} maxWidth="sm" fullWidth>
+                <DialogTitle>Отметить статус выполнения для плана "{planToUpdate?.planName}"</DialogTitle>
+                <DialogContent dividers>
+                    {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+                    {planToUpdate && (
+                        <Box display="flex" flexDirection="column" gap={2}>
+                            <Typography variant="body2">Текущий статус: <strong>{planToUpdate.status}</strong></Typography>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Новый статус</InputLabel>
+                                <Select value={updateStatusData.status} label="Новый статус" onChange={(e) => handleUpdateStatusDataChange('status', e.target.value)}>
+                                    {possibleExecutionStatuses.map((status) => (<MenuItem key={status} value={status}>{status}</MenuItem>))}
+                                </Select>
+                            </FormControl>
+                            {updateStatusData.status === 'В работе' && <TextField label="Фактическое начало" type="datetime-local" value={formatForInput(updateStatusData.actualStartTime)} onChange={(e) => handleUpdateStatusDataChange('actualStartTime', e.target.value)} size="small" fullWidth InputLabelProps={{ shrink: true }} />}
+                            {(updateStatusData.status === 'Завершён' || updateStatusData.status === 'Прерван') && <TextField label="Фактическое окончание" type="datetime-local" value={formatForInput(updateStatusData.actualEndTime)} onChange={(e) => handleUpdateStatusDataChange('actualEndTime', e.target.value)} size="small" fullWidth InputLabelProps={{ shrink: true }} />}
+                        </Box>
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleCloseEditDialog} startIcon={<CloseIcon />}>
-                        Отмена
-                    </Button>
-                    <Button
-                        onClick={handleEditPlan}
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        disabled={isEditing || planToEdit?.status !== 'Создан'} // Блокируем кнопку, если статус не "Создан" или идет сохранение
-                    >
-                        {isEditing ? 'Сохранение...' : 'Сохранить изменения'}
-                    </Button>
+                    <Button onClick={handleCloseUpdateDialog}>Отмена</Button>
+                    <Button onClick={handleUpdatePlanStatus} variant="contained" disabled={isUpdating}>{isUpdating ? 'Сохранение...' : 'Отметить'}</Button>
                 </DialogActions>
             </Dialog>
-            {/* Диалог подтверждения удаления плана */}
+
+            <PlanDetailsDialog open={isDetailsOpen} planId={selectedPlanId} onClose={handleCloseDetails} />
+
             <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
-                <DialogTitle>{"Подтвердите удаление"}</DialogTitle>
+                <DialogTitle>Подтвердите удаление</DialogTitle>
                 <DialogContent>
-                    <DialogContentText>
-                        Вы уверены, что хотите удалить план закалки <strong>{planToDelete?.planName}</strong> (ID: {planToDelete?.planId})?
-                        Все связи с листами в этом плане также будут удалены.
-                        Это действие нельзя отменить.
-                    </DialogContentText>
+                    <DialogContentText>Вы уверены, что хотите удалить план <strong>{planToDelete?.planName}</strong>?</DialogContentText>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={handleCloseDeleteDialog}>Отмена</Button>
-                    <Button
-                        onClick={handleDeletePlan}
-                        color="error"
-                        startIcon={<DeleteIcon />}
-                        disabled={isDeleting}
-                    >
-                        {isDeleting ? 'Удаление...' : 'Удалить'}
-                    </Button>
+                    <Button onClick={handleDeletePlan} color="error" disabled={isDeleting}>{isDeleting ? 'Удаление...' : 'Удалить'}</Button>
                 </DialogActions>
             </Dialog>
         </Container>

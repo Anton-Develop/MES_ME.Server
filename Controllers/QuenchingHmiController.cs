@@ -185,13 +185,13 @@ namespace MES_ME.Server.Controllers
                 // или WriteAsync с прямыми NodeId.
                 // В вашем appsettings.json есть алиасы: E1_Melt, E1_PartNo, E1_Pack, E1_Sheet
                 ///ModeLen 0- это 3м листы, 1 - 6м, чет это для последовательности
-                 success &= await _opcService.WriteByAliasAsync("EntrPlateData_Melt", request.EntrPlateData_Melt );
-                  success &= await _opcService.WriteByAliasAsync("EntrPlateData_PartNo", request.EntrPlateData_PartNo);
-                  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Pack", request.EntrPlateData_Pack);
-                  success &= await _opcService.WriteByAliasAsync("EntrPlateData_Sheet", request.EntrPlateData_Sheet);
-                  success &= await _opcService.WriteByAliasAsync("ModeLen", request.ModeLen );
+                 success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Melt", request.EntrPlateData_Melt );
+                  success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_PartNo", request.EntrPlateData_PartNo);
+                  success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Pack", request.EntrPlateData_Pack);
+                  success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Sheet", request.EntrPlateData_Sheet);
+                  success &= await _opcService.WriteByAliasAsync("PLC210.ModeLen", request.ModeLen );
                 // Устанавливаем признак присутствия листа (E1_Ocp = true)
-                   success &= await _opcService.WriteByAliasAsync("EntrPlateData_InsertToE1", true);
+                   success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_InsertToE1", true);
             }
             catch (Exception ex)
         {

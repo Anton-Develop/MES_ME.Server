@@ -8,67 +8,77 @@ namespace MES_ME.Server.OpcUa;
 
 /// <summary>
 /// Хранит последние значения тегов и умеет в них писать.
-/// Сессию держит OpcUaBackgroundService.
+/// Сессии держит OpcUaBackgroundService.
 /// </summary>
 public sealed class OpcUaService : IOpcUaService
 {
     private readonly OpcUaOptions _opts;
     private readonly ILogger<OpcUaService> _log;
-
     private readonly IHubContext<OpcUaHub> _hub;
-    
+
     // alias → value
     private readonly ConcurrentDictionary<string, OpcUaValue> _values = new();
+
     // alias → nodeId и обратно
     private readonly Dictionary<string, string> _aliasToNodeId = new();
     private readonly Dictionary<string, string> _nodeIdToAlias = new();
 
-    private Session? _session;
+    // controllerName → session
+    private readonly ConcurrentDictionary<string, Session?> _sessions = new();
 
-    public bool IsConnected => _session?.Connected == true;
+    public bool IsConnected => _sessions.Values.All(s => s?.Connected == true);
 
     public event Action<string, OpcUaValue>? ValueChanged;
 
     public OpcUaService(OpcUaOptions opts, IHubContext<OpcUaHub> hub, ILogger<OpcUaService> log)
     {
         _opts = opts;
-        _hub  = hub;
-        _log  = log;
+        _hub = hub;
+        _log = log;
 
-        foreach (var node in opts.Nodes)
+        foreach (var controller in opts.Controllers)
         {
-            _aliasToNodeId[node.Alias]  = node.NodeId;
-            _nodeIdToAlias[node.NodeId] = node.Alias;
+            _sessions[controller.Name] = null;
+
+            foreach (var node in controller.Nodes)
+            {
+                _aliasToNodeId[node.Alias] = node.NodeId;
+                _nodeIdToAlias[node.NodeId] = node.Alias;
+            }
         }
     }
 
+    public bool IsControllerConnected(string controllerName) =>
+        _sessions.TryGetValue(controllerName, out var s) && s?.Connected == true;
+
     // Вызывается из BackgroundService когда приходят новые данные
-    internal void OnDataChange(string nodeId, DataValue dv)
+    internal void OnDataChange(string controllerName, string nodeId, DataValue dv)
     {
         var alias = _nodeIdToAlias.GetValueOrDefault(nodeId, nodeId);
 
         var val = new OpcUaValue
         {
-            Value      = dv.Value,
-            Timestamp  = dv.SourceTimestamp == DateTime.MinValue
-                            ? DateTime.UtcNow
-                            : DateTime.SpecifyKind(dv.SourceTimestamp, DateTimeKind.Utc),
-            IsGood     = StatusCode.IsGood(dv.StatusCode),
+            Value = dv.Value,
+            Timestamp = dv.SourceTimestamp == DateTime.MinValue
+                ? DateTime.UtcNow
+                : DateTime.SpecifyKind(dv.SourceTimestamp, DateTimeKind.Utc),
+            IsGood = StatusCode.IsGood(dv.StatusCode),
             StatusCode = dv.StatusCode.Code,
         };
 
         _values[alias] = val;
         ValueChanged?.Invoke(alias, val);
 
-         // Отправляем в SignalR — всем в группе этого тега + всем в "all"
+        // Отправляем в SignalR — всем в группе этого тега + всем в "all"
         // Fire-and-forget: не блокируем OPC UA поток
         _ = Task.Run(async () =>
         {
             try
             {
-                var payload = new { alias, value = val };
+                var payload = new { controller = controllerName, alias, value = val };
                 await Task.WhenAll(
                     _hub.Clients.Group($"tag:{alias}").SendAsync("TagUpdate", payload),
+                    _hub.Clients.Group($"controller:{controllerName}").SendAsync("TagUpdate", payload),
                     _hub.Clients.Group("all").SendAsync("TagUpdate", payload)
                 );
             }
@@ -80,7 +90,8 @@ public sealed class OpcUaService : IOpcUaService
     }
 
     // BackgroundService регистрирует сессию чтобы мы могли писать
-    internal void SetSession(Session? session) => _session = session;
+    internal void SetSession(string controllerName, Session? session) =>
+        _sessions[controllerName] = session;
 
     public OpcUaValue? GetValue(string aliasOrNodeId)
     {
@@ -92,11 +103,24 @@ public sealed class OpcUaService : IOpcUaService
 
     public IReadOnlyDictionary<string, OpcUaValue> GetAllValues() => _values;
 
+    public IReadOnlyDictionary<string, OpcUaValue> GetControllerValues(string controllerName)
+    {
+        var prefix = $"{controllerName}.";
+        return _values
+            .Where(kv => kv.Key.StartsWith(prefix))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+    }
+
     public async Task<bool> WriteAsync(string nodeId, object value, CancellationToken ct = default)
     {
-        if (_session == null || !_session.Connected)
+        // Ищем контроллер по NodeId
+        var alias = _nodeIdToAlias.GetValueOrDefault(nodeId);
+        var controllerName = alias?.Split('.').FirstOrDefault();
+
+        if (controllerName == null || !_sessions.TryGetValue(controllerName, out var session)
+            || session == null || !session.Connected)
         {
-            _log.LogWarning("OPC UA write failed: not connected. NodeId={NodeId}", nodeId);
+            _log.LogWarning("OPC UA write failed: controller not connected. NodeId={NodeId}", nodeId);
             return false;
         }
 
@@ -106,14 +130,13 @@ public sealed class OpcUaService : IOpcUaService
             {
                 new WriteValue
                 {
-                    NodeId      = NodeId.Parse(nodeId),
+                    NodeId = NodeId.Parse(nodeId),
                     AttributeId = Attributes.Value,
-                    Value       = new DataValue(new Variant(value)),
+                    Value = new DataValue(new Variant(value)),
                 }
             };
 
-            var response = await _session.WriteAsync(
-                null, nodesToWrite, ct);
+            var response = await session.WriteAsync(null, nodesToWrite, ct);
 
             var ok = StatusCode.IsGood(response.Results[0]);
             if (!ok)

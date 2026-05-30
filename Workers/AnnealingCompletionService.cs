@@ -11,15 +11,12 @@ namespace MES_ME.Server.Workers;
 
 /// <summary>
 /// Сервис отслеживания прохождения закалки листами через события OPC UA.
-/// 
+///
 /// Бизнес-логика зон (одна печь):
 ///   E1 — входной рольганг перед печью
 ///   F1, F2, F3, F4 — зоны нагрева печи (собственно печь закалки)
 ///   X1 — зона ламинарного охлаждения (здесь metallurgically завершается закалка)
 ///   X2 — зона измерения планшетности (пост-контроль)
-/// 
-/// Статус "Закалка пройдена" присваивается ТОЛЬКО при выходе листа из зоны X1,
-/// поскольку закалка = нагрев + контролируемое охлаждение.
 /// </summary>
 public class AnnealingCompletionService : BackgroundService
 {
@@ -27,20 +24,21 @@ public class AnnealingCompletionService : BackgroundService
     private readonly IServiceProvider _services;
     private readonly ILogger<AnnealingCompletionService> _logger;
     private readonly NpgsqlDataSource _dataSource;
-    private readonly IMemoryCache _completedCache; // Дедупликация завершения
+    private readonly IMemoryCache _completedCache;
 
-    // ✅ Потокобезопасные коллекции (OPC UA события приходят из разных потоков)
     private readonly ConcurrentDictionary<string, bool> _lastZoneOccup = new();
     private readonly ConcurrentDictionary<string, string> _currentSheetInZone = new();
-
-    // Семафоры по бизнес-ключу — защита от race condition при создании листа
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> _businessKeyLocks = new();
 
-    // Порядок зон по ходу движения листа
     private readonly string[] _zonesInOrder = { "E1", "F1", "F2", "F3", "F4", "X1", "X2" };
 
     private const string CachePrefix = "annealing_done:";
     private static readonly TimeSpan CompletionDeduplicationWindow = TimeSpan.FromMinutes(10);
+
+    // 🆕 КОНСТАНТА: имя контроллера для этой печи
+    // Если завтра будет печь на PLC211 — создаём второй инстанс сервиса с "PLC211"
+    private const string ControllerName = "PLC210";
+    private const string ControllerPrefix = ControllerName + ".";
 
     public AnnealingCompletionService(
         IOpcUaService opcService,
@@ -56,26 +54,21 @@ public class AnnealingCompletionService : BackgroundService
         _completedCache = completedCache;
     }
 
-    // ====================================================================
-    // Жизненный цикл BackgroundService
-    // ====================================================================
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("AnnealingCompletionService запускается...");
-       // LogAvailableOpcTags(); 
-        // Восстановление состояния после возможного перезапуска контейнера
+        _logger.LogInformation("AnnealingCompletionService запускается (controller={Controller})...", ControllerName);
+        LogAvailableOpcTags();
+
         await RestoreStateFromOpcUaAsync();
 
         _opcService.ValueChanged += OnValueChanged;
 
         try
         {
-            // Держим сервис живым до сигнала остановки
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
         catch (OperationCanceledException)
         {
-            // Штатное завершение
         }
     }
 
@@ -93,7 +86,7 @@ public class AnnealingCompletionService : BackgroundService
     }
 
     // ====================================================================
-    // Восстановление состояния при старте (защита от потери листов при рестарте)
+    // Восстановление состояния при старте
     // ====================================================================
     private async Task RestoreStateFromOpcUaAsync()
     {
@@ -102,7 +95,6 @@ public class AnnealingCompletionService : BackgroundService
         using var scope = _services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // Берём все активные листы из БД для возможной привязки к зонам
         List<InputDatum> activeSheets;
         try
         {
@@ -125,7 +117,8 @@ public class AnnealingCompletionService : BackgroundService
         {
             try
             {
-                var occupValue = _opcService.GetValue($"{zone}_ZoneOccup")?.Value;
+                // 🆕 Используем GetZoneAlias для корректного имени
+                var occupValue = _opcService.GetValue(GetZoneAlias(zone, "ZoneOccup"))?.Value;
                 if (occupValue is not bool isOccupied || !isOccupied)
                 {
                     _lastZoneOccup[zone] = false;
@@ -134,10 +127,8 @@ public class AnnealingCompletionService : BackgroundService
 
                 _lastZoneOccup[zone] = true;
 
-                // Попытка 1: восстановить по бизнес-ключам из OPC UA
                 var matId = await FindOrCreateSheetByBusinessKeyAsync(context, zone);
 
-                // Попытка 2: если в БД только 1 активный лист и все зоны заняты — вероятно, он
                 if (string.IsNullOrEmpty(matId) && activeSheets.Count == 1)
                 {
                     matId = activeSheets[0].MatId;
@@ -154,8 +145,7 @@ public class AnnealingCompletionService : BackgroundService
                 else
                 {
                     _logger.LogWarning(
-                        "⚠️ Зона {Zone} занята (ZoneOccup=true), но восстановить MatId не удалось. " +
-                        "При переходе в следующую зону сработает fallback.",
+                        "⚠️ Зона {Zone} занята (ZoneOccup=true), но восстановить MatId не удалось.",
                         zone);
                 }
             }
@@ -167,124 +157,142 @@ public class AnnealingCompletionService : BackgroundService
     }
 
     // ====================================================================
-    // Главный обработчик событий (безопасная обёртка для async void)
+    // 🆕 ГЛАВНЫЙ ОБРАБОТЧИК — с фильтрацией по контроллеру!
     // ====================================================================
     private async void OnValueChanged(string alias, OpcUaValue value)
     {
         try
         {
+            // 🆕 КРИТИЧНО: обрабатываем ТОЛЬКО теги нашего контроллера!
+            if (!alias.StartsWith(ControllerPrefix))
+                return;
+
             await ProcessZoneEventAsync(alias, value);
         }
         catch (Exception ex)
         {
-            // Любое исключение логируется, но не убивает процесс
             _logger.LogError(ex, "Критическая ошибка в обработчике OPC UA для {Alias}", alias);
         }
     }
 
-   private async Task ProcessZoneEventAsync(string alias, OpcUaValue value)
-{
-    // ✅ Патч 1: Поддерживаем оба варианта naming convention (ZoneOccup и Ocp)
-    string zoneName;
-    if (alias.EndsWith("_ZoneOccup"))
-        zoneName = alias.Replace("_ZoneOccup", "");
-    else if (alias.EndsWith("_Ocp"))
-        zoneName = alias.Replace("_Ocp", "");
-    else
-        return; // Это не тег занятости зоны
-
-    bool currentOccup;
-    try
+    private async Task ProcessZoneEventAsync(string alias, OpcUaValue value)
     {
-        currentOccup = Convert.ToBoolean(value.Value);
-    }
-    catch
-    {
-        return;
+        // 🆕 Извлекаем имя зоны из алиаса с префиксом
+        // alias = "PLC210.F1_ZoneOccup"  →  zoneName = "F1"
+        string? zoneName = TryExtractZoneName(alias);
+        if (zoneName == null)
+            return; // Это не тег занятости зоны
+
+        bool currentOccup;
+        try
+        {
+            currentOccup = Convert.ToBoolean(value.Value);
+        }
+        catch
+        {
+            return;
+        }
+
+        _lastZoneOccup.TryGetValue(zoneName, out var previousOccup);
+        _lastZoneOccup[zoneName] = currentOccup;
+
+        // ▶️ Лист ВОШЁЛ в зону
+        if (!previousOccup && currentOccup)
+        {
+            // ⏱️ КРИТИЧЕСКИ ВАЖНО: ждём обновления бизнес-ключей в OPC UA
+            await Task.Delay(1500);
+
+            using var scope = _services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await HandleSheetEnteredAsync(context, zoneName);
+        }
+        // ⏹️ Лист ПОКИНУЛ зону
+        else if (previousOccup && !currentOccup)
+        {
+            using var scope = _services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await HandleSheetExitedAsync(context, zoneName);
+        }
     }
 
-    _lastZoneOccup.TryGetValue(zoneName, out var previousOccup);
-    _lastZoneOccup[zoneName] = currentOccup;
-
-    // ▶️ Лист ВОШЁЛ в зону
-    if (!previousOccup && currentOccup)
+    // 🆕 Безопасное извлечение имени зоны из алиаса
+    // "PLC210.F1_ZoneOccup" → "F1"
+    // "PLC210.E1_Ocp"       → "E1"
+    private string? TryExtractZoneName(string alias)
     {
-        // ⏱️ Патч 2: КРИТИЧЕСКИ ВАЖНО для промышленных PLC!
-        // Даём PLC время (1.5 секунды) обновить регистры трекинга (Melt, Sheet и т.д.)
-        // и OPC UA серверу время опубликовать их в наш кэш.
-        // Без этой задержки мы читаем "0" или "null" из-за гонки скан-циклов.
-        await Task.Delay(1500);
+        if (!alias.StartsWith(ControllerPrefix))
+            return null;
 
-        using var scope = _services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await HandleSheetEnteredAsync(context, zoneName);
+        var withoutPrefix = alias.Substring(ControllerPrefix.Length); // "F1_ZoneOccup"
+
+        if (withoutPrefix.EndsWith("_ZoneOccup"))
+            return withoutPrefix.Replace("_ZoneOccup", "");
+
+        if (withoutPrefix.EndsWith("_Ocp"))
+            return withoutPrefix.Replace("_Ocp", "");
+
+        return null;
     }
-    // ⏹️ Лист ПОКИНУЛ зону
-    else if (previousOccup && !currentOccup)
+
+    // 🆕 Формирование полного алиаса с префиксом контроллера
+    // GetZoneAlias("F1", "Melt") → "PLC210.F1_Melt"
+    private static string GetZoneAlias(string zoneName, string field)
     {
-        using var scope = _services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await HandleSheetExitedAsync(context, zoneName);
+        return $"{ControllerPrefix}{zoneName}_{field}";
     }
-}
 
     // ====================================================================
     // ВХОД ЛИСТА В ЗОНУ
     // ====================================================================
     private async Task HandleSheetEnteredAsync(AppDbContext context, string zoneName)
-{
-    _logger.LogInformation("▶️ Лист ВОШЁЛ в зону {Zone}", zoneName);
-
-    string? matId = null;
-
-    // ✅ Стратегия 1: Берём MatId из предыдущей зоны (быстро и без БД)
-    if (zoneName != "E1")
     {
-        var previousZone = GetPreviousZone(zoneName);
-        if (!string.IsNullOrEmpty(previousZone) &&
-            _currentSheetInZone.TryRemove(previousZone, out var prevMatId))
+        _logger.LogInformation("▶️ Лист ВОШЁЛ в зону {Zone}", zoneName);
+        string? matId = null;
+
+        if (zoneName != "E1")
         {
-            matId = prevMatId;
-            _logger.LogDebug("Лист {MatId} перемещён из {PrevZone} в {Zone}",
-                matId, previousZone, zoneName);
+            var previousZone = GetPreviousZone(zoneName);
+            if (!string.IsNullOrEmpty(previousZone) &&
+                _currentSheetInZone.TryRemove(previousZone, out var prevMatId))
+            {
+                matId = prevMatId;
+                _logger.LogDebug("Лист {MatId} перемещён из {PrevZone} в {Zone}",
+                    matId, previousZone, zoneName);
+            }
         }
+
+        if (string.IsNullOrEmpty(matId))
+        {
+            _logger.LogInformation(
+                "MatId не найден в предыдущей зоне — читаем бизнес-ключи из зоны {Zone}",
+                zoneName);
+
+            matId = await FindOrCreateSheetByBusinessKeyAsync(context, zoneName);
+        }
+
+        if (string.IsNullOrEmpty(matId))
+        {
+            _logger.LogError(
+                "❌ Не удалось определить MatId для зоны {Zone}. Состояние зон: {State}",
+                zoneName,
+                string.Join(", ", _currentSheetInZone.Select(kv => $"{kv.Key}={kv.Value}")));
+            return;
+        }
+
+        _currentSheetInZone[zoneName] = matId;
+
+        var newStatus = zoneName switch
+        {
+            "E1" => "На входном рольганге",
+            "F1" or "F2" or "F3" or "F4" => "В печи закалки",
+            "X1" => "В охлаждении",
+            "X2" => "Измерение планшетности",
+            _ => null
+        };
+
+        if (newStatus != null)
+            await UpdateSheetStatusAsync(context, matId, newStatus);
     }
-
-    // ✅ Стратегия 2: Если в предыдущей зоне нет — читаем бизнес-ключи ТЕКУЩЕЙ зоны
-    // (работает для ВСЕХ зон, включая F1-F4, X1, X2 — OPC UA отдаёт данные везде!)
-    if (string.IsNullOrEmpty(matId))
-    {
-        _logger.LogInformation(
-            "MatId не найден в предыдущей зоне — читаем бизнес-ключи из зоны {Zone}",
-            zoneName);
-
-        matId = await FindOrCreateSheetByBusinessKeyAsync(context, zoneName);
-    }
-
-    if (string.IsNullOrEmpty(matId))
-    {
-        _logger.LogError(
-            "❌ Не удалось определить MatId для зоны {Zone}. " +
-            "Состояние зон: {State}",
-            zoneName,
-            string.Join(", ", _currentSheetInZone.Select(kv => $"{kv.Key}={kv.Value}")));
-        return;
-    }
-
-    _currentSheetInZone[zoneName] = matId;
-
-    var newStatus = zoneName switch
-    {
-        "E1" => "На входном рольганге",
-        "F1" or "F2" or "F3" or "F4" => "В печи закалки",
-        "X1" => "В охлаждении",
-        "X2" => "Измерение планшетности",
-        _ => null
-    };
-
-    if (newStatus != null)
-        await UpdateSheetStatusAsync(context, matId, newStatus);
-}
 
     // ====================================================================
     // ВЫХОД ЛИСТА ИЗ ЗОНЫ
@@ -293,15 +301,10 @@ public class AnnealingCompletionService : BackgroundService
     {
         _logger.LogInformation("⏹️ Лист ПОКИНУЛ зону {Zone}", zoneName);
 
-        // MatId НЕ удаляем здесь — он удаляется при входе в следующую зону
-        // (защита от race condition при одновременных событиях входа/выхода)
-
-        // 🎯 КЛЮЧЕВОЙ МОМЕНТ: выход из X1 = завершение закалки
         if (zoneName == "X1" &&
             _currentSheetInZone.TryGetValue(zoneName, out var matId) &&
             !string.IsNullOrEmpty(matId))
         {
-            // Дедупликация через IMemoryCache (защита от повторных событий)
             var cacheKey = $"{CachePrefix}{matId}";
             if (!_completedCache.TryGetValue(cacheKey, out _))
             {
@@ -315,7 +318,6 @@ public class AnnealingCompletionService : BackgroundService
             }
         }
 
-        // Выход из X2 — финальная точка, лист полностью обработан
         if (zoneName == "X2" &&
             _currentSheetInZone.TryRemove(zoneName, out var finalMatId) &&
             !string.IsNullOrEmpty(finalMatId))
@@ -326,7 +328,7 @@ public class AnnealingCompletionService : BackgroundService
     }
 
     // ====================================================================
-    // 🎯 ЗАВЕРШЕНИЕ ЗАКАЛКИ — главный метод бизнес-логики
+    // 🎯 ЗАВЕРШЕНИЕ ЗАКАЛКИ
     // ====================================================================
     private async Task CompleteQuenchingAsync(string matId)
     {
@@ -341,7 +343,6 @@ public class AnnealingCompletionService : BackgroundService
                 _logger.LogWarning("Лист {MatId} не найден для завершения закалки", matId);
                 return;
             }
-            // 🛡️ ЗАЩИТА: если лист уже бракованный — НЕ завершаем закалку
             if (sheet.Status == "Брак")
             {
                 _logger.LogWarning(
@@ -350,7 +351,6 @@ public class AnnealingCompletionService : BackgroundService
                 return;
             }
 
-            // ✅ Атомарное обновление — всё в одном SaveChanges
             sheet.Status = "Закалка пройдена";
             sheet.QuenchingDate = DateTime.UtcNow;
             sheet.QuenchingStatus = "Завершена";
@@ -359,7 +359,6 @@ public class AnnealingCompletionService : BackgroundService
             _logger.LogInformation("✅ Лист {MatId}: статус 'Закалка пройдена', дата {Date}",
                 matId, sheet.QuenchingDate);
 
-            // Проверяем, не завершился ли план закалки
             await CheckAndCompletePlanAsync(context, matId);
         }
         catch (Exception ex)
@@ -368,9 +367,6 @@ public class AnnealingCompletionService : BackgroundService
         }
     }
 
-    // ====================================================================
-    // Навигация по зонам
-    // ====================================================================
     private string? GetPreviousZone(string currentZone)
     {
         var index = Array.IndexOf(_zonesInOrder, currentZone);
@@ -378,57 +374,46 @@ public class AnnealingCompletionService : BackgroundService
     }
 
     // ====================================================================
-    // Чтение значений из OPC UA Формирует alias по шаблону: {zoneName}_{field} (например, "F2_Melt")
+    // 🆕 Чтение значений из OPC UA — С ПРЕФИКСОМ КОНТРОЛЛЕРА
     // ====================================================================
     private string? GetValueFromZone(string zoneName, string field)
-{
-    try
     {
-        // Чистый alias без пробелов
-        var alias = $"{zoneName}_{field}";
-        var opcValue = _opcService.GetValue(alias);
-
-        if (opcValue == null)
+        try
         {
-            _logger.LogDebug("OPC UA тег {Alias} не найден или не подписан", alias);
+            var alias = GetZoneAlias(zoneName, field);
+            var opcValue = _opcService.GetValue(alias);
+            if (opcValue == null)
+            {
+                _logger.LogDebug("OPC UA тег {Alias} не найден или не подписан", alias);
+                return null;
+            }
+
+            var strValue = opcValue.Value?.ToString();
+
+            if (string.IsNullOrEmpty(strValue) || strValue == "0")
+            {
+                _logger.LogDebug("OPC UA тег {Alias} = '{Value}' (пусто или ноль)", alias, strValue ?? "(null)");
+                return null;
+            }
+
+            _logger.LogDebug("OPC UA тег {Alias} = {Value}", alias, strValue);
+            return strValue;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ошибка чтения OPC UA тега {Zone}_{Field}", zoneName, field);
             return null;
         }
-
-        var strValue = opcValue.Value?.ToString();
-
-        if (string.IsNullOrEmpty(strValue) || strValue == "0")
-        {
-            _logger.LogDebug("OPC UA тег {Alias} = '{Value}' (пусто или ноль)", alias, strValue ?? "(null)");
-            return null;
-        }
-
-        _logger.LogDebug("OPC UA тег {Alias} = {Value}", alias, strValue);
-        return strValue;
     }
-    catch (Exception ex)
-    {
-        _logger.LogWarning(ex, "Ошибка чтения OPC UA тега {Zone}_{Field}", zoneName, field);
-        return null;
-    }
-}
 
-    // ====================================================================
-    // Генерация MatId (через PostgreSQL sequence — атомарно и безопасно)
-    // ====================================================================
     private async Task<string> GenerateNewMatIdAsync()
     {
-        // ❌ Удалили опасный fallback через ToListAsync() всей таблицы
-        // Sequence не должна падать. Если падает — это серьёзная проблема с БД.
         await using var connection = await _dataSource.OpenConnectionAsync();
         var nextVal = await connection.QueryFirstOrDefaultAsync<long>(
             "SELECT nextval('mes.matid_seq')");
         return nextVal.ToString();
     }
 
-    // ====================================================================
-    // Поиск или создание листа по бизнес-ключам
-    // ✅ С защитой от race condition (SemaphoreSlim + обработка unique violation)
-    // ====================================================================
     private async Task<string?> FindOrCreateSheetByBusinessKeyAsync(AppDbContext context, string zoneName)
     {
         var melt = GetValueFromZone(zoneName, "Melt");
@@ -440,7 +425,6 @@ public class AnnealingCompletionService : BackgroundService
             "OPC UA данные для зоны {Zone}: Melt={Melt}, PartNo={PartNo}, Pack={Pack}, Sheet={Sheet}",
             zoneName, melt ?? "(null)", partNo ?? "(null)", pack ?? "(null)", sheet ?? "(null)");
 
-        // ✅ Все 4 ключа ОБЯЗАТЕЛЬНЫ (было ||, стало &&)
         bool hasValidData = !string.IsNullOrEmpty(melt) && melt != "0" &&
                     !string.IsNullOrEmpty(partNo) && partNo != "0" &&
                     !string.IsNullOrEmpty(pack) && pack != "0" &&
@@ -452,14 +436,12 @@ public class AnnealingCompletionService : BackgroundService
             return null;
         }
 
-        // 🔒 Семафор по бизнес-ключу — защита от параллельного создания дубликатов
         var businessKey = $"{melt}_{partNo}_{pack}_{sheet}";
         var semaphore = _businessKeyLocks.GetOrAdd(businessKey, _ => new SemaphoreSlim(1, 1));
         await semaphore.WaitAsync();
 
         try
         {
-            // Ищем существующий лист
             var existingSheet = await context.InputData
                 .AsNoTracking()
                 .FirstOrDefaultAsync(s =>
@@ -474,9 +456,8 @@ public class AnnealingCompletionService : BackgroundService
                 return existingSheet.MatId;
             }
 
-            // Создаём новый лист
             var steelGrade = GetValueFromZone(zoneName, "AlloyCode");
-            var thickness = GetValueFromZone(zoneName, "Thickness"); // исправлено: было "Thikness"
+            var thickness = GetValueFromZone(zoneName, "Thickness");
             var slabNumber = GetValueFromZone(zoneName, "Slab");
             var sheetInPack = GetValueFromZone(zoneName, "SheetInPack");
 
@@ -517,12 +498,10 @@ public class AnnealingCompletionService : BackgroundService
             }
             catch (PostgresException ex) when (ex.SqlState == "23505")
             {
-                // Unique violation — кто-то параллельно создал этот же лист
                 _logger.LogWarning(
                     "Лист с ключом {Key} был создан параллельным процессом, перечитываем",
                     businessKey);
 
-                // Detach конфликтующую запись из EF Core change tracker
                 context.Entry(newSheet).State = EntityState.Detached;
 
                 var concurrentSheet = await context.InputData
@@ -547,9 +526,6 @@ public class AnnealingCompletionService : BackgroundService
         }
     }
 
-    // ====================================================================
-    // Обновление статуса листа
-    // ====================================================================
     private async Task UpdateSheetStatusAsync(AppDbContext context, string matId, string newStatus)
     {
         try
@@ -568,9 +544,6 @@ public class AnnealingCompletionService : BackgroundService
         }
     }
 
-    // ====================================================================
-    // Проверка завершения плана закалки (через JOIN — эффективно)
-    // ====================================================================
     private async Task CheckAndCompletePlanAsync(AppDbContext context, string completedMatId)
     {
         try
@@ -583,13 +556,12 @@ public class AnnealingCompletionService : BackgroundService
 
             var plan = planLink.BatchPlan;
 
-            // ✅ Используем JOIN вместо Contains (быстрее и масштабируемее)
             var notCompletedCount = await (
                 from input in context.InputData
                 join link in context.AnnealingBatchPlanSheets on input.MatId equals link.MatId
                 where link.PlanId == plan.PlanId
-                   && input.Status != "Закалка пройдена"
-                   && input.Status != "Закалка пройдена, измерен"
+                    && input.Status != "Закалка пройдена"
+                    && input.Status != "Закалка пройдена, измерен"
                 select input
             ).CountAsync();
 
@@ -610,31 +582,28 @@ public class AnnealingCompletionService : BackgroundService
         }
     }
 
+    // 🆕 Обновлённая диагностика — с префиксом контроллера
     private void LogAvailableOpcTags()
-{
-    _logger.LogInformation("=== Диагностика OPC UA тегов ===");
-
-    var testAliases = new[]
     {
-        "E1_Melt", "E1_ZoneOccup",
-        "F1_Melt", "F1_ZoneOccup",
-        "F2_Melt", "F2_ZoneOccup",
-        "F3_Melt", "F3_ZoneOccup",
-        "F4_Melt", "F4_ZoneOccup",
-        "X1_Melt", "X1_ZoneOccup",
-        "X2_Melt", "X2_ZoneOccup"
-    };
+        _logger.LogInformation("=== Диагностика OPC UA тегов для {Controller} ===", ControllerName);
 
-    foreach (var alias in testAliases)
-    {
-        var value = _opcService.GetValue(alias);
-        _logger.LogInformation(
-            "OPC тег {Alias}: {Status} (value={Value})",
-            alias,
-            value != null ? "✅ подписан" : "❌ не найден",
-            value?.Value?.ToString() ?? "(null)");
+        foreach (var zone in _zonesInOrder)
+        {
+            var meltAlias = GetZoneAlias(zone, "Melt");
+            var occupAlias = GetZoneAlias(zone, "ZoneOccup");
+
+            var melt = _opcService.GetValue(meltAlias);
+            var occup = _opcService.GetValue(occupAlias);
+
+            _logger.LogInformation(
+                "Зона {Zone}: Melt={Melt} ({MeltVal}), ZoneOccup={Occup} ({OccupVal})",
+                zone,
+                melt != null ? "✅" : "❌",
+                melt?.Value?.ToString() ?? "(null)",
+                occup != null ? "✅" : "❌",
+                occup?.Value?.ToString() ?? "(null)");
+        }
+
+        _logger.LogInformation("=== Конец диагностики ===");
     }
-
-    _logger.LogInformation("=== Конец диагностики ===");
-}
 }

@@ -147,9 +147,9 @@ function QueueItem({ item, isCurrent, onClick, waitColor }) {
 export default function MeasurementHMI() {
     // OPC UA — только для детекции новых листов
     const { values, connected } = useOpcUa([
-        'X2_ZoneOccup', 'X2_Melt', 'X2_Slab', 'X2_PartNo', 'X2_Pack',
-        'X2_Sheet', 'X2_SubSheet', 'X2_SheetInPack', 'X2_SheetsInPack',
-        'X2_Thikness', 'X2_AlloyCodeText',
+        'PLC210.X2_ZoneOccup', 'PLC210.X2_Melt', 'PLC210.X2_Slab', 'PLC210.X2_PartNo', 'PLC210.X2_Pack',
+        'PLC210.X2_Sheet', 'PLC210.X2_SubSheet', 'PLC210.X2_SheetInPack', 'PLC210.X2_SheetsInPack',
+        'PLC210.X2_Thikness', 'PLC210.X2_AlloyCodeText',
     ]);
 
     const [queue, setQueue] = useState([]);
@@ -211,40 +211,38 @@ export default function MeasurementHMI() {
 
     // ── Слежение за X2: создание записей в очереди ────────────────────────
     useEffect(() => {
-        const occ = toNum(values['X2_ZoneOccup']?.value);
-        if (occ === 1 || occ === true) {
-            const sheet = {
-                melt: toNum(values['X2_Melt']?.value),
-                slab: toNum(values['X2_Slab']?.value),
-                partNo: toNum(values['X2_PartNo']?.value),
-                pack: toNum(values['X2_Pack']?.value),
-                sheet: toNum(values['X2_Sheet']?.value),
-                sheetInPack: toNum(values['X2_SheetInPack']?.value),
-                sheetsInPack: toNum(values['X2_SheetsInPack']?.value),
-                thickness: toNum(values['X2_Thikness']?.value),
-                alloyCodeText: toStr(values['X2_AlloyCodeText']?.value),
-            };
-            const key = sheetKey(sheet);
+    // ✅ ИСПРАВЛЕНО: добавлен префикс PLC210.
+    const occ = toNum(values['PLC210.X2_ZoneOccup']?.value);
+    if (occ === 1 || occ === true) {
+        const sheet = {
+            melt: toNum(values['PLC210.X2_Melt']?.value),
+            slab: toNum(values['PLC210.X2_Slab']?.value),
+            partNo: toNum(values['PLC210.X2_PartNo']?.value),
+            pack: toNum(values['PLC210.X2_Pack']?.value),
+            sheet: toNum(values['PLC210.X2_Sheet']?.value),
+            sheetInPack: toNum(values['PLC210.X2_SheetInPack']?.value),
+            sheetsInPack: toNum(values['PLC210.X2_SheetsInPack']?.value),
+            thickness: toNum(values['PLC210.X2_Thikness']?.value),
+            alloyCodeText: toStr(values['PLC210.X2_AlloyCodeText']?.value),
+        };
+        const key = sheetKey(sheet);
 
-            if (key && key !== lastCreatedKey) {
-                setLastCreatedKey(key);
-                // Создаём запись в БД (если ещё нет)
-               api.post('/measurement', { ...sheet, enteredX2At: new Date().toISOString() })
-				  .then(() => fetchQueue())
-				  .catch(err => {
-					if (err.response?.status === 409) {
-					  // 409 = запись уже существует — просто обновляем очередь
-					  fetchQueue();
-					  return;
-					}
-					console.error('Ошибка создания записи:', err);
-				  });
-            }
-        } else {
-            // Лист уехал — сбрасываем ключ, чтобы следующий лист создал новую запись
-            setLastCreatedKey(null);
+        if (key && key !== lastCreatedKey) {
+            setLastCreatedKey(key);
+            api.post('/measurement', { ...sheet, enteredX2At: new Date().toISOString() })
+                .then(() => fetchQueue())
+                .catch(err => {
+                    if (err.response?.status === 409) {
+                        fetchQueue();
+                        return;
+                    }
+                    console.error('Ошибка создания записи:', err);
+                });
         }
-    }, [values, lastCreatedKey, fetchQueue]);
+    } else {
+        setLastCreatedKey(null);
+    }
+}, [values, lastCreatedKey, fetchQueue]);
 
     // ── Сохранение замеров ────────────────────────────────────────────────
     const handleSave = async () => {

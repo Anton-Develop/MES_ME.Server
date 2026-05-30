@@ -6,7 +6,7 @@ using System.Text;
 namespace MES_ME.Server.OpcUa;
 
 /// <summary>
-/// Держит одну OPC UA сессию с Subscription.
+/// Держит OPC UA сессии с Subscription для каждого контроллера.
 /// При разрыве — переподключается с экспоненциальной задержкой.
 /// </summary>
 public sealed class OpcUaBackgroundService : BackgroundService
@@ -30,15 +30,24 @@ public sealed class OpcUaBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        _log.LogInformation("OpcUaBackgroundService starting. Endpoint={Url}", _opts.EndpointUrl);
+        _log.LogInformation("OpcUaBackgroundService starting. Controllers: {Count}", _opts.Controllers.Count);
 
+        // Запускаем задачу для каждого контроллера параллельно
+        var tasks = _opts.Controllers.Select(c => RunControllerAsync(c, ct));
+        await Task.WhenAll(tasks);
+
+        _log.LogInformation("OpcUaBackgroundService stopped");
+    }
+
+    private async Task RunControllerAsync(OpcUaControllerConfig controller, CancellationToken ct)
+    {
         var attempt = 0;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                await ConnectAndRunAsync(ct);
+                await ConnectAndRunAsync(controller, ct);
                 attempt = 0;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -50,35 +59,33 @@ public sealed class OpcUaBackgroundService : BackgroundService
                 attempt++;
                 var delay = TimeSpan.FromSeconds(Math.Min(Math.Pow(2, attempt), 60));
                 _log.LogError(ex,
-                    "OPC UA connection lost (attempt {Attempt}). Reconnecting in {Delay}s",
-                    attempt, delay.TotalSeconds);
+                    "OPC UA connection lost for {Controller} (attempt {Attempt}). Reconnecting in {Delay}s",
+                    controller.Name, attempt, delay.TotalSeconds);
 
-                _svc.SetSession(null);
+                _svc.SetSession(controller.Name, null);
                 await Task.Delay(delay, ct);
             }
         }
-
-        _log.LogInformation("OpcUaBackgroundService stopped");
     }
 
-    private async Task ConnectAndRunAsync(CancellationToken ct)
+    private async Task ConnectAndRunAsync(OpcUaControllerConfig controller, CancellationToken ct)
     {
         // 1 — Создаём конфигурацию с корректными путями для сертификатов
-        var certificatePath = Path.Combine(_environment.ContentRootPath, "Certificates");
+        var certificatePath = Path.Combine(_environment.ContentRootPath, "Certificates", controller.Name);
         Directory.CreateDirectory(certificatePath);
 
         var config = new ApplicationConfiguration
         {
-            ApplicationName = "MES_ME_OpcClient",
+            ApplicationName = $"MES_ME_OpcClient_{controller.Name}",
             ApplicationType = ApplicationType.Client,
-            ApplicationUri = "urn:mes_me:opcua:client",
+            ApplicationUri = $"urn:mes_me:opcua:client:{controller.Name}",
             SecurityConfiguration = new SecurityConfiguration
             {
                 ApplicationCertificate = new CertificateIdentifier
                 {
                     StoreType = "Directory",
                     StorePath = Path.Combine(certificatePath, "Application"),
-                    SubjectName = "CN=MES_ME_OpcClient, O=MES_ME, C=RU"
+                    SubjectName = $"CN=MES_ME_OpcClient_{controller.Name}, O=MES_ME, C=RU"
                 },
                 TrustedPeerCertificates = new CertificateTrustList
                 {
@@ -99,8 +106,8 @@ public sealed class OpcUaBackgroundService : BackgroundService
                 AddAppCertToTrustedStore = false
             },
             TransportConfigurations = new TransportConfigurationCollection(),
-            TransportQuotas = new TransportQuotas 
-            { 
+            TransportQuotas = new TransportQuotas
+            {
                 OperationTimeout = 10000,
                 MaxStringLength = 1048576,
                 MaxByteStringLength = 1048576,
@@ -110,8 +117,8 @@ public sealed class OpcUaBackgroundService : BackgroundService
                 ChannelLifetime = 300000,
                 SecurityTokenLifetime = 3600000
             },
-            ClientConfiguration = new ClientConfiguration 
-            { 
+            ClientConfiguration = new ClientConfiguration
+            {
                 DefaultSessionTimeout = 60000,
                 MinSubscriptionLifetime = 10000
             },
@@ -139,20 +146,21 @@ public sealed class OpcUaBackgroundService : BackgroundService
         try
         {
             endpointDesc = CoreClientUtils.SelectEndpoint(
-                config, _opts.EndpointUrl, useSecurity: !_opts.AnonymousAuth);
+                config, controller.EndpointUrl, useSecurity: !controller.AnonymousAuth);
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Failed to select endpoint for {Url}", _opts.EndpointUrl);
+            _log.LogError(ex, "Failed to select endpoint for {Url} ({Controller})",
+                controller.EndpointUrl, controller.Name);
             throw;
         }
-        
+
         var endpoint = new ConfiguredEndpoint(null, endpointDesc,
             EndpointConfiguration.Create(config));
 
         // 3 — Создаём идентификацию
         UserIdentity identity;
-        if (_opts.AnonymousAuth)
+        if (controller.AnonymousAuth)
         {
             identity = new UserIdentity(new AnonymousIdentityToken());
         }
@@ -160,8 +168,8 @@ public sealed class OpcUaBackgroundService : BackgroundService
         {
             var token = new UserNameIdentityToken
             {
-                UserName = _opts.Username,
-                Password = Encoding.UTF8.GetBytes(_opts.Password!),
+                UserName = controller.Username,
+                Password = Encoding.UTF8.GetBytes(controller.Password!),
                 EncryptionAlgorithm = null
             };
             identity = new UserIdentity(token);
@@ -169,10 +177,11 @@ public sealed class OpcUaBackgroundService : BackgroundService
 
         // 4 — Создаём и открываем сессию
         var session = await Session.Create(
-            config, endpoint, false, "MES_ME", 60000, identity, null);
+            config, endpoint, false, $"MES_ME_{controller.Name}", 60000, identity, null);
 
-        _log.LogInformation("OPC UA session opened: {Url}", _opts.EndpointUrl);
-        _svc.SetSession(session);
+        _log.LogInformation("OPC UA session opened: {Url} ({Controller})",
+            controller.EndpointUrl, controller.Name);
+        _svc.SetSession(controller.Name, session);
 
         // 5 — Подписка на теги
         var subscription = new Subscription(session.DefaultSubscription)
@@ -186,8 +195,8 @@ public sealed class OpcUaBackgroundService : BackgroundService
 
         // Создаём MonitoredItem для каждого тега
         var itemsToCreate = new List<MonitoredItem>();
-        
-        foreach (var node in _opts.Nodes)
+
+        foreach (var node in controller.Nodes)
         {
             var item = new MonitoredItem(subscription.DefaultItem)
             {
@@ -201,10 +210,12 @@ public sealed class OpcUaBackgroundService : BackgroundService
             };
 
             var capturedNodeId = node.NodeId;
+            var capturedControllerName = controller.Name;
+
             item.Notification += (_, e) =>
             {
                 if (e.NotificationValue is MonitoredItemNotification n)
-                    _svc.OnDataChange(capturedNodeId, n.Value);
+                    _svc.OnDataChange(capturedControllerName, capturedNodeId, n.Value);
             };
 
             itemsToCreate.Add(item);
@@ -215,8 +226,8 @@ public sealed class OpcUaBackgroundService : BackgroundService
         subscription.Create();
 
         _log.LogInformation(
-            "OPC UA subscription created: {Count} items, interval={Interval}ms",
-            _opts.Nodes.Count, _opts.PublishInterval);
+            "OPC UA subscription created for {Controller}: {Count} items, interval={Interval}ms",
+            controller.Name, controller.Nodes.Count, _opts.PublishInterval);
 
         // 6 — Ждём пока не отменят или сессия не упадёт
         while (!ct.IsCancellationRequested && session.Connected)
@@ -224,9 +235,9 @@ public sealed class OpcUaBackgroundService : BackgroundService
             await Task.Delay(2000, ct);
         }
 
-        _log.LogWarning("OPC UA session disconnected");
-        _svc.SetSession(null);
-        
+        _log.LogWarning("OPC UA session disconnected ({Controller})", controller.Name);
+        _svc.SetSession(controller.Name, null);
+
         // Важно: не используем using, т.к. сессия может понадобиться после переподключения
         // Просто закрываем если нужно
         if (session.Connected)
@@ -237,7 +248,10 @@ public sealed class OpcUaBackgroundService : BackgroundService
 
     public override void Dispose()
     {
-        _svc.SetSession(null);
+        foreach (var controller in _opts.Controllers)
+        {
+            _svc.SetSession(controller.Name, null);
+        }
         base.Dispose();
     }
 }

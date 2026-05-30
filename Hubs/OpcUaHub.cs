@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 namespace MES_ME.Server.Hubs;
 
 /// <summary>
-/// Клиент подписывается на группу тегов (или "all").
+/// Клиент подписывается на группу тегов (или "all" или "controller:NAME").
 /// Сервер присылает обновления при каждом изменении значения.
 /// </summary>
 public sealed class OpcUaHub : Hub
@@ -34,12 +34,32 @@ public sealed class OpcUaHub : Hub
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"tag:{alias}");
     }
 
+    // Подписка на весь контроллер
+    // Вызов: connection.invoke("SubscribeController", "PLC210")
+    public async Task SubscribeController(string controllerName)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"controller:{controllerName}");
+    }
+
+    public async Task UnsubscribeController(string controllerName)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"controller:{controllerName}");
+    }
+
     // Запрос снимка текущих значений — нужен компонентам,
     // которые монтируются ПОСЛЕ установки синглтон-соединения
     // Вызов: connection.invoke("GetSnapshot")
     public async Task GetSnapshot()
     {
         await Clients.Caller.SendAsync("Snapshot", _opc.GetAllValues());
+    }
+
+    // Получить snapshot конкретного контроллера
+    // Вызов: connection.invoke("GetControllerSnapshot", "PLC210")
+    public async Task GetControllerSnapshot(string controllerName)
+    {
+        var values = ((OpcUaService)_opc).GetControllerValues(controllerName);
+        await Clients.Caller.SendAsync("ControllerSnapshot", controllerName, values);
     }
 
     // Запись значения в тег прямо из браузера

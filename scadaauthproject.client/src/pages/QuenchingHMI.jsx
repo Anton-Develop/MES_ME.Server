@@ -130,60 +130,60 @@ export default function QuenchingHMI() {
 
   // ── OPC UA ──────────────────────────────────────────────────────────────
   const { values, connected, write } = useOpcUa([
-    'T_F1_MedAct','T_F2_MedAct','T_F3_MedAct','T_F4_MedAct',
-    'E1_Ocp','E1_Melt','E1_PartNo','E1_Pack','E1_Sheet',
-    'F1_ZoneOccup','F1_InArrow','F1_OutArrow','F1_Melt','F1_PartNo','F1_Pack','F1_Sheet',
-    'F2_ZoneOccup','F2_OutArrow','F2_Melt','F2_PartNo','F2_Pack','F2_Sheet',
-    'F3_ZoneOccup','F3_OutArrow','F3_Melt','F3_PartNo','F3_Pack','F3_Sheet',
-    'F4_ZoneOccup','F4_OutArrow','F4_Melt','F4_PartNo','F4_Pack','F4_Sheet',
-    'X1_ZoneOccup','X1_Melt','X1_PartNo','X1_Pack','X1_Sheet',
-    'X2_ZoneOccup','X2_Melt','X2_PartNo','X2_Pack','X2_Sheet',
+    'PLC210.T_F1_MedAct','PLC210.T_F2_MedAct','PLC210.T_F3_MedAct','PLC210.T_F4_MedAct',
+    'PLC210.E1_Ocp','PLC210.E1_Melt','PLC210.E1_PartNo','PLC210.E1_Pack','PLC210.E1_Sheet',
+    'PLC210.F1_ZoneOccup','PLC210.F1_InArrow','PLC210.F1_OutArrow','PLC210.F1_Melt','PLC210.F1_PartNo','PLC210.F1_Pack','PLC210.F1_Sheet',
+    'PLC210.F2_ZoneOccup','PLC210.F2_OutArrow','PLC210.F2_Melt','PLC210.F2_PartNo','PLC210.F2_Pack','PLC210.F2_Sheet',
+    'PLC210.F3_ZoneOccup','PLC210.F3_OutArrow','PLC210.F3_Melt','PLC210.F3_PartNo','PLC210.F3_Pack','PLC210.F3_Sheet',
+    'PLC210.F4_ZoneOccup','PLC210.F4_OutArrow','PLC210.F4_Melt','PLC210.F4_PartNo','PLC210.F4_Pack','PLC210.F4_Sheet',
+    'PLC210.X1_ZoneOccup','PLC210.X1_Melt','PLC210.X1_PartNo','PLC210.X1_Pack','PLC210.X1_Sheet',
+    'PLC210.X2_ZoneOccup','PLC210.X2_Melt','PLC210.X2_PartNo','PLC210.X2_Pack','PLC210.X2_Sheet',
   ]);
 
   // ── Пересчёт liveData при любом изменении values ─────────────────────
-  // Создаём новый объект → React видит изменение → ре-рендер
-  useEffect(() => {
+useEffect(() => {
     const makeSheet = (prefix) => {
-      const occ = toBool(values[`${prefix}_ZoneOccup`]?.value ?? values[`${prefix}_Ocp`]?.value);
-      if (!occ) return null;
-      return {
-        melt:  toStr(values[`${prefix}_Melt`]?.value),
-        sheet: toStr(values[`${prefix}_Sheet`]?.value),
-        pack:  toStr(values[`${prefix}_Pack`]?.value),
-        batch: toStr(values[`${prefix}_PartNo`]?.value),
-      };
+        const fullPrefix = `PLC210.${prefix}`;
+        const occ = toBool(values[`${fullPrefix}_ZoneOccup`]?.value ?? values[`${fullPrefix}_Ocp`]?.value);
+        if (!occ) return null;
+        return {
+            melt:  toStr(values[`${fullPrefix}_Melt`]?.value),
+            sheet: toStr(values[`${fullPrefix}_Sheet`]?.value),
+            pack:  toStr(values[`${fullPrefix}_Pack`]?.value),
+            batch: toStr(values[`${fullPrefix}_PartNo`]?.value),
+        };
     };
 
-    const entryOcc = toBool(values['E1_Ocp']?.value);
+    const entryOcc = toBool(values['PLC210.E1_Ocp']?.value);
     const entrySheet = entryOcc ? {
-      melt:  toStr(values['E1_Melt']?.value),
-      sheet: toStr(values['E1_Sheet']?.value),
-      pack:  toStr(values['E1_Pack']?.value),
-      batch: toStr(values['E1_PartNo']?.value),
+        melt:  toStr(values['PLC210.E1_Melt']?.value),
+        sheet: toStr(values['PLC210.E1_Sheet']?.value),
+        pack:  toStr(values['PLC210.E1_Pack']?.value),
+        batch: toStr(values['PLC210.E1_PartNo']?.value),
     } : null;
 
-    const x1Sheet = makeSheet('X1');  // X1 = закалка + охлаждение
+    const x1Sheet = makeSheet('X1');
 
     setLiveData({
-      entry:   entrySheet,
-      furnace: [1,2,3,4].map(i => makeSheet(`F${i}`)),
-      quench:  x1Sheet,   // закалка
-      cool:    x1Sheet,   // охлаждение (тот же лист в секции X1)
-      output:  makeSheet('X2'),  // X2 = выдача рольганг
-      arrows: {
-        toFurnace: toBool(values['F1_InArrow']?.value),
-        zones: [1,2,3,4].map(i => toBool(values[`F${i}_OutArrow`]?.value)),
-      },
+        entry:   entrySheet,
+        furnace: [1,2,3,4].map(i => makeSheet(`F${i}`)),
+        quench:  x1Sheet,
+        cool:    x1Sheet,
+        output:  makeSheet('X2'),
+        arrows: {
+            toFurnace: toBool(values['PLC210.F1_InArrow']?.value),
+            zones: [1,2,3,4].map(i => toBool(values[`PLC210.F${i}_OutArrow`]?.value)),
+        },
     });
-  }, [values]);
+}, [values]);
 
-  // ── Temperatures ─────────────────────────────────────────────────────────
-  const realTemps = [
-    Math.round(values['T_F1_MedAct']?.value ?? 0),
-    Math.round(values['T_F2_MedAct']?.value ?? 0),
-    Math.round(values['T_F3_MedAct']?.value ?? 0),
-    Math.round(values['T_F4_MedAct']?.value ?? 0),
-  ];
+// ── Temperatures ─────────────────────────────────────────────────────────
+const realTemps = [
+    Math.round(values['PLC210.T_F1_MedAct']?.value ?? 0),
+    Math.round(values['PLC210.T_F2_MedAct']?.value ?? 0),
+    Math.round(values['PLC210.T_F3_MedAct']?.value ?? 0),
+    Math.round(values['PLC210.T_F4_MedAct']?.value ?? 0),
+];
 
   const setZoneTemp = async (zone, temp) => {
     const ok = await write(`z${zone}_setpoint`, temp);

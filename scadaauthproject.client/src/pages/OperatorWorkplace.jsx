@@ -676,9 +676,9 @@ function AddSheetsModal({ open, onClose, onAdd, businessKey }) {
 // ════════════════════════════════════════════════════════════════════
 export default function OperatorWorkplace() {
   const { values, connected } = useOpcUa([
-    'X2_ZoneOccup', 'X2_Melt', 'X2_Slab', 'X2_PartNo', 'X2_Pack',
-    'X2_Sheet', 'X2_SubSheet', 'X2_SheetInPack', 'X2_SheetsInPack',
-    'X2_Thikness', 'X2_AlloyCodeText',
+    'PLC210.X2_ZoneOccup', 'PLC210.X2_Melt', 'PLC210.X2_Slab', 'PLC210.X2_PartNo', 'PLC210.X2_Pack',
+    'PLC210.X2_Sheet', 'PLC210.X2_SubSheet', 'PLC210.X2_SheetInPack', 'PLC210.X2_SheetsInPack',
+    'PLC210.X2_Thikness', 'PLC210.X2_AlloyCodeText',
   ]);
 
   const { user } = useAuth();
@@ -774,15 +774,15 @@ const [addSheetsModal, setAddSheetsModal] = useState(false);
 
   // ── Слежение за X2 ──
   useEffect(() => {
-    const occ = toNum(values['X2_ZoneOccup']?.value);
+    const occ = toNum(values['PLC210.X2_ZoneOccup']?.value);
     if (occ !== 1 && occ !== true) { setLastCreatedKey(null); return; }
     const sheet = {
-      melt: toNum(values['X2_Melt']?.value), slab: toNum(values['X2_Slab']?.value),
-      partNo: toNum(values['X2_PartNo']?.value), pack: toNum(values['X2_Pack']?.value),
-      sheet: toNum(values['X2_Sheet']?.value), sheetInPack: toNum(values['X2_SheetInPack']?.value),
-      sheetsInPack: toNum(values['X2_SheetsInPack']?.value),
-      thickness: toNum(values['X2_Thikness']?.value),
-      alloyCodeText: toStr(values['X2_AlloyCodeText']?.value),
+      melt: toNum(values['PLC210.X2_Melt']?.value), slab: toNum(values['PLC210.X2_Slab']?.value),
+      partNo: toNum(values['PLC210.X2_PartNo']?.value), pack: toNum(values['PLC210.X2_Pack']?.value),
+      sheet: toNum(values['PLC210.X2_Sheet']?.value), sheetInPack: toNum(values['PLC210.X2_SheetInPack']?.value),
+      sheetsInPack: toNum(values['PLC210.X2_SheetsInPack']?.value),
+      thickness: toNum(values['PLC210.X2_Thikness']?.value),
+      alloyCodeText: toStr(values['PLC210.X2_AlloyCodeText']?.value),
     };
     const key = `${sheet.melt}/${sheet.partNo}/${sheet.pack}/${sheet.sheet}`;
     if (!key || key === lastCreatedKey || !sheet.melt || !sheet.sheet) return;
