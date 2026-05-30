@@ -24,7 +24,7 @@ namespace MES_ME.Server.Controllers
         }
 
         [HttpGet]
-        [Authorize(Roles = "superadmin,developer")]
+        
         public async Task<IActionResult> GetData(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10,
@@ -36,6 +36,7 @@ namespace MES_ME.Server.Controllers
             [FromQuery] string? batchNumberFilter = null,
             [FromQuery] string? packNumberFilter = null,
             [FromQuery] string? sheetNumberFilter = null,
+            [FromQuery] string? steelGradeFilter = null,
             [FromQuery] DateTime? rollDateFromFilter = null,
             [FromQuery] DateTime? rollDateToFilter = null
         // ... добавьте другие параметры фильтрации по мере необходимости
@@ -43,7 +44,7 @@ namespace MES_ME.Server.Controllers
         {
             // Проверка page и pageSize
             if (page < 1) page = 1;
-            if (pageSize < 1 || pageSize > 100) pageSize = 10; // Ограничим максимальный размер страницы
+            if (pageSize < 1 || pageSize > 1000) pageSize = 10; // Ограничим максимальный размер страницы
 
             // Начинаем строить запрос IQueryable
             var query = _context.InputData.AsQueryable(); // 
@@ -79,6 +80,12 @@ namespace MES_ME.Server.Controllers
             if (rollDateToFilter.HasValue)
             {
                 query = query.Where(x => x.RollDate <= rollDateToFilter.Value.Date.AddDays(1).AddTicks(-1)); // До конца дня
+
+            }
+            // <-- ДОБАВЛЕН ФИЛЬТР ПО МАРКЕ СТАЛИ
+            if (!string.IsNullOrEmpty(steelGradeFilter))
+            {
+                query = query.Where(x => x.SteelGrade.Contains(steelGradeFilter));
             }
             // ... добавьте другие фильтры ...
 
@@ -156,6 +163,7 @@ namespace MES_ME.Server.Controllers
         [FromQuery] string? batchNumberFilter = null,
         [FromQuery] string? packNumberFilter = null,
         [FromQuery] string? sheetNumberFilter = null,
+        [FromQuery] string? steelGradeFilter = null,
         [FromQuery] DateTime? rollDateFromFilter = null,
         [FromQuery] DateTime? rollDateToFilter = null
         // ... другие параметры фильтрации ...
@@ -163,7 +171,7 @@ namespace MES_ME.Server.Controllers
     {
         // Проверка page и pageSize
         if (page < 1) page = 1;
-        if (pageSize < 1 || pageSize > 100) pageSize = 25; // Ограничим максимальный размер страницы
+        if (pageSize < 1 || pageSize > 1000) pageSize = 25; // Ограничим максимальный размер страницы
 
         // Начинаем строить запрос IQueryable
         // ВАЖНО: Этот метод возвращает ТОЛЬКО листы со статусом "Подготовлен к прокату"
@@ -201,10 +209,15 @@ namespace MES_ME.Server.Controllers
         {
             query = query.Where(x => x.RollDate <= rollDateToFilter.Value.Date.AddDays(1).AddTicks(-1));
         }
-        // ... добавьте другие фильтры ...
+            // <-- ДОБАВЛЕН ФИЛЬТР ПО МАРКЕ СТАЛИ
+            if (!string.IsNullOrEmpty(steelGradeFilter))
+            {
+                query = query.Where(x => x.SteelGrade.Contains(steelGradeFilter));
+            }
+            // ... добавьте другие фильтры ...
 
-        // Подсчитываем общее количество записей до пагинации
-        var totalCount = await query.CountAsync();
+            // Подсчитываем общее количество записей до пагинации
+            var totalCount = await query.CountAsync();
 
         // Определяем порядок сортировки (можно сделать параметром, если нужно)
         // Например, по умолчанию сортируем по MatId

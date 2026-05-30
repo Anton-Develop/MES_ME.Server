@@ -126,8 +126,43 @@ namespace MES_ME.Server.Controllers
                     seenKeys.Add(key);
 
                     // Если строка прошла проверку, готовим её для загрузки в inputdata_raw
+                    // --- Логика определения статуса на основе столбца "Сырье" (индекс 15) ---
+                    var rawMaterialObj = GetValueByIndex(rowDict, 15);
+                    string currentStatus = "Подготовлен к прокату "; // Статус по умолчанию (с пробелом на конце, как у вас в коде)
+
+                    if (rawMaterialObj == null || rawMaterialObj == DBNull.Value)
+                    {
+                        currentStatus = "Прошел отпуск";
+                    }
+                    else
+                    {
+                        var rawStr = rawMaterialObj.ToString().Trim();
+                        // Считаем "нулём" пустые значения и прочерки
+                        if (string.IsNullOrEmpty(rawStr) || rawStr == "-")
+                        {
+                            currentStatus = "Прошел отпуск";
+                        }
+                        else
+                        {
+                            // Пробуем распарсить как число (на случай, если в Excel записано "0", "0.0" или "0,0")
+                            var normalizedStr = rawStr.Replace(",", ".");
+                            if (decimal.TryParse(normalizedStr, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal rawVal))
+                            {
+                                if (rawVal == 0)
+                                {
+                                    currentStatus = "Прошел отпуск";
+                                }
+                            }
+                            else if (rawStr == "0")
+                            {
+                                currentStatus = "Прошел отпуск";
+                            }
+                        }
+                    }
+
+                    // Если строка прошла проверку, готовим её для загрузки в inputdata_raw
                     var rowData = new object[54]; // 54 столбца: status + 53 поля из Excel
-                    rowData[0] = "Подготовлен к прокату"; // status
+                    rowData[0] = currentStatus; // Устанавливаем вычисленный статус
                     rowData[1] = ConvertValueToString(GetValueByIndex(rowDict, 0)); // certificate_number
                     rowData[2] = ConvertValueToString(GetValueByIndex(rowDict, 1)); // short_order_number
                     rowData[3] = ConvertValueToString(GetValueByIndex(rowDict, 2)); // commercial_order_number
