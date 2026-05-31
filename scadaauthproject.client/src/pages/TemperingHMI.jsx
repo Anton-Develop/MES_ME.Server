@@ -1,5 +1,5 @@
 // src/pages/TemperingHMI.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Box, Grid, Paper, Typography, Stack, Chip,
     CircularProgress, LinearProgress, Divider,
@@ -15,12 +15,59 @@ import {
     PlayArrow as PlayArrowIcon,
     Print as PrintIcon,
     Refresh as RefreshIcon,
-    Stop as StopIcon
+    Stop as StopIcon,
+    SignalCellularAlt as SignalIcon
 } from '@mui/icons-material';
 import api from '../api';
+import { useOpcUa } from '../hooks/useOpcUa';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 const FURNACES = [1, 2, 3, 4];
+
+// ─── Алиасы OPC UA для всех печей ─────────────────────────────────────────────
+const OPC_ALIASES = [
+    // Печь 1 (RelFurn1)
+    'RelFurn12.RelFurn1.TempAct', 'RelFurn12.RelFurn1.TempRef', 'RelFurn12.RelFurn1.T1', 'RelFurn12.RelFurn1.T2',
+    'RelFurn12.RelFurn1.T_Average_Furn', 'RelFurn12.RelFurn1.TimeProcSet', 'RelFurn12.RelFurn1.TimeToProcEnd',
+    'RelFurn12.RelFurn1.ActTimeHeatAcc', 'RelFurn12.RelFurn1.ActTimeHeatWait', 'RelFurn1.ActTimeTotal',
+    'RelFurn12.RelFurn1.ProcFault', 'RelFurn12.RelFurn1.ProcRun', 'RelFurn12.RelFurn1.ProcEnd',
+    'RelFurn12.RelFurn1.PointRef_1', 'RelFurn12.RelFurn1.PointTime_1', 'RelFurn12.RelFurn1.PointDTime_2',
+    'RelFurn12.RelFurn1.CaasetteNo', 'RelFurn12.RelFurn1.Day', 'RelFurn12.RelFurn1.Month', 'RelFurn12.RelFurn1.Year', 'RelFurn12.RelFurn1.Hour',
+    
+    // Печь 2 (RelFurn2)
+    'RelFurn12.RelFurn2.TempAct', 'RelFurn12.RelFurn2.TempRef', 'RelFurn12.RelFurn2.T1', 'RelFurn12.RelFurn2.T2',
+    'RelFurn12.RelFurn2.T_Average_Furn', 'RelFurn12.RelFurn2.TimeProcSet', 'RelFurn12.RelFurn2.TimeToProcEnd',
+    'RelFurn12.RelFurn2.ActTimeHeatAcc', 'RelFurn12.RelFurn2.ActTimeHeatWait', 'RelFurn12.RelFurn2.ActTimeTotal',
+    'RelFurn12.RelFurn2.ProcFault', 'RelFurn12.RelFurn2.ProcRun', 'RelFurn12.RelFurn2.ProcEnd',
+    'RelFurn12.RelFurn2.PointRef_1', 'RelFurn12.RelFurn2.PointTime_1', 'RelFurn12.RelFurn2.PointDTime_2',
+    'RelFurn12.RelFurn2.CaasetteNo', 'RelFurn12.RelFurn2.Day', 'RelFurn12.RelFurn2.Month', 'RelFurn12.RelFurn2.Year', 'RelFurn12.RelFurn2.Hour',
+    
+    // Печь 3 (RelFurn3)
+    'RelFurn3.TempAct', 'RelFurn3.TempRef', 'RelFurn3.TactBurn1', 'RelFurn3.TactBurn2',
+    'RelFurn3.ActTimeHeatAcc', 'RelFurn3.ActTimeHeatWait', 'RelFurn3.ActTimeTotal',
+    'RelFurn3.ProcFault', 'RelFurn3.ProcRun', 'RelFurn3.ProcEnd',
+    'RelFurn3.TimeProcSet', 'RelFurn3.TimeToProcEnd',
+    'RelFurn3.PointRef_1', 'RelFurn3.PointTime_1', 'RelFurn3.PointDTime_2',
+    'RelFurn3.Cassette1_CaasetteNo1', 'RelFurn3.Cassette1_Day', 'RelFurn3.Cassette1_Month',
+    'RelFurn3.Cassette1_Year', 'RelFurn3.Cassette1_Hour',
+    'RelFurn3.Cassette2_CaasetteNo2', 'RelFurn3.Cassette2_Day', 'RelFurn3.Cassette2_Month',
+    'RelFurn3.Cassette2_Year', 'RelFurn3.Cassette2_Hour',
+    'RelFurn3.Burn1_AI.TE_Lower', 'RelFurn3.Burn1_AI.TE_Upper',
+    'RelFurn3.Burn1_AI.AirPrs', 'RelFurn3.Burn1_AI.GasPrs',
+    
+    // Печь 4 (RelFurn4)
+    'RelFurn4.TempAct', 'RelFurn4.TempRef', 'RelFurn4.TactBurn1', 'RelFurn4.TactBurn2',
+    'RelFurn4.ActTimeHeatAcc', 'RelFurn4.ActTimeHeatWait', 'RelFurn4.ActTimeTotal',
+    'RelFurn4.ProcFault', 'RelFurn4.ProcRun', 'RelFurn4.ProcEnd',
+    'RelFurn4.TimeProcSet', 'RelFurn4.TimeToProcEnd',
+    'RelFurn4.PointRef_1', 'RelFurn4.PointTime_1', 'RelFurn4.PointDTime_2',
+    'RelFurn4.Cassette1_CaasetteNo1', 'RelFurn4.Cassette1_Day', 'RelFurn4.Cassette1_Month',
+    'RelFurn4.Cassette1_Year', 'RelFurn4.Cassette1_Hour',
+    'RelFurn4.Cassette2_CaasetteNo2', 'RelFurn4.Cassette2_Day', 'RelFurn4.Cassette2_Month',
+    'RelFurn4.Cassette2_Year', 'RelFurn4.Cassette2_Hour',
+    'RelFurn4.Burn1_AI.TE_Lower', 'RelFurn4.Burn1_AI.TE_Upper',
+    'RelFurn4.Burn1_AI.AirPrs', 'RelFurn4.Burn1_AI.GasPrs',
+];
 
 // ─── Тема / токены ─────────────────────────────────────────────────────────────
 const T = {
@@ -29,7 +76,6 @@ const T = {
     surfaceAlt: '#1c2330',
     border: '#30363d',
     borderSoft: '#21262d',
-
     textPrimary: '#e6edf3',
     textSecondary: '#8b949e',
     textMuted: '#484f58',
@@ -49,6 +95,61 @@ const fmtMin = (v) => v != null ? `${Number(v).toFixed(0)} мин` : '—';
 const fmtBar = (v) => v != null ? `${Number(v).toFixed(3)}` : '—';
 const formatTime = (dt) => dt ? new Date(dt).toLocaleTimeString('ru-RU') : '';
 const formatDateTime = (dt) => dt ? new Date(dt).toLocaleString('ru-RU') : '—';
+
+// ─── Преобразование OPC UA значений в формат для карточки печи ────────────────
+const transformOpcToPlcData = (values, furnaceNo) => {
+    const prefix = furnaceNo <= 2 ? `RelFurn${furnaceNo}` : `RelFurn${furnaceNo}`;
+    const getVal = (tag) => values[`${prefix}.${tag}`]?.value;
+    
+    const data = {
+        furnace_no: furnaceNo,
+        time: new Date().toISOString(),
+        temp_act: getVal('TempAct'),
+        temp_ref: getVal('TempRef'),
+        t1: furnaceNo <= 2 ? getVal('T1') : getVal('TactBurn1'),
+        t2: furnaceNo <= 2 ? getVal('T2') : getVal('TactBurn2'),
+        t_average_furn: getVal('T_Average_Furn'),
+        time_proc_set: getVal('TimeProcSet'),
+        time_to_proc_end: getVal('TimeToProcEnd'),
+        act_time_heat_acc: getVal('ActTimeHeatAcc'),
+        act_time_heat_wait: getVal('ActTimeHeatWait'),
+        act_time_total: getVal('ActTimeTotal'),
+        proc_fault: getVal('ProcFault'),
+        proc_run: getVal('ProcRun'),
+        proc_end: getVal('ProcEnd'),
+        point_ref_1: getVal('PointRef_1'),
+        point_time_1: getVal('PointTime_1'),
+        point_dtime_2: getVal('PointDTime_2'),
+    };
+
+    // Кассеты
+    if (furnaceNo <= 2) {
+        data.cassette_no = getVal('CaasetteNo');
+        data.cass_day = getVal('Day');
+        data.cass_month = getVal('Month');
+        data.cass_year = getVal('Year');
+        data.cass_hour = getVal('Hour');
+    } else {
+        data.cass1_no = getVal('Cassette1_CaasetteNo1');
+        data.cass1_day = getVal('Cassette1_Day');
+        data.cass1_month = getVal('Cassette1_Month');
+        data.cass1_year = getVal('Cassette1_Year');
+        data.cass1_hour = getVal('Cassette1_Hour');
+        data.cass2_no = getVal('Cassette2_CaasetteNo2');
+        data.cass2_day = getVal('Cassette2_Day');
+        data.cass2_month = getVal('Cassette2_Month');
+        data.cass2_year = getVal('Cassette2_Year');
+        data.cass2_hour = getVal('Cassette2_Hour');
+        
+        // Горелки для печей 3 и 4
+        data.burn1_te_lower = getVal('Burn1_AI.TE_Lower');
+        data.burn1_te_upper = getVal('Burn1_AI.TE_Upper');
+        data.burn1_air_prs = getVal('Burn1_AI.AirPrs');
+        data.burn1_gas_prs = getVal('Burn1_AI.GasPrs');
+    }
+
+    return data;
+};
 
 // ─── Статус-чип ────────────────────────────────────────────────────────────────
 function StatusChip({ run, end, fault }) {
@@ -151,71 +252,129 @@ function CassetteLabel({ no, day, month, year, hour }) {
 // ─── Разделитель ──────────────────────────────────────────────────────────────
 const HRule = () => <Divider sx={{ borderColor: T.borderSoft, my: 1.5 }} />;
 
+// ─── Индикатор подключения SignalR ─────────────────────────────────────────────
+function ConnectionIndicator({ connected, connecting, error }) {
+    if (error) {
+        return (
+            <Tooltip title={`Ошибка: ${error}`}>
+                <Chip
+                    icon={<ErrorIcon sx={{ fontSize: '0.75rem !important' }} />}
+                    label="ОТКЛ"
+                    size="small"
+                    sx={{
+                        height: 20,
+                        fontSize: '0.65rem',
+                        fontWeight: 600,
+                        bgcolor: '#3d1a1a',
+                        color: T.danger,
+                        border: `1px solid ${T.danger}44`,
+                        '& .MuiChip-icon': { color: T.danger }
+                    }}
+                />
+            </Tooltip>
+        );
+    }
+    if (connecting) {
+        return (
+            <Chip
+                icon={<CircularProgress size={10} sx={{ color: T.warning }} />}
+                label="ПОДКЛ..."
+                size="small"
+                sx={{
+                    height: 20,
+                    fontSize: '0.65rem',
+                    fontWeight: 600,
+                    bgcolor: '#2d2200',
+                    color: T.warning,
+                    border: `1px solid ${T.warning}44`,
+                }}
+            />
+        );
+    }
+    if (connected) {
+        return (
+            <Tooltip title="SignalR подключён">
+                <Chip
+                    icon={<SignalIcon sx={{ fontSize: '0.75rem !important' }} />}
+                    label="ONLINE"
+                    size="small"
+                    sx={{
+                        height: 20,
+                        fontSize: '0.65rem',
+                        fontWeight: 600,
+                        bgcolor: '#0f2a1a',
+                        color: T.success,
+                        border: `1px solid ${T.success}44`,
+                        '& .MuiChip-icon': { color: T.success }
+                    }}
+                />
+            </Tooltip>
+        );
+    }
+    return null;
+}
+
 // ─── Секция: управление кассетой ──────────────────────────────────────────────
 function CassetteControl({ furnaceNo, activeSession, availableCassettes, loading, onLoadClick, onUnloadClick }) {
     const [selected, setSelected] = useState('');
 
-{activeSession && (
-    <Box sx={{
-        bgcolor: '#0d1f30',
-        border: `1px solid ${T.accent}33`,
-        borderRadius: 1.5,
-        p: 1.5,
-    }}>
-        <Typography sx={{
-            color: T.textMuted, fontSize: '0.6rem', fontFamily: T.sansFont,
-            fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1,
-        }}>
-            Активная кассета
-        </Typography>
-
-        {/* ✅ Крупно — номер кассеты */}
-        <Typography sx={{
-            fontFamily: T.monoFont, fontSize: '1.1rem', fontWeight: 700,
-            color: T.accent, lineHeight: 1.2, mb: 0.3,
-        }}>
-            №{activeSession.cassetteNumber}
-        </Typography>
-        
-        {/* ✅ Мелко — полный business_key */}
-        <Typography sx={{ 
-            color: T.textSecondary, fontSize: '0.68rem', fontFamily: T.monoFont, mb: 0.5 
-        }}>
-            {activeSession.businessKey}
-        </Typography>
-
-        <Typography sx={{ color: T.textSecondary, fontSize: '0.72rem', fontFamily: T.sansFont, mb: 0.25 }}>
-            Загружена: {formatDateTime(activeSession.loadedAt)}
-        </Typography>
-        {activeSession.loadedBy && (
-            <Typography sx={{ color: T.textMuted, fontSize: '0.7rem', fontFamily: T.sansFont, mb: 1 }}>
-                Оператор: {activeSession.loadedBy}
-            </Typography>
-        )}
-
-        <Button
-            fullWidth variant="outlined" size="small"
-            onClick={onUnloadClick}
-            disabled={loading}
-            startIcon={<StopIcon sx={{ fontSize: '0.9rem !important' }} />}
-            sx={{
-                color: T.danger,
-                borderColor: `${T.danger}66`,
-                fontSize: '0.72rem',
-                fontWeight: 600,
-                letterSpacing: '0.05em',
-                fontFamily: T.sansFont,
-                py: 0.75,
-                '&:hover': {
-                    borderColor: T.danger,
-                    bgcolor: `${T.danger}11`,
-                },
-            }}
-        >
-            Выгрузить кассету
-        </Button>
-    </Box>
-)}
+    if (activeSession) {
+        return (
+            <Box sx={{
+                bgcolor: '#0d1f30',
+                border: `1px solid ${T.accent}33`,
+                borderRadius: 1.5,
+                p: 1.5,
+            }}>
+                <Typography sx={{
+                    color: T.textMuted, fontSize: '0.6rem', fontFamily: T.sansFont,
+                    fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1,
+                }}>
+                    Активная кассета
+                </Typography>
+                <Typography sx={{
+                    fontFamily: T.monoFont, fontSize: '1.1rem', fontWeight: 700,
+                    color: T.accent, lineHeight: 1.2, mb: 0.3,
+                }}>
+                    №{activeSession.cassetteNumber}
+                </Typography>
+                <Typography sx={{
+                    color: T.textSecondary, fontSize: '0.68rem', fontFamily: T.monoFont, mb: 0.5
+                }}>
+                    {activeSession.businessKey}
+                </Typography>
+                <Typography sx={{ color: T.textSecondary, fontSize: '0.72rem', fontFamily: T.sansFont, mb: 0.25 }}>
+                    Загружена: {formatDateTime(activeSession.loadedAt)}
+                </Typography>
+                {activeSession.loadedBy && (
+                    <Typography sx={{ color: T.textMuted, fontSize: '0.7rem', fontFamily: T.sansFont, mb: 1 }}>
+                        Оператор: {activeSession.loadedBy}
+                    </Typography>
+                )}
+                <Button
+                    fullWidth variant="outlined" size="small"
+                    onClick={onUnloadClick}
+                    disabled={loading}
+                    startIcon={<StopIcon sx={{ fontSize: '0.9rem !important' }} />}
+                    sx={{
+                        color: T.danger,
+                        borderColor: `${T.danger}66`,
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        letterSpacing: '0.05em',
+                        fontFamily: T.sansFont,
+                        py: 0.75,
+                        '&:hover': {
+                            borderColor: T.danger,
+                            bgcolor: `${T.danger}11`,
+                        },
+                    }}
+                >
+                    Выгрузить кассету
+                </Button>
+            </Box>
+        );
+    }
 
     return (
         <Box>
@@ -268,19 +427,18 @@ function CassetteControl({ furnaceNo, activeSession, availableCassettes, loading
                     </MenuItem>
                     {availableCassettes.map(c => (
                         <MenuItem key={c.cassetteId} value={c.cassetteNumber}>
-    <Stack direction="row" spacing={1.5} alignItems="baseline">
-        <Typography sx={{ fontFamily: T.monoFont, fontSize: '0.8rem', color: T.accent, fontWeight: 600 }}>
-            №{c.cassetteNumber}
-        </Typography>
-        <Typography sx={{ fontFamily: T.sansFont, fontSize: '0.68rem', color: T.textSecondary }}>
-            {c.sheetsCount} л · {new Date(c.createdAt).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'})}
-        </Typography>
-    </Stack>
-</MenuItem>
+                            <Stack direction="row" spacing={1.5} alignItems="baseline">
+                                <Typography sx={{ fontFamily: T.monoFont, fontSize: '0.8rem', color: T.accent, fontWeight: 600 }}>
+                                    №{c.cassetteNumber}
+                                </Typography>
+                                <Typography sx={{ fontFamily: T.sansFont, fontSize: '0.68rem', color: T.textSecondary }}>
+                                    {c.sheetsCount} л · {new Date(c.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                                </Typography>
+                            </Stack>
+                        </MenuItem>
                     ))}
                 </Select>
             </FormControl>
-
             <Button
                 fullWidth variant="contained" size="small"
                 onClick={() => { if (selected) onLoadClick(selected); setSelected(''); }}
@@ -361,7 +519,6 @@ function FurnaceCard({ furnaceNo, plcData, activeSession, availableCassettes, on
             transition: 'border-color 0.3s, background-color 0.3s',
             boxShadow: isRun ? `0 0 20px ${T.warning}22` : isEnd ? `0 0 20px ${T.success}18` : 'none',
         }}>
-
             {/* ── Заголовок */}
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
                 <Typography sx={{
@@ -498,7 +655,7 @@ function FurnaceCard({ furnaceNo, plcData, activeSession, availableCassettes, on
                 color: T.textMuted, fontSize: '0.62rem', fontFamily: T.monoFont,
                 textAlign: 'right', mt: 1.5, opacity: 0.7,
             }}>
-                {plcData?.time ? formatTime(plcData.time) : ''}
+                {formatTime(new Date())}
             </Typography>
 
             {/* ── Диалог подтверждения */}
@@ -538,7 +695,9 @@ function FurnaceCard({ furnaceNo, plcData, activeSession, availableCassettes, on
 
 // ─── Основная страница ────────────────────────────────────────────────────────
 export default function TemperingHMI() {
-    const [plcDataList, setPlcDataList] = useState([]);
+    // SignalR подключение к OPC UA
+    const { values, connected, connecting, error: opcError } = useOpcUa(OPC_ALIASES);
+
     const [activeSessions, setActiveSessions] = useState([]);
     const [availableCassettes, setAvailableCassettes] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -546,19 +705,15 @@ export default function TemperingHMI() {
     const [error, setError] = useState(null);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
+    // Преобразование OPC UA значений в формат для карточек
+    const plcDataList = useMemo(() => {
+        return FURNACES.map(no => transformOpcToPlcData(values, no));
+    }, [values]);
+
     const showMessage = (msg, severity = 'success') => {
         setSnackbar({ open: true, message: msg, severity });
         setTimeout(() => setSnackbar(p => ({ ...p, open: false })), 5000);
     };
-
-    const loadPlcData = useCallback(async () => {
-        try {
-            const r = await api.get('/tempering/current');
-            setPlcDataList(r.data);
-        } catch {
-            setError('Ошибка соединения с PLC');
-        }
-    }, []);
 
     const loadActiveSessions = useCallback(async () => {
         try {
@@ -567,95 +722,86 @@ export default function TemperingHMI() {
         } catch { /* silent */ }
     }, []);
 
-const loadReadyCassettes = useCallback(async () => {
-    try {
-        const [casR, sesR] = await Promise.all([
-            api.get('/cassettenew/list'),
-            api.get('/tempering/active-sessions'),
-        ]);
-        
-        // ✅ Используем businessKey из новой таблицы
-        const activeCasKeys = sesR.data.map(s => s.businessKey || s.BusinessKey);
-        
-        // ✅ Фильтруем: только закрытые (is_closed=true), которых ещё нет в печах
-        const ready = casR.data.filter(c => 
-            c.is_closed === true && !activeCasKeys.includes(c.business_key)
-        );
-        
-        const withSheets = await Promise.all(ready.map(async (c) => {
-            try {
-                const sr = await api.get(`/cassettenew/${encodeURIComponent(c.business_key)}/sheets`);
-                return {
-                    cassetteId: c.business_key,           // ✅ business_key, а не cassetteId
-                    cassetteNumber: c.cassette_number,    // ✅ короткий номер
-                    status: 'Готова к отправке',
-                    sheetsCount: sr.data.length,
-                    totalWeight: 0,
-                    createdAt: c.created_at,
-                };
-            } catch {
-                return { 
-                    cassetteId: c.business_key, 
-                    cassetteNumber: c.cassette_number, 
-                    status: 'Готова к отправке', 
-                    sheetsCount: 0, 
-                    totalWeight: 0,
-                    createdAt: c.created_at,
-                };
-            }
-        }));
-        setAvailableCassettes(withSheets);
-    } catch (err) {
-        console.error('Ошибка загрузки готовых кассет:', err);
-    }
-}, []);
+    const loadReadyCassettes = useCallback(async () => {
+        try {
+            const [casR, sesR] = await Promise.all([
+                api.get('/cassettenew/list'),
+                api.get('/tempering/active-sessions'),
+            ]);
+            const activeCasKeys = sesR.data.map(s => s.businessKey || s.BusinessKey);
+            const ready = casR.data.filter(c =>
+                c.is_closed === true && !activeCasKeys.includes(c.business_key)
+            );
+            const withSheets = await Promise.all(ready.map(async (c) => {
+                try {
+                    const sr = await api.get(`/cassettenew/${encodeURIComponent(c.business_key)}/sheets`);
+                    return {
+                        cassetteId: c.business_key,
+                        cassetteNumber: c.cassette_number,
+                        status: 'Готова к отправке',
+                        sheetsCount: sr.data.length,
+                        totalWeight: 0,
+                        createdAt: c.created_at,
+                    };
+                } catch {
+                    return {
+                        cassetteId: c.business_key,
+                        cassetteNumber: c.cassette_number,
+                        status: 'Готова к отправке',
+                        sheetsCount: 0,
+                        totalWeight: 0,
+                        createdAt: c.created_at,
+                    };
+                }
+            }));
+            setAvailableCassettes(withSheets);
+        } catch (err) {
+            console.error('Ошибка загрузки готовых кассет:', err);
+        }
+    }, []);
 
     const loadAllData = useCallback(async () => {
         setRefreshing(true);
-        try { await Promise.all([loadPlcData(), loadActiveSessions()]); }
+        try { await loadActiveSessions(); }
         catch { /* silent */ }
         finally { setLoading(false); setRefreshing(false); }
-    }, [loadPlcData, loadActiveSessions]);
+    }, [loadActiveSessions]);
 
     useEffect(() => { if (!loading) loadReadyCassettes(); }, [activeSessions, loading, loadReadyCassettes]);
 
     useEffect(() => {
         loadAllData();
-        const iv = setInterval(loadAllData, 5000);
+        const iv = setInterval(loadAllData, 10000); // Реже, т.к. данные с ПЛК теперь в real-time
         return () => clearInterval(iv);
     }, [loadAllData]);
 
-const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
-    try {
-        await api.post('/tempering/load', { furnaceNo, cassetteNumber });
-        showMessage(`Кассета №${cassetteNumber} → Печь №${furnaceNo}`, 'success');
-        await loadAllData();
-    } catch (err) {
-        showMessage(err.response?.data?.message || 'Ошибка при загрузке кассеты', 'error');
-        throw err;
-    }
-};
+    const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
+        try {
+            await api.post('/tempering/load', { furnaceNo, cassetteNumber });
+            showMessage(`Кассета №${cassetteNumber} → Печь №${furnaceNo}`, 'success');
+            await loadAllData();
+        } catch (err) {
+            showMessage(err.response?.data?.message || 'Ошибка при загрузке кассеты', 'error');
+            throw err;
+        }
+    };
 
     const handleUnloadCassette = async (furnaceNo) => {
-    try {
-        await api.post('/tempering/unload', { furnaceNo });
-        showMessage(`Кассета выгружена из печи №${furnaceNo}`, 'success');
-        await loadAllData();
-    } catch (err) {
-        showMessage(
-            err.response?.data?.message || 'Ошибка при выгрузке кассеты', 
-            'error'
-        );
-        throw err;
-    }
-};
+        try {
+            await api.post('/tempering/unload', { furnaceNo });
+            showMessage(`Кассета выгружена из печи №${furnaceNo}`, 'success');
+            await loadAllData();
+        } catch (err) {
+            showMessage(err.response?.data?.message || 'Ошибка при выгрузке кассеты', 'error');
+            throw err;
+        }
+    };
 
     const getActiveSession = (n) => activeSessions.find(s => s.furnaceNumber === n);
     const getPlcData = (n) => plcDataList.find(f => f.furnace_no === n);
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 2.5 }, bgcolor: T.bg, minHeight: '100vh' }}>
-
             {/* ── Шапка */}
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2.5 }}>
                 <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -667,11 +813,12 @@ const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
                     }}>
                         Печи отпуска
                     </Typography>
+                    <ConnectionIndicator connected={connected} connecting={connecting} error={opcError} />
                 </Stack>
 
                 <Stack direction="row" spacing={0.5} alignItems="center">
                     {(loading || refreshing) && <CircularProgress size={14} sx={{ color: T.accent }} />}
-                    <Tooltip title="Обновить">
+                    <Tooltip title="Обновить сессии">
                         <IconButton size="small" onClick={loadAllData} disabled={refreshing}
                             sx={{ color: T.textSecondary, '&:hover': { color: T.accent } }}>
                             <RefreshIcon sx={{ fontSize: '1rem' }} />
@@ -686,10 +833,15 @@ const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
                 </Stack>
             </Stack>
 
-            {/* ── Ошибка */}
+            {/* ── Ошибки */}
             {error && (
                 <Alert severity="error" sx={{ mb: 2, bgcolor: '#2d1515', color: T.danger }} onClose={() => setError(null)}>
                     {error}
+                </Alert>
+            )}
+            {opcError && (
+                <Alert severity="warning" sx={{ mb: 2, bgcolor: '#2d2200', color: T.warning }}>
+                    Нет подключения к OPC UA серверу. Данные могут быть устаревшими.
                 </Alert>
             )}
 
@@ -740,23 +892,26 @@ const handleLoadCassette = async (furnaceNo, cassetteNumber) => {
                 ) : (
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         {availableCassettes.map(c => (
-    <MenuItem key={c.cassetteId} value={c.cassetteNumber}>
-        <Stack direction="row" spacing={1.5} alignItems="baseline">
-            <Typography sx={{ 
-                fontFamily: T.monoFont, fontSize: '0.8rem', color: T.accent, fontWeight: 600 
-            }}>
-                №{c.cassetteNumber}
-            </Typography>
-            <Typography sx={{ 
-                fontFamily: T.sansFont, fontSize: '0.68rem', color: T.textSecondary 
-            }}>
-                {c.sheetsCount} л · {new Date(c.createdAt).toLocaleTimeString('ru-RU', {
-                    hour: '2-digit', minute: '2-digit'
-                })}
-            </Typography>
-        </Stack>
-    </MenuItem>
-))}
+                            <Chip
+                                key={c.cassetteId}
+                                label={
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Typography sx={{ fontFamily: T.monoFont, fontSize: '0.75rem', color: T.accent, fontWeight: 600 }}>
+                                            №{c.cassetteNumber}
+                                        </Typography>
+                                        <Typography sx={{ fontFamily: T.sansFont, fontSize: '0.65rem', color: T.textSecondary }}>
+                                            {c.sheetsCount} л
+                                        </Typography>
+                                    </Stack>
+                                }
+                                sx={{
+                                    bgcolor: T.surfaceAlt,
+                                    border: `1px solid ${T.border}`,
+                                    color: T.textPrimary,
+                                    '&:hover': { bgcolor: `${T.accent}22` },
+                                }}
+                            />
+                        ))}
                     </Box>
                 )}
             </Paper>

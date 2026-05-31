@@ -128,7 +128,7 @@ namespace MES_ME.Server.Controllers
                     // Если строка прошла проверку, готовим её для загрузки в inputdata_raw
                     // --- Логика определения статуса на основе столбца "Сырье" (индекс 15) ---
                     var rawMaterialObj = GetValueByIndex(rowDict, 15);
-                    string currentStatus = "Подготовлен к прокату "; // Статус по умолчанию (с пробелом на конце, как у вас в коде)
+                    string currentStatus = "Подготовлен к прокату"; // Статус по умолчанию 
 
                     if (rawMaterialObj == null || rawMaterialObj == DBNull.Value)
                     {

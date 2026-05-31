@@ -411,7 +411,9 @@ public class AnnealingCompletionService : BackgroundService
         await using var connection = await _dataSource.OpenConnectionAsync();
         var nextVal = await connection.QueryFirstOrDefaultAsync<long>(
             "SELECT nextval('mes.matid_seq')");
-        return nextVal.ToString();
+       // Формат "D10" добавит ведущие нули (например, 123 -> "0000000123"), 
+    // чтобы это полностью совпадало с LPAD в SQL-процедуре.
+    return nextVal.ToString("D10"); 
     }
 
     private async Task<string?> FindOrCreateSheetByBusinessKeyAsync(AppDbContext context, string zoneName)
