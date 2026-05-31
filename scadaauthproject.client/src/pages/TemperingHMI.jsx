@@ -23,48 +23,55 @@ import { useOpcUa } from '../hooks/useOpcUa';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 const FURNACES = [1, 2, 3, 4];
+const DEBUG_FURNACE = 4; // ← Отладка для печи 4
 
-// ─── Алиасы OPC UA для всех печей ─────────────────────────────────────────────
+// ─── Алиасы OPC UA для всех печей (с учётом исправленных NodeId!) ────────────
 const OPC_ALIASES = [
-    // Печь 1 (RelFurn1)
-    'RelFurn12.RelFurn1.TempAct', 'RelFurn12.RelFurn1.TempRef', 'RelFurn12.RelFurn1.T1', 'RelFurn12.RelFurn1.T2',
-    'RelFurn12.RelFurn1.T_Average_Furn', 'RelFurn12.RelFurn1.TimeProcSet', 'RelFurn12.RelFurn1.TimeToProcEnd',
-    'RelFurn12.RelFurn1.ActTimeHeatAcc', 'RelFurn12.RelFurn1.ActTimeHeatWait', 'RelFurn1.ActTimeTotal',
+    // Печь 1 (контроллер RelFurn12, ForBase_RelFurn_1)
+    'RelFurn12.RelFurn1.TempAct', 'RelFurn12.RelFurn1.TempRef',
+    'RelFurn12.RelFurn1.T1', 'RelFurn12.RelFurn1.T2',
+    'RelFurn12.RelFurn1.T_Average_Furn',
+    'RelFurn12.RelFurn1.TimeProcSet', 'RelFurn12.RelFurn1.TimeToProcEnd',
+    'RelFurn12.RelFurn1.ActTimeHeatAcc', 'RelFurn12.RelFurn1.ActTimeHeatWait', 'RelFurn12.RelFurn1.ActTimeTotal',
     'RelFurn12.RelFurn1.ProcFault', 'RelFurn12.RelFurn1.ProcRun', 'RelFurn12.RelFurn1.ProcEnd',
     'RelFurn12.RelFurn1.PointRef_1', 'RelFurn12.RelFurn1.PointTime_1', 'RelFurn12.RelFurn1.PointDTime_2',
-    'RelFurn12.RelFurn1.CaasetteNo', 'RelFurn12.RelFurn1.Day', 'RelFurn12.RelFurn1.Month', 'RelFurn12.RelFurn1.Year', 'RelFurn12.RelFurn1.Hour',
-    
-    // Печь 2 (RelFurn2)
-    'RelFurn12.RelFurn2.TempAct', 'RelFurn12.RelFurn2.TempRef', 'RelFurn12.RelFurn2.T1', 'RelFurn12.RelFurn2.T2',
-    'RelFurn12.RelFurn2.T_Average_Furn', 'RelFurn12.RelFurn2.TimeProcSet', 'RelFurn12.RelFurn2.TimeToProcEnd',
+    'RelFurn12.RelFurn1.CaasetteNo', 'RelFurn12.RelFurn1.Day',
+    'RelFurn12.RelFurn1.Month', 'RelFurn12.RelFurn1.Year', 'RelFurn12.RelFurn1.Hour',
+
+    // Печь 2 (контроллер RelFurn12, ForBase_RelFurn_2)
+    'RelFurn12.RelFurn2.TempAct', 'RelFurn12.RelFurn2.TempRef',
+    'RelFurn12.RelFurn2.T1', 'RelFurn12.RelFurn2.T2',
+    'RelFurn12.RelFurn2.T_Average_Furn',
+    'RelFurn12.RelFurn2.TimeProcSet', 'RelFurn12.RelFurn2.TimeToProcEnd',
     'RelFurn12.RelFurn2.ActTimeHeatAcc', 'RelFurn12.RelFurn2.ActTimeHeatWait', 'RelFurn12.RelFurn2.ActTimeTotal',
     'RelFurn12.RelFurn2.ProcFault', 'RelFurn12.RelFurn2.ProcRun', 'RelFurn12.RelFurn2.ProcEnd',
     'RelFurn12.RelFurn2.PointRef_1', 'RelFurn12.RelFurn2.PointTime_1', 'RelFurn12.RelFurn2.PointDTime_2',
-    'RelFurn12.RelFurn2.CaasetteNo', 'RelFurn12.RelFurn2.Day', 'RelFurn12.RelFurn2.Month', 'RelFurn12.RelFurn2.Year', 'RelFurn12.RelFurn2.Hour',
-    
-    // Печь 3 (RelFurn3)
+    'RelFurn12.RelFurn2.CaasetteNo', 'RelFurn12.RelFurn2.Day',
+    'RelFurn12.RelFurn2.Month', 'RelFurn12.RelFurn2.Year', 'RelFurn12.RelFurn2.Hour',
+
+    // Печь 3 (контроллер RelFurn3, 192.168.9.70)
     'RelFurn3.TempAct', 'RelFurn3.TempRef', 'RelFurn3.TactBurn1', 'RelFurn3.TactBurn2',
     'RelFurn3.ActTimeHeatAcc', 'RelFurn3.ActTimeHeatWait', 'RelFurn3.ActTimeTotal',
     'RelFurn3.ProcFault', 'RelFurn3.ProcRun', 'RelFurn3.ProcEnd',
     'RelFurn3.TimeProcSet', 'RelFurn3.TimeToProcEnd',
     'RelFurn3.PointRef_1', 'RelFurn3.PointTime_1', 'RelFurn3.PointDTime_2',
-    'RelFurn3.Cassette1_CaasetteNo1', 'RelFurn3.Cassette1_Day', 'RelFurn3.Cassette1_Month',
-    'RelFurn3.Cassette1_Year', 'RelFurn3.Cassette1_Hour',
-    'RelFurn3.Cassette2_CaasetteNo2', 'RelFurn3.Cassette2_Day', 'RelFurn3.Cassette2_Month',
-    'RelFurn3.Cassette2_Year', 'RelFurn3.Cassette2_Hour',
+    'RelFurn3.Cassette1_CaasetteNo1', 'RelFurn3.Cassette1_Day',
+    'RelFurn3.Cassette1_Month', 'RelFurn3.Cassette1_Year', 'RelFurn3.Cassette1_Hour',
+    'RelFurn3.Cassette2_CaasetteNo2', 'RelFurn3.Cassette2_Day',
+    'RelFurn3.Cassette2_Month', 'RelFurn3.Cassette2_Year', 'RelFurn3.Cassette2_Hour',
     'RelFurn3.Burn1_AI.TE_Lower', 'RelFurn3.Burn1_AI.TE_Upper',
     'RelFurn3.Burn1_AI.AirPrs', 'RelFurn3.Burn1_AI.GasPrs',
-    
-    // Печь 4 (RelFurn4)
+
+    // Печь 4 (контроллер RelFurn4, 192.168.9.80)
     'RelFurn4.TempAct', 'RelFurn4.TempRef', 'RelFurn4.TactBurn1', 'RelFurn4.TactBurn2',
     'RelFurn4.ActTimeHeatAcc', 'RelFurn4.ActTimeHeatWait', 'RelFurn4.ActTimeTotal',
     'RelFurn4.ProcFault', 'RelFurn4.ProcRun', 'RelFurn4.ProcEnd',
     'RelFurn4.TimeProcSet', 'RelFurn4.TimeToProcEnd',
     'RelFurn4.PointRef_1', 'RelFurn4.PointTime_1', 'RelFurn4.PointDTime_2',
-    'RelFurn4.Cassette1_CaasetteNo1', 'RelFurn4.Cassette1_Day', 'RelFurn4.Cassette1_Month',
-    'RelFurn4.Cassette1_Year', 'RelFurn4.Cassette1_Hour',
-    'RelFurn4.Cassette2_CaasetteNo2', 'RelFurn4.Cassette2_Day', 'RelFurn4.Cassette2_Month',
-    'RelFurn4.Cassette2_Year', 'RelFurn4.Cassette2_Hour',
+    'RelFurn4.Cassette1_CaasetteNo1', 'RelFurn4.Cassette1_Day',
+    'RelFurn4.Cassette1_Month', 'RelFurn4.Cassette1_Year', 'RelFurn4.Cassette1_Hour',
+    'RelFurn4.Cassette2_CaasetteNo2', 'RelFurn4.Cassette2_Day',
+    'RelFurn4.Cassette2_Month', 'RelFurn4.Cassette2_Year', 'RelFurn4.Cassette2_Hour',
     'RelFurn4.Burn1_AI.TE_Lower', 'RelFurn4.Burn1_AI.TE_Upper',
     'RelFurn4.Burn1_AI.AirPrs', 'RelFurn4.Burn1_AI.GasPrs',
 ];
@@ -79,73 +86,121 @@ const T = {
     textPrimary: '#e6edf3',
     textSecondary: '#8b949e',
     textMuted: '#484f58',
-
     accent: '#58a6ff',
     success: '#3fb950',
     warning: '#d29922',
     danger: '#f85149',
-
     monoFont: "'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace",
     sansFont: "'Inter', 'Roboto', sans-serif",
 };
 
-// ─── Вспомогательные функции ───────────────────────────────────────────────────
+// ─── Безопасное извлечение значения из OPC UA ответа ─────────────────────────
+// OPC UA может прислать:
+//   1. Простое значение: 42, true, "string"
+//   2. Объект с value: { value: 42, timestamp: "...", isGood: true }
+//   3. Обёрнутый объект: { Body: true, TypeId: {...} }
+//   4. null / undefined
+const extractValue = (entry) => {
+    if (entry == null) return null;
+    if (typeof entry !== 'object') return entry;
+    if ('value' in entry) return entry.value;
+    if ('Body' in entry) return entry.Body;
+    if (Array.isArray(entry) && entry.length > 0) return entry[0];
+    return entry;
+};
+
+// ─── Безопасное приведение к булевому типу ────────────────────────────────────
+const toBool = (v) => {
+    const val = extractValue(v);
+    if (val == null) return false;
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'number') return val !== 0;
+    if (typeof val === 'string') {
+        const lower = val.toLowerCase();
+        return lower === 'true' || lower === '1' || lower === 'yes';
+    }
+    return Boolean(val);
+};
+
+// ─── Безопасное приведение к числу ────────────────────────────────────────────
+const toNumber = (v) => {
+    const val = extractValue(v);
+    if (val == null) return null;
+    const num = Number(val);
+    return isNaN(num) ? null : num;
+};
+
+// ─── Форматирование ───────────────────────────────────────────────────────────
 const fmtTemp = (v) => v != null ? `${Number(v).toFixed(1)}°` : '—';
 const fmtMin = (v) => v != null ? `${Number(v).toFixed(0)} мин` : '—';
 const fmtBar = (v) => v != null ? `${Number(v).toFixed(3)}` : '—';
 const formatTime = (dt) => dt ? new Date(dt).toLocaleTimeString('ru-RU') : '';
 const formatDateTime = (dt) => dt ? new Date(dt).toLocaleString('ru-RU') : '—';
 
-// ─── Преобразование OPC UA значений в формат для карточки печи ────────────────
+// ─── Преобразование OPC UA значений ──────────────────────────────────────────
 const transformOpcToPlcData = (values, furnaceNo) => {
-    const prefix = furnaceNo <= 2 ? `RelFurn${furnaceNo}` : `RelFurn${furnaceNo}`;
-    const getVal = (tag) => values[`${prefix}.${tag}`]?.value;
-    
+    let prefix;
+    if (furnaceNo === 1) prefix = 'RelFurn12.RelFurn1';
+    else if (furnaceNo === 2) prefix = 'RelFurn12.RelFurn2';
+    else prefix = `RelFurn${furnaceNo}`;
+
+    const getVal = (tag) => {
+        const entry = values[`${prefix}.${tag}`];
+        return extractValue(entry);
+    };
+
     const data = {
         furnace_no: furnaceNo,
         time: new Date().toISOString(),
-        temp_act: getVal('TempAct'),
-        temp_ref: getVal('TempRef'),
-        t1: furnaceNo <= 2 ? getVal('T1') : getVal('TactBurn1'),
-        t2: furnaceNo <= 2 ? getVal('T2') : getVal('TactBurn2'),
-        t_average_furn: getVal('T_Average_Furn'),
-        time_proc_set: getVal('TimeProcSet'),
-        time_to_proc_end: getVal('TimeToProcEnd'),
-        act_time_heat_acc: getVal('ActTimeHeatAcc'),
-        act_time_heat_wait: getVal('ActTimeHeatWait'),
-        act_time_total: getVal('ActTimeTotal'),
-        proc_fault: getVal('ProcFault'),
-        proc_run: getVal('ProcRun'),
-        proc_end: getVal('ProcEnd'),
-        point_ref_1: getVal('PointRef_1'),
-        point_time_1: getVal('PointTime_1'),
-        point_dtime_2: getVal('PointDTime_2'),
+        temp_act: toNumber(getVal('TempAct')),
+        temp_ref: toNumber(getVal('TempRef')),
+        t1: furnaceNo <= 2 ? toNumber(getVal('T1')) : toNumber(getVal('TactBurn1')),
+        t2: furnaceNo <= 2 ? toNumber(getVal('T2')) : toNumber(getVal('TactBurn2')),
+        t_average_furn: toNumber(getVal('T_Average_Furn')),
+        time_proc_set: toNumber(getVal('TimeProcSet')),
+        time_to_proc_end: toNumber(getVal('TimeToProcEnd')),
+        act_time_heat_acc: toNumber(getVal('ActTimeHeatAcc')),
+        act_time_heat_wait: toNumber(getVal('ActTimeHeatWait')),
+        act_time_total: toNumber(getVal('ActTimeTotal')),
+        proc_fault: toBool(getVal('ProcFault')),
+        proc_run: toBool(getVal('ProcRun')),
+        proc_end: toBool(getVal('ProcEnd')),
+        point_ref_1: toNumber(getVal('PointRef_1')),
+        point_time_1: toNumber(getVal('PointTime_1')),
+        point_dtime_2: toNumber(getVal('PointDTime_2')),
     };
 
-    // Кассеты
     if (furnaceNo <= 2) {
-        data.cassette_no = getVal('CaasetteNo');
-        data.cass_day = getVal('Day');
-        data.cass_month = getVal('Month');
-        data.cass_year = getVal('Year');
-        data.cass_hour = getVal('Hour');
+        data.cassette_no = toNumber(getVal('CaasetteNo'));
+        data.cass_day = toNumber(getVal('Day'));
+        data.cass_month = toNumber(getVal('Month'));
+        data.cass_year = toNumber(getVal('Year'));
+        data.cass_hour = toNumber(getVal('Hour'));
     } else {
-        data.cass1_no = getVal('Cassette1_CaasetteNo1');
-        data.cass1_day = getVal('Cassette1_Day');
-        data.cass1_month = getVal('Cassette1_Month');
-        data.cass1_year = getVal('Cassette1_Year');
-        data.cass1_hour = getVal('Cassette1_Hour');
-        data.cass2_no = getVal('Cassette2_CaasetteNo2');
-        data.cass2_day = getVal('Cassette2_Day');
-        data.cass2_month = getVal('Cassette2_Month');
-        data.cass2_year = getVal('Cassette2_Year');
-        data.cass2_hour = getVal('Cassette2_Hour');
-        
-        // Горелки для печей 3 и 4
-        data.burn1_te_lower = getVal('Burn1_AI.TE_Lower');
-        data.burn1_te_upper = getVal('Burn1_AI.TE_Upper');
-        data.burn1_air_prs = getVal('Burn1_AI.AirPrs');
-        data.burn1_gas_prs = getVal('Burn1_AI.GasPrs');
+        data.cass1_no = toNumber(getVal('Cassette1_CaasetteNo1'));
+        data.cass1_day = toNumber(getVal('Cassette1_Day'));
+        data.cass1_month = toNumber(getVal('Cassette1_Month'));
+        data.cass1_year = toNumber(getVal('Cassette1_Year'));
+        data.cass1_hour = toNumber(getVal('Cassette1_Hour'));
+        data.cass2_no = toNumber(getVal('Cassette2_CaasetteNo2'));
+        data.cass2_day = toNumber(getVal('Cassette2_Day'));
+        data.cass2_month = toNumber(getVal('Cassette2_Month'));
+        data.cass2_year = toNumber(getVal('Cassette2_Year'));
+        data.cass2_hour = toNumber(getVal('Cassette2_Hour'));
+        data.burn1_te_lower = toNumber(getVal('Burn1_AI.TE_Lower'));
+        data.burn1_te_upper = toNumber(getVal('Burn1_AI.TE_Upper'));
+        data.burn1_air_prs = toNumber(getVal('Burn1_AI.AirPrs'));
+        data.burn1_gas_prs = toNumber(getVal('Burn1_AI.GasPrs'));
+    }
+
+    // 🔍 Сохраняем RAW данные для отладки печи 4
+    if (furnaceNo === DEBUG_FURNACE) {
+        data._raw = {
+            TempRef: values[`${prefix}.TempRef`],
+            ProcRun: values[`${prefix}.ProcRun`],
+            ProcEnd: values[`${prefix}.ProcEnd`],
+            TempAct: values[`${prefix}.TempAct`],
+        };
     }
 
     return data;
@@ -262,11 +317,8 @@ function ConnectionIndicator({ connected, connecting, error }) {
                     label="ОТКЛ"
                     size="small"
                     sx={{
-                        height: 20,
-                        fontSize: '0.65rem',
-                        fontWeight: 600,
-                        bgcolor: '#3d1a1a',
-                        color: T.danger,
+                        height: 20, fontSize: '0.65rem', fontWeight: 600,
+                        bgcolor: '#3d1a1a', color: T.danger,
                         border: `1px solid ${T.danger}44`,
                         '& .MuiChip-icon': { color: T.danger }
                     }}
@@ -281,11 +333,8 @@ function ConnectionIndicator({ connected, connecting, error }) {
                 label="ПОДКЛ..."
                 size="small"
                 sx={{
-                    height: 20,
-                    fontSize: '0.65rem',
-                    fontWeight: 600,
-                    bgcolor: '#2d2200',
-                    color: T.warning,
+                    height: 20, fontSize: '0.65rem', fontWeight: 600,
+                    bgcolor: '#2d2200', color: T.warning,
                     border: `1px solid ${T.warning}44`,
                 }}
             />
@@ -299,11 +348,8 @@ function ConnectionIndicator({ connected, connecting, error }) {
                     label="ONLINE"
                     size="small"
                     sx={{
-                        height: 20,
-                        fontSize: '0.65rem',
-                        fontWeight: 600,
-                        bgcolor: '#0f2a1a',
-                        color: T.success,
+                        height: 20, fontSize: '0.65rem', fontWeight: 600,
+                        bgcolor: '#0f2a1a', color: T.success,
                         border: `1px solid ${T.success}44`,
                         '& .MuiChip-icon': { color: T.success }
                     }}
@@ -531,6 +577,40 @@ function FurnaceCard({ furnaceNo, plcData, activeSession, availableCassettes, on
                 <StatusChip run={isRun} end={isEnd} fault={isFault} />
             </Stack>
 
+            {/* 🔍 ОТЛАДОЧНАЯ ПАНЕЛЬ — только для печи 4 */}
+          {/*  {furnaceNo === DEBUG_FURNACE && plcData?._raw && (
+                <Box sx={{
+                    bgcolor: '#1a1a2e',
+                    border: `1px solid ${T.accent}44`,
+                    borderRadius: 1,
+                    p: 1,
+                    mb: 1.5,
+                    fontFamily: T.monoFont,
+                    fontSize: '0.6rem',
+                }}>
+                     <Typography sx={{
+                        color: T.accent, fontWeight: 700, fontSize: '0.58rem',
+                        mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.1em'
+                    }}>
+                       🔍 RAW OPC UA (печь 4)
+                    </Typography>
+                    <Stack spacing={0.25}>
+                        <Typography sx={{ color: T.textSecondary, fontSize: '0.58rem', wordBreak: 'break-all' }}>
+                            TempRef: {JSON.stringify(plcData._raw.TempRef)} → <b style={{ color: T.accent }}>{plcData.temp_ref}°</b>
+                        </Typography>
+                        <Typography sx={{ color: T.textSecondary, fontSize: '0.58rem', wordBreak: 'break-all' }}>
+                            ProcRun: {JSON.stringify(plcData._raw.ProcRun)} → <b style={{ color: isRun ? '#e3a008' : T.textSecondary }}>{String(plcData.proc_run)}</b>
+                        </Typography>
+                        <Typography sx={{ color: T.textSecondary, fontSize: '0.58rem', wordBreak: 'break-all' }}>
+                            ProcEnd: {JSON.stringify(plcData._raw.ProcEnd)} → <b style={{ color: isEnd ? T.success : T.textSecondary }}>{String(plcData.proc_end)}</b>
+                        </Typography>
+                        <Typography sx={{ color: T.textSecondary, fontSize: '0.58rem', wordBreak: 'break-all' }}>
+                            TempAct: {JSON.stringify(plcData._raw.TempAct)} → <b style={{ color: actColor }}>{plcData.temp_act}°</b>
+                        </Typography>
+                    </Stack>
+                </Box>
+            )}*/}
+
             <HRule />
 
             {/* ── Температуры факт / задание */}
@@ -669,7 +749,7 @@ function FurnaceCard({ furnaceNo, plcData, activeSession, availableCassettes, on
                     <Typography variant="body2" sx={{ color: T.textSecondary, fontFamily: T.sansFont, fontSize: '0.85rem' }}>
                         {actionType === 'load'
                             ? `Загрузить кассету №${pendingCassette} в печь №${furnaceNo}?`
-                            : `Выгрузить кассету ${activeSession?.cassetteId} из печи №${furnaceNo}?`}
+                            : `Выгрузить кассету ${activeSession?.businessKey} из печи №${furnaceNo}?`}
                     </Typography>
                 </DialogContent>
                 <DialogActions sx={{ px: 2, py: 1.5 }}>
@@ -771,7 +851,7 @@ export default function TemperingHMI() {
 
     useEffect(() => {
         loadAllData();
-        const iv = setInterval(loadAllData, 10000); // Реже, т.к. данные с ПЛК теперь в real-time
+        const iv = setInterval(loadAllData, 10000); // 10 сек для сессий и кассет
         return () => clearInterval(iv);
     }, [loadAllData]);
 

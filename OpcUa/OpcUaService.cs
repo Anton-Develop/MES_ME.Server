@@ -52,7 +52,7 @@ public sealed class OpcUaService : IOpcUaService
         _sessions.TryGetValue(controllerName, out var s) && s?.Connected == true;
 
     // Вызывается из BackgroundService когда приходят новые данные
-    internal void OnDataChange(string controllerName, string nodeId, DataValue dv)
+   /* internal void OnDataChange(string controllerName, string nodeId, DataValue dv)
     {
         var alias = _nodeIdToAlias.GetValueOrDefault(nodeId, nodeId);
 
@@ -87,7 +87,40 @@ public sealed class OpcUaService : IOpcUaService
                 _log.LogWarning(ex, "SignalR send failed for alias={Alias}", alias);
             }
         });
-    }
+    }*/
+    internal void OnDataChange(string controllerName, string alias, DataValue dv)
+{
+    // Больше не нужно искать alias через _nodeIdToAlias!
+    var val = new OpcUaValue
+    {
+        Value = dv.Value,
+        Timestamp = dv.SourceTimestamp == DateTime.MinValue
+             ? DateTime.UtcNow
+            : DateTime.SpecifyKind(dv.SourceTimestamp, DateTimeKind.Utc),
+        IsGood = StatusCode.IsGood(dv.StatusCode),
+        StatusCode = dv.StatusCode.Code,
+    };
+
+    _values[alias] = val;
+    ValueChanged?.Invoke(alias, val);
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            var payload = new { controller = controllerName, alias, value = val };
+            await Task.WhenAll(
+                _hub.Clients.Group($"tag:{alias}").SendAsync("TagUpdate", payload),
+                _hub.Clients.Group($"controller:{controllerName}").SendAsync("TagUpdate", payload),
+                _hub.Clients.Group("all").SendAsync("TagUpdate", payload)
+            );
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "SignalR send failed for alias={Alias}", alias);
+        }
+    });
+}
 
     // BackgroundService регистрирует сессию чтобы мы могли писать
     internal void SetSession(string controllerName, Session? session) =>

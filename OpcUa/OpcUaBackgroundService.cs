@@ -209,14 +209,14 @@ public sealed class OpcUaBackgroundService : BackgroundService
                 MonitoringMode = MonitoringMode.Reporting
             };
 
-            var capturedNodeId = node.NodeId;
-            var capturedControllerName = controller.Name;
+            var capturedAlias = node.Alias;           // ← НОВОЕ: захватываем alias
+var capturedControllerName = controller.Name; 
 
-            item.Notification += (_, e) =>
-            {
-                if (e.NotificationValue is MonitoredItemNotification n)
-                    _svc.OnDataChange(capturedControllerName, capturedNodeId, n.Value);
-            };
+item.Notification += (_, e) =>
+{
+    if (e.NotificationValue is MonitoredItemNotification n)
+        _svc.OnDataChange(capturedControllerName, capturedAlias, n.Value); // ← СТАЛО
+};
 
             itemsToCreate.Add(item);
         }
