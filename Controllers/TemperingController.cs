@@ -1,6 +1,7 @@
 ﻿using Dapper;
 using MES_ME.Server.Data;
 using MES_ME.Server.Models;
+using MES_ME.Server.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,16 +16,19 @@ public class TemperingController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ITemperingRepository _temperingRepo;
     private readonly ILogger<TemperingController> _logger;
 
     public TemperingController(
         AppDbContext context,
         NpgsqlDataSource dataSource,
-        ILogger<TemperingController> logger)
+        ILogger<TemperingController> logger,
+        ITemperingRepository temperingRepo)
     {
         _context = context;
         _dataSource = dataSource;
         _logger = logger;
+        _temperingRepo = temperingRepo;
     }
 
     private string GetUserName() => User.Identity?.Name ?? "UNKNOWN";
@@ -226,6 +230,53 @@ public class TemperingController : ControllerBase
             sheetCount = sheets.Count
         });
     }
+
+    /// <summary>
+/// GET /api/tempering/sessions?furnaceNo=1&from=2026-01-01&to=2026-01-31&page=1&pageSize=200
+/// Список завершённых сессий отпуска
+/// </summary>
+[HttpGet("sessions")]
+public async Task<IActionResult> GetTemperingSessions(
+    [FromQuery] int? furnaceNo,
+    [FromQuery] DateTime? from,
+    [FromQuery] DateTime? to,
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 200,
+    CancellationToken ct = default)
+{
+    try
+    {
+        var result = await _temperingRepo.GetSessionsAsync(furnaceNo, from, to, page, pageSize, ct);
+        return Ok(result);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "GetTemperingSessions failed");
+        return StatusCode(500, new { error = "Ошибка при получении списка сессий" });
+    }
+}
+
+/// <summary>
+/// GET /api/tempering/sessions/{id}
+/// Детали сессии с временным рядом температур
+/// </summary>
+[HttpGet("sessions/{id:long}")]
+public async Task<IActionResult> GetTemperingSessionById(long id, CancellationToken ct = default)
+{
+    try
+    {
+        var result = await _temperingRepo.GetSessionDetailsAsync(id, ct);
+        if (result == null)
+            return NotFound(new { error = "Сессия не найдена" });
+
+        return Ok(result);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "GetTemperingSessionById failed for id={Id}", id);
+        return StatusCode(500, new { error = "Ошибка при получении деталей сессии" });
+    }
+}
 }
 
 public class LoadCassetteRequest

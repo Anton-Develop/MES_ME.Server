@@ -53,13 +53,11 @@ export const furnaceApi = {
 
       getHeatReportDetails: ({ furnaceNo, from, to, intervalMin = 1 }) =>
           api.get('/tempering/report/heat/details', { params: { furnaceNo, from, to, intervalMin } }),
-getTemperingSessions: ({ furnaceNo, from, to, page = 1, pageSize = 20 }) =>
-    api.get('/tempering/sessions-legacy', { 
-        params: { furnaceNo, from, to, page, pageSize } 
-    }).then(r => r.data),   // возвращает PagedResult { items, total, page, pageSize }
+getTemperingSessions: ({ furnaceNo, from, to, page = 1, pageSize = 200 }) =>
+    api.get('/tempering/sessions', {
+        params: { furnaceNo, from, to, page, pageSize }
+    }).then(r => r.data),
 
 getTemperingSessionById: (id) =>
-    api.get(`/tempering/sessions/${id}`).then(r => r.data), // возвращает { session, details }
-
-
+    api.get(`/tempering/sessions/${id}`).then(r => r.data),
 };

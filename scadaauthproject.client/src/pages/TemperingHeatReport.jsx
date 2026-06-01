@@ -73,9 +73,9 @@ function Metric({ label, value, color, mono = true }) {
 // ---------------------------------------------------------------------------
 function SessionRow({ session, selected, onClick }) {
     const isDouble  = session.cass1No > 0;
-    const cassette  = isDouble
-        ? `К: ${session.cass1No} / ${session.cass2No}`
-        : session.cassetteNo ? `К: ${session.cassetteNo}` : '';
+    const cassette = isDouble
+    ? `К: ${session.cass1No} / ${session.cass2No}`
+    : session.cassetteNo ? `К: ${session.cassetteNo}` : '';
 
     const overTemp  = session.tempMax > (session.targetTemp ?? 999);
     const pct = session.targetTime && session.durationMin
@@ -454,52 +454,47 @@ export default function TemperingHeatReport() {
     const [error,       setError]       = useState(null);
 
     // -----------------------------------------------------------------------
-    const loadSessions = useCallback(async () => {
-        setListLoading(true);
-        setError(null);
-        setSelId(null);
-        setSelSession(null);
-        setDetails([]);
-        try {
-            const res = await furnaceApi.getTemperingSessions({
-                furnaceNo,
-                from: toIso(fromDate),
-                to:   toIso(toDate + 'T23:59:59'),
-                page: 1, pageSize: 200,
-            });
-            // Контроллер возвращает { items, total } или массив
-            const body = res.data ?? res;
-            if (Array.isArray(body)) {
-                setSessions(body);
-                setTotal(body.length);
-            } else {
-                setSessions(body.items ?? []);
-                setTotal(body.total   ?? 0);
-            }
-        } catch (e) {
-            setError(e.response?.data?.error ?? e.message);
-        } finally {
-            setListLoading(false);
-        }
-    }, [furnaceNo, fromDate, toDate]);
+   const loadSessions = useCallback(async () => {
+    setListLoading(true);
+    setError(null);
+    setSelId(null);
+    setSelSession(null);
+    setDetails([]);
+    try {
+        const res = await furnaceApi.getTemperingSessions({
+            furnaceNo,
+            from: toIso(fromDate),
+            to: toIso(toDate + 'T23:59:59'),
+            page: 1,
+            pageSize: 200,
+        });
+        // Контроллер возвращает { items, total, page, pageSize }
+        setSessions(res.items ?? []);
+        setTotal(res.total ?? 0);
+    } catch (e) {
+        setError(e.response?.data?.error ?? e.message);
+    } finally {
+        setListLoading(false);
+    }
+}, [furnaceNo, fromDate, toDate]);
 
-    const loadDetails = useCallback(async (id) => {
-        setSelId(id);
-        const s = sessions.find(x => x.id === id);
-        setSelSession(s ?? null);
-        setDetails([]);
-        setDetLoading(true);
-        try {
-            const res  = await furnaceApi.getTemperingSessionById(id);
-            const body = res.data ?? res;
-            setSelSession(body.session ?? s);
-            setDetails(body.details ?? []);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setDetLoading(false);
-        }
-    }, [sessions]);
+   const loadDetails = useCallback(async (id) => {
+    setSelId(id);
+    const s = sessions.find(x => x.id === id);
+    setSelSession(s ?? null);
+    setDetails([]);
+    setDetLoading(true);
+    try {
+        const res = await furnaceApi.getTemperingSessionById(id);
+        // Контроллер возвращает { session, details }
+        setSelSession(res.session ?? s);
+        setDetails(res.details ?? []);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setDetLoading(false);
+    }
+}, [sessions]);
 
     useEffect(() => { loadSessions(); }, [loadSessions]);
 
