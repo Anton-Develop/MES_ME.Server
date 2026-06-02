@@ -345,15 +345,16 @@ const hasTemps = zones.some(({ tempsObj }) => {
   return n?.times?.length > 0;
 });
 
-const meta = {
-  sheet:         f?.sheet         ?? q?.sheet         ?? furnaceKey ,
-  slab:          f?.slab          ?? q?.slab,
-  melt:          f?.melt          ?? q?.melt,
-  partNo:        f?.partNo        ?? q?.partNo,
-  pack:          f?.pack          ?? q?.pack,
-  alloyCodeText: f?.alloyCodeText ?? q?.alloyCodeText ?? f?.alloyCode ?? q?.alloyCode,
-  thickness:     f?.thickness     ?? q?.thickness,
-};
+    const meta = {
+        sheet: f?.sheet ?? q?.sheet ?? furnaceKey,
+        slab: f?.slab ?? q?.slab,
+        melt: f?.melt ?? q?.melt,
+        partNo: f?.partNo ?? q?.partNo,
+        pack: f?.pack ?? q?.pack,
+        reheatNum: f?.reheatNum ?? q?.reheatNum ?? 0, // <-- ДОБАВЬТЕ ЭТО
+        alloyCodeText: f?.alloyCodeText ?? q?.alloyCodeText ?? f?.alloyCode ?? q?.alloyCode,
+        thickness: f?.thickness ?? q?.thickness,
+    };
  if (loading) {
     return (
       <Box sx={{ p: 5, textAlign: 'center' }}>
@@ -404,23 +405,32 @@ const meta = {
 
       {/* ── Шапка ── */}
       <Paper sx={{ p: 2.5, mb: 2 }}>
-        <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
-          <Typography variant="h5" fontWeight={700}>
-            Отчёт о листе №{meta.sheet}
-          </Typography>
-          {f?.zonesPath && (
-            <Chip label={f.zonesPath} color="primary" size="small" variant="outlined"
-              sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
-          )}
-          {f?.hadAlarm  && <Chip label="АВАРИЯ (нагрев)"  color="error" size="small" />}
-          {q?.hadAlarm  && <Chip label="АВАРИЯ (закалка)" color="error" size="small" />}
-        </Stack>
+              <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
+                  <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      Отчёт о листе №{meta.sheet}
+                      <Chip
+                          label={meta.reheatNum > 0 ? `Повтор ${meta.reheatNum}` : 'Первый нагрев'}
+                          size="small"
+                          color={meta.reheatNum > 0 ? "warning" : "success"}
+                          variant="outlined"
+                          sx={{ fontWeight: 600 }}
+                      />
+                  </Typography>
+
+                  {f?.zonesPath && (
+                      <Chip label={f.zonesPath} color="primary" size="small" variant="outlined"
+                          sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
+                  )}
+                  {f?.hadAlarm && <Chip label="АВАРИЯ (нагрев)" color="error" size="small" />}
+                  {q?.hadAlarm && <Chip label="АВАРИЯ (закалка)" color="error" size="small" />}
+              </Stack>
 
         {/* Метаданные */}
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
           {[
             { label: 'Лист',        value: meta.sheet },
-            { label: 'Сляб',        value: meta.slab          ?? '—' },
+                      { label: 'Сляб', value: meta.slab ?? '—' },
+                      { label: '№ нагрева', value: meta.reheatNum > 0 ? `Повтор ${meta.reheatNum}` : 'Первый' },
             { label: 'Плавка',      value: meta.melt          ?? '—' },
             { label: 'Партия',      value: meta.partNo        ?? '—' },
             { label: 'Пачка',       value: meta.pack          ?? '—' },

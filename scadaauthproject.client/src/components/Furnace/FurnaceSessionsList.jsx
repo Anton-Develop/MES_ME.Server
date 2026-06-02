@@ -539,58 +539,59 @@ const FurnaceSessionsList = () => {
                       <Chip label="АВАРИЯ" size="small" color="error" />
                     )}
                   </TableCell>
-                  <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                 <Tooltip title="Сводный отчёт по листу">
-                  <IconButton
-                    size="small"
-                    color="secondary"
-                    onClick={() => {
-                          const furnaceKey   = `${s.melt}-${s.partNo}-${s.pack}-${s.sheet}-${s.reheatNum ?? 0}`;
-                          const quenchingKey = `${s.sheet}|${s.melt}|${s.partNo}|${s.pack}|${s.reheatNum ?? 0}`;
-                          navigate(`/sheet-report?furnaceKey=${encodeURIComponent(furnaceKey)}&quenchingKey=${encodeURIComponent(quenchingKey)}`);
-                        }}
+                      <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                          <Tooltip title="Сводный отчёт по листу">
+                              <IconButton
+                                  size="small"
+                                  color="secondary"
+                                  onClick={() => {
+                                      const furnaceKey = `${s.melt}-${s.partNo}-${s.pack}-${s.sheet}-${s.reheatNum ?? 0}`;
+                                      const quenchingKey = `${s.sheet}|${s.melt}|${s.partNo}|${s.pack}|${s.reheatNum ?? 0}`;
+                                      // ⚠️ ВАЖНО: БЕЗ ПРОБЕЛОВ в URL!
+                                      navigate(`/sheet-report?furnaceKey=${encodeURIComponent(furnaceKey)}&quenchingKey=${encodeURIComponent(quenchingKey)}`);
+                                  }}
+                              >
+                                  <Assessment fontSize="small" />
+                              </IconButton>
+                          </Tooltip>
+                      </TableCell>
+                      <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                          <Tooltip title="Открыть отчёт по нагреву">
+                              <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => handleViewReport(s.businessKey)}
+                                  disabled={!s.businessKey}
+                              >
+                                  <Visibility fontSize="small" />
+                              </IconButton>
+                          </Tooltip>
 
-                     
-                  >
-                    <Assessment fontSize="small" /> {/* или другая иконка */}
-                  </IconButton>
-                </Tooltip>
-                </TableCell>
-                  <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                    <Tooltip title="Открыть отчёт">
-                      <IconButton
-                        size="small" color="primary"
-                        onClick={() => handleViewReport(s.businessKey)}
-                        disabled={!s.businessKey}
-                      >
-                        <Visibility fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    {/*<Tooltip title="Печать">
-                      <IconButton
-                        size="small"
-                        onClick={() => handlePrint(s.businessKey)}
-                        disabled={!s.businessKey}
-                      >
-                        <Print fontSize="small" />
-                      </IconButton>
-                    </Tooltip>*/}
-                    <Tooltip title="Отчёт по закалке">
-                    <IconButton
-                      size="small"
-                      color="info"
-                      onClick={() => {
-                        quenchingApi.getSessionsBySheet(s.sheet)
-                          .then(res => {
-                            const key = res.data?.[0]?.businessKey;
-                            if (key) navigate(`/quenching/report?key=${encodeURIComponent(key)}`);
-                          });
-                      }}
-                    >
-                      <WaterDrop fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                                    </TableCell>
+                          <Tooltip title="Отчёт по закалке">
+                              <IconButton
+                                  size="small"
+                                  color="info"
+                                  disabled={!s.businessKey}
+                                  onClick={() => {
+                                      // 🔥 ИСПРАВЛЕНО: Умный поиск закалки по reheatNum
+                                      quenchingApi.getSessionsBySheet(s.sheet)
+                                          .then(res => {
+                                              const sessions = res.data || [];
+                                              const matched = sessions.find(qs =>
+                                                  qs.melt === s.melt &&
+                                                  qs.partNo === s.partNo &&
+                                                  qs.pack === s.pack &&
+                                                  qs.reheatNum === (s.reheatNum ?? 0)
+                                              );
+                                              const key = matched?.businessKey || sessions[0]?.businessKey;
+                                              if (key) navigate(`/quenching/report?key=${encodeURIComponent(key)}`);
+                                          });
+                                  }}
+                              >
+                                  <WaterDrop fontSize="small" />
+                              </IconButton>
+                          </Tooltip>
+                      </TableCell>
                 </TableRow>
               ))
             )}

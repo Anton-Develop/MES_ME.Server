@@ -15,6 +15,7 @@ public sealed class HeatingSession
     public int?        Melt           { get; init; }
     public int?        PartNo         { get; init; }
     public int? Pack { get; init; }
+    public int? ReheatNum { get; init; }
     public int?        AlloyCode      { get; init; }
     public string?     AlloyCodeText  { get; init; }
     public float?      Thickness      { get; init; }

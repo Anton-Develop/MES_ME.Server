@@ -192,32 +192,37 @@ public sealed class FurnaceController : ControllerBase
     // Отчёт по листу с уточнением (если несколько плавок/повторов)
     [HttpGet("report/sheet/{sheet:int}")]
     public async Task<IActionResult> GetReportBySheet(
-        int sheet,
-        [FromQuery] int? melt = null,
-        [FromQuery] int? partNo = null,
-        [FromQuery] int? pack = null,
-        [FromQuery] int reheatNum = 0,
-        CancellationToken ct = default)
+    int sheet,
+    [FromQuery] int? melt = null,
+    [FromQuery] int? partNo = null,
+    [FromQuery] int? pack = null,
+    [FromQuery] int reheatNum = 0,
+    CancellationToken ct = default)
     {
-        HeatingSession? session;
+        HeatingSession? session = null;
 
-        // Если переданы все параметры — ищем по business_key точно
+        // 1. Если переданы все параметры — ищем по business_key точно
         if (melt.HasValue && partNo.HasValue && pack.HasValue)
         {
             var key = $"{melt}-{partNo}-{pack}-{sheet}-{reheatNum}";
             session = await _repo.GetSessionByKeyAsync(key, ct);
         }
-        else
+
+        // 2. Иначе — получаем ВСЕ сессии листа и ищем нужную по reheatNum
+        if (session is null)
         {
-            // Иначе берём первую запись по номеру листа
-            session = await _repo.GetSessionBySheetAsync(sheet, ct);
+            var allSessions = await _repo.GetSessionBySheetAsync(sheet, ct);
+            // ⚠️ GetSessionBySheetAsync возвращает только одну запись!
+            // Поэтому используем новый метод:
+            var sessions = await _repo.GetSessionsBySheetKeyAsync(sheet, melt, partNo, pack, ct);
+            session = sessions.FirstOrDefault(s => s.ReheatNum == reheatNum);
         }
 
         if (session is null)
             return NotFound(new ApiError
             {
                 Code = "NOT_FOUND",
-                Message = $"Отчёт для листа {sheet} не найден"
+                Message = $"Отчёт для листа {sheet} (нагрев {reheatNum}) не найден"
             });
 
         return Ok(await BuildReport(session, ct));
