@@ -33,9 +33,9 @@ public interface IFurnaceRepository
 
 
     //For RelFirn
-    Task<TemperingSessionDto?> GetTemperingSessionByIdAsync(long id, CancellationToken ct = default);
+   /* Task<TemperingSessionDto?> GetTemperingSessionByIdAsync(long id, CancellationToken ct = default);
     Task<PagedResult<TemperingSessionDto>> GetTemperingSessionsAsync(TemperingSessionFilter filter, CancellationToken ct = default);
-    Task<IEnumerable<TemperingDetailDto>> GetTemperingSessionDetailsAsync(int furnaceNo, DateTime startedAt, DateTime endedAt, CancellationToken ct = default);
+    Task<IEnumerable<TemperingDetailDto>> GetTemperingSessionDetailsAsync(int furnaceNo, DateTime startedAt, DateTime endedAt, CancellationToken ct = default);*/
 }
 
 public sealed class FurnaceRepository : IFurnaceRepository
@@ -146,7 +146,7 @@ public sealed class FurnaceRepository : IFurnaceRepository
             var total = await con.ExecuteScalarAsync<int>(totalCmd);
 
             var listCmd = new CommandDefinition(Sql.SessionList, p, commandTimeout: 60, cancellationToken: ct);
-            var items = await con.QueryAsync<HeatingSession>(listCmd);
+            /*var items = await con.QueryAsync<HeatingSession>(listCmd);
 
             return new PagedResult<HeatingSession>
             {
@@ -154,7 +154,15 @@ public sealed class FurnaceRepository : IFurnaceRepository
                 Total = total,
                 Page = filter.Page,
                 PageSize = filter.PageSize
-            };
+            };*/
+			var items = (await con.QueryAsync<HeatingSession>(listCmd)).ToList();
+
+			return new PagedResult<HeatingSession>(
+				items,
+				total,
+				filter.Page,
+				filter.PageSize
+			);
         });
     }
 
@@ -273,7 +281,7 @@ public sealed class FurnaceRepository : IFurnaceRepository
     }
 
     //For RelFurn - отпускные печки для worker TemperingSessionWorker
-    public async Task<TemperingSessionDto?> GetTemperingSessionByIdAsync(long id, CancellationToken ct = default)
+ /*   public async Task<TemperingSessionDto?> GetTemperingSessionByIdAsync(long id, CancellationToken ct = default)
     {
         return await _retry.ExecuteAsync(async () =>
         {
@@ -373,5 +381,5 @@ public sealed class FurnaceRepository : IFurnaceRepository
                 ORDER BY time ASC";
             return await con.QueryAsync<TemperingDetailDto>(sql, new { FurnaceNo = furnaceNo, StartedAt = startedAt, EndedAt = endedAt });
         });
-    }
+    }*/
 }
