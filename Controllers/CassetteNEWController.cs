@@ -41,7 +41,7 @@ namespace MES_ME.Server.Controllers
         /// </summary>
         private static string BuildBusinessKey(int cassetteNumber)
         {
-            var now = DateTime.UtcNow; // Используем UTC для консистентности
+            var now = DateTime.UtcNow.ToLocalTime ; // Используем UTC для консистентности
             return $"{cassetteNumber}/{now:yyyyMMdd-HHmm}";
         }
 

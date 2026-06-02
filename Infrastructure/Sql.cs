@@ -950,36 +950,36 @@ WHERE duration_min >= params.min_duration_min
 // -----------------------------------------------------------------------
 public const string GetTemperingSessions = """
 SELECT
-    id,
-    furnace_no,
-    started_at,
-    ended_at,
-    duration_min,
-    temp_min,
-    temp_max,
-    temp_avg,
-    temp_ref,
-    target_temp,
-    target_time,
-    point_ref_1,
-    point_time_1,
-    point_dtime_2,
-    had_fault,
-    cassette_no,
-    cass_day,
-    cass_month,
-    cass_year,
-    cass_hour,
-    cass1_no,
-    cass1_day,
-    cass1_month,
-    cass1_year,
-    cass1_hour,
-    cass2_no,
-    cass2_day,
-    cass2_month,
-    cass2_year,
-    cass2_hour
+    id AS Id,
+    furnace_no AS FurnaceNo,
+    started_at AS StartedAt,
+    ended_at AS EndedAt,
+    duration_min AS DurationMin,
+    temp_min AS TempMin,
+    temp_max AS TempMax,
+    temp_avg AS TempAvg,
+    temp_ref AS TempRef,
+    target_temp AS TargetTemp,
+    target_time AS TargetTime,
+    point_ref_1 AS PointRef1,
+    point_time_1 AS PointTime1,
+    point_dtime_2 AS PointDtime2,
+    had_fault AS HadFault,
+    cassette_no AS CassetteNo,
+    cass_day AS CassDay,
+    cass_month AS CassMonth,
+    cass_year AS CassYear,
+    cass_hour AS CassHour,
+    cass1_no AS Cass1No,
+    cass1_day AS Cass1Day,
+    cass1_month AS Cass1Month,
+    cass1_year AS Cass1Year,
+    cass1_hour AS Cass1Hour,
+    cass2_no AS Cass2No,
+    cass2_day AS Cass2Day,
+    cass2_month AS Cass2Month,
+    cass2_year AS Cass2Year,
+    cass2_hour AS Cass2Hour
 FROM plc.tempering_sessions
 WHERE (@FurnaceNo IS NULL OR furnace_no = @FurnaceNo)
   AND (@From IS NULL OR started_at >= @From)
@@ -998,13 +998,13 @@ WHERE (@FurnaceNo IS NULL OR furnace_no = @FurnaceNo)
 
 public const string GetTemperingSessionDetails = """
 SELECT
-    time,
-    temp_act,
-    temp_ref,
-    t1,
-    t2,
-    act_time_total,
-    time_proc_set
+    time AS Time,
+    temp_act AS TempAct,
+    temp_ref AS TempRef,
+    t1 AS T1,
+    t2 AS T2,
+    act_time_total AS ActTimeTotal,
+    time_proc_set AS TimeProcSet
 FROM plc.tempering_data
 WHERE furnace_no = @FurnaceNo
   AND time BETWEEN @StartedAt AND @EndedAt

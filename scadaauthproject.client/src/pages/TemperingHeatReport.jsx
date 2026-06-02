@@ -455,45 +455,76 @@ export default function TemperingHeatReport() {
 
     // -----------------------------------------------------------------------
    const loadSessions = useCallback(async () => {
-    setListLoading(true);
-    setError(null);
-    setSelId(null);
-    setSelSession(null);
-    setDetails([]);
-    try {
-        const res = await furnaceApi.getTemperingSessions({
-            furnaceNo,
-            from: toIso(fromDate),
-            to: toIso(toDate + 'T23:59:59'),
-            page: 1,
-            pageSize: 200,
-        });
-        // Контроллер возвращает { items, total, page, pageSize }
-        setSessions(res.items ?? []);
-        setTotal(res.total ?? 0);
-    } catch (e) {
-        setError(e.response?.data?.error ?? e.message);
-    } finally {
-        setListLoading(false);
-    }
+  setListLoading(true);
+  setError(null);
+  setSelId(null);
+  setSelSession(null);
+  setDetails([]);
+  try {
+    const res = await furnaceApi.getTemperingSessions({
+      furnaceNo,
+      from: toIso(fromDate),
+      to: toIso(toDate + 'T23:59:59'),
+      page: 1,
+      pageSize: 200,
+    });
+
+    // 🔍 Безопасное извлечение: поддерживаем и camelCase, и PascalCase
+    const payload = res?.data ?? res;
+    const items = payload?.items ?? payload?.Items ?? [];
+    const total = payload?.total ?? payload?.Total ?? 0;
+
+    console.log('[Tempering] Loaded sessions:', items.length, 'of', total);
+    const normalizedItems = items.map(s => ({
+  id: s.id ?? s.Id,
+  furnaceNo: s.furnaceNo ?? s.FurnaceNo,
+  startedAt: s.startedAt ?? s.StartedAt,
+  endedAt: s.endedAt ?? s.EndedAt,
+  durationMin: s.durationMin ?? s.DurationMin,
+  tempMin: s.tempMin ?? s.TempMin,
+  tempMax: s.tempMax ?? s.TempMax,
+  tempAvg: s.tempAvg ?? s.TempAvg,
+  tempRef: s.tempRef ?? s.TempRef,
+  targetTemp: s.targetTemp ?? s.TargetTemp,
+  targetTime: s.targetTime ?? s.TargetTime,
+  hadFault: s.hadFault ?? s.HadFault,
+  cassetteNo: s.cassetteNo ?? s.CassetteNo,
+  cass1No: s.cass1No ?? s.Cass1No,
+  cass2No: s.cass2No ?? s.Cass2No,
+}));
+setSessions(normalizedItems);
+    setSessions(items);
+    setTotal(total);
+  } catch (e) {
+    console.error('[Tempering] Load sessions error:', e);
+    setError(e.response?.data?.error ?? e.message ?? 'Ошибка загрузки');
+  } finally {
+    setListLoading(false);
+  }
 }, [furnaceNo, fromDate, toDate]);
 
-   const loadDetails = useCallback(async (id) => {
-    setSelId(id);
-    const s = sessions.find(x => x.id === id);
-    setSelSession(s ?? null);
-    setDetails([]);
-    setDetLoading(true);
-    try {
-        const res = await furnaceApi.getTemperingSessionById(id);
-        // Контроллер возвращает { session, details }
-        setSelSession(res.session ?? s);
-        setDetails(res.details ?? []);
-    } catch (e) {
-        console.error(e);
-    } finally {
-        setDetLoading(false);
-    }
+const loadDetails = useCallback(async (id) => {
+  setSelId(id);
+  const s = sessions.find(x => x.id === id);
+  setSelSession(s ?? null);
+  setDetails([]);
+  setDetLoading(true);
+  try {
+    const res = await furnaceApi.getTemperingSessionById(id);
+    const payload = res?.data ?? res;
+    
+    // 🔍 Безопасное извлечение деталей
+    const sessionData = payload?.session ?? payload?.Session ?? s;
+    const detailsData = payload?.details ?? payload?.Details ?? [];
+
+    console.log('[Tempering] Loaded details:', detailsData.length, 'points');
+    setSelSession(sessionData);
+    setDetails(detailsData);
+  } catch (e) {
+    console.error('[Tempering] Load details error:', e);
+  } finally {
+    setDetLoading(false);
+  }
 }, [sessions]);
 
     useEffect(() => { loadSessions(); }, [loadSessions]);

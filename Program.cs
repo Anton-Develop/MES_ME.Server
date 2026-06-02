@@ -133,9 +133,9 @@ public class Program
         // ============================
         builder.Services.AddHostedService<HeatingSessionWorker>();
         builder.Services.AddHostedService<QuenchingSessionWorker>();
-       // builder.Services.AddHostedService<TemperingSessionWorker>(); // ✅ ВКЛЮЧЕН
+        builder.Services.AddHostedService<TemperingSessionWorker>(); // ✅ ВКЛЮЧЕН
         builder.Services.AddHostedService<TemperingAutoCompletionService>();
-         builder.Services.AddHostedService<AnnealingCompletionService>(); // Раскомментируй после тестов
+        builder.Services.AddHostedService<AnnealingCompletionService>(); // Раскомментируй после тестов
 
         builder.Services.AddControllers();
 

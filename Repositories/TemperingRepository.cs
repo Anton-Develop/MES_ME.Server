@@ -52,31 +52,64 @@ public class TemperingRepository : ITemperingRepository
     }
 
     public async Task<TemperingSessionDetailsDto?> GetSessionDetailsAsync(long id, CancellationToken ct)
+{
+    await using var connection = await _dataSource.OpenConnectionAsync(ct);
+
+    // Получаем сессию С АЛИАСАМИ (иначе Dapper не замаппит snake_case → PascalCase)
+    const string sessionQuery = """
+        SELECT
+            id AS Id,
+            furnace_no AS FurnaceNo,
+            started_at AS StartedAt,
+            ended_at AS EndedAt,
+            duration_min AS DurationMin,
+            temp_min AS TempMin,
+            temp_max AS TempMax,
+            temp_avg AS TempAvg,
+            temp_ref AS TempRef,
+            target_temp AS TargetTemp,
+            target_time AS TargetTime,
+            point_ref_1 AS PointRef1,
+            point_time_1 AS PointTime1,
+            point_dtime_2 AS PointDtime2,
+            had_fault AS HadFault,
+            cassette_no AS CassetteNo,
+            cass_day AS CassDay,
+            cass_month AS CassMonth,
+            cass_year AS CassYear,
+            cass_hour AS CassHour,
+            cass1_no AS Cass1No,
+            cass1_day AS Cass1Day,
+            cass1_month AS Cass1Month,
+            cass1_year AS Cass1Year,
+            cass1_hour AS Cass1Hour,
+            cass2_no AS Cass2No,
+            cass2_day AS Cass2Day,
+            cass2_month AS Cass2Month,
+            cass2_year AS Cass2Year,
+            cass2_hour AS Cass2Hour
+        FROM plc.tempering_sessions
+        WHERE id = @Id
+        """;
+
+    var session = await connection.QueryFirstOrDefaultAsync<TemperingSessionDto>(
+        new CommandDefinition(sessionQuery, new { Id = id }, cancellationToken: ct));
+
+    if (session == null)
+        return null;
+
+    // Получаем временной ряд температур (Sql.GetTemperingSessionDetails уже с алиасами)
+    var details = await connection.QueryAsync<TemperingDataPoint>(
+        new CommandDefinition(Sql.GetTemperingSessionDetails,
+            new { FurnaceNo = session.FurnaceNo, StartedAt = session.StartedAt, EndedAt = session.EndedAt ?? DateTime.UtcNow },
+            cancellationToken: ct));
+
+    return new TemperingSessionDetailsDto
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(ct);
-
-        // Получаем сессию
-        var session = await connection.QueryFirstOrDefaultAsync<TemperingSessionDto>(
-            new CommandDefinition(@"
-                SELECT * FROM plc.tempering_sessions WHERE id = @Id",
-                new { Id = id },
-                cancellationToken: ct));
-
-        if (session == null)
-            return null;
-
-        // Получаем временной ряд температур
-        var details = await connection.QueryAsync<TemperingDataPoint>(
-            new CommandDefinition(Sql.GetTemperingSessionDetails,
-                new { FurnaceNo = session.FurnaceNo, StartedAt = session.StartedAt, EndedAt = session.EndedAt },
-                cancellationToken: ct));
-
-        return new TemperingSessionDetailsDto
-        {
-            Session = session,
-            Details = details.ToList()
-        };
-    }
+        Session = session,
+        Details = details.ToList()
+    };
+}
 }
 
 // DTO классы
