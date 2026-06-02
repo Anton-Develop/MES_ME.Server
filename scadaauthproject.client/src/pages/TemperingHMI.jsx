@@ -80,7 +80,7 @@ const T = {
   sansFont: "'Inter', 'Roboto', sans-serif",
 };
 
-// ─── Утилиты извлечения значений OPC UA ────────────────────────────────────────
+// ─── Безопасное извлечение значения из OPC UA ─────────────────────────────────
 const extractValue = (entry) => {
   if (entry == null) return null;
   if (typeof entry !== 'object') return entry;
@@ -89,6 +89,7 @@ const extractValue = (entry) => {
   if (Array.isArray(entry) && entry.length > 0) return entry[0];
   return entry;
 };
+
 const toBool = (v) => {
   const val = extractValue(v);
   if (val == null) return false;
@@ -100,6 +101,7 @@ const toBool = (v) => {
   }
   return Boolean(val);
 };
+
 const toNumber = (v) => {
   const val = extractValue(v);
   if (val == null) return null;
@@ -114,7 +116,7 @@ const fmtBar = (v) => v != null ? `${Number(v).toFixed(3)}` : '—';
 const formatTime = (dt) => dt ? new Date(dt).toLocaleTimeString('ru-RU') : '';
 const formatDateTime = (dt) => dt ? new Date(dt).toLocaleString('ru-RU') : '—';
 
-// ─── Преобразование OPC UA → данные карточки ──────────────────────────────────
+// ─── Преобразование OPC UA значений ──────────────────────────────────────────
 const transformOpcToPlcData = (values, furnaceNo) => {
   let prefix;
   if (furnaceNo === 1) prefix = 'RelFurn12.RelFurn1';
@@ -170,27 +172,19 @@ const transformOpcToPlcData = (values, furnaceNo) => {
   return data;
 };
 
-// ─── Статус-чип ────────────────────────────────────────────────────────────────
+// ─── Компоненты UI ────────────────────────────────────────────────────────────
+
 function StatusChip({ run, end, fault }) {
   const styles = {
     fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em',
     textTransform: 'uppercase', height: 24, fontFamily: T.sansFont,
   };
-  if (fault) return <Chip icon={<ErrorIcon sx={{ fontSize: '0.85rem !important' }} />}
-    label="АВАРИЯ" size="small"
-    sx={{ ...styles, bgcolor: '#3d1a1a', color: T.danger, border: `1px solid ${T.danger}44` }} />;
-  if (run) return <Chip icon={<LocalFireDepartmentIcon sx={{ fontSize: '0.85rem !important' }} />}
-    label="РАБОТАЕТ" size="small"
-    sx={{ ...styles, bgcolor: '#2d2200', color: '#e3a008', border: '1px solid #d2990244' }} />;
-  if (end) return <Chip icon={<CheckCircleIcon sx={{ fontSize: '0.85rem !important' }} />}
-    label="ГОТОВО" size="small"
-    sx={{ ...styles, bgcolor: '#0f2a1a', color: T.success, border: `1px solid ${T.success}44` }} />;
-  return <Chip icon={<PauseCircleIcon sx={{ fontSize: '0.85rem !important' }} />}
-    label="СТОП" size="small"
-    sx={{ ...styles, bgcolor: T.surfaceAlt, color: T.textSecondary, border: `1px solid ${T.border}` }} />;
+  if (fault) return <Chip icon={<ErrorIcon sx={{ fontSize: '0.85rem !important' }} />} label="АВАРИЯ" size="small" sx={{ ...styles, bgcolor: '#3d1a1a', color: T.danger, border: `1px solid ${T.danger}44` }} />;
+  if (run) return <Chip icon={<LocalFireDepartmentIcon sx={{ fontSize: '0.85rem !important' }} />} label="РАБОТАЕТ" size="small" sx={{ ...styles, bgcolor: '#2d2200', color: '#e3a008', border: '1px solid #d2990244' }} />;
+  if (end) return <Chip icon={<CheckCircleIcon sx={{ fontSize: '0.85rem !important' }} />} label="ГОТОВО" size="small" sx={{ ...styles, bgcolor: '#0f2a1a', color: T.success, border: `1px solid ${T.success}44` }} />;
+  return <Chip icon={<PauseCircleIcon sx={{ fontSize: '0.85rem !important' }} />} label="СТОП" size="small" sx={{ ...styles, bgcolor: T.surfaceAlt, color: T.textSecondary, border: `1px solid ${T.border}` }} />;
 }
 
-// ─── Метрика ──────────────────────────────────────────────────────────────────
 function Metric({ label, value, unit = '', size = 'md', highlight }) {
   const sizes = {
     xl: { val: '2rem', lbl: '0.6rem' },
@@ -216,7 +210,6 @@ function Metric({ label, value, unit = '', size = 'md', highlight }) {
   );
 }
 
-// ─── Прогресс ─────────────────────────────────────────────────────────────────
 function ProgressBar({ value, max }) {
   if (!max || value == null) return null;
   const pct = Math.min((value / max) * 100, 100);
@@ -242,7 +235,6 @@ function ProgressBar({ value, max }) {
   );
 }
 
-// ─── Метка кассеты (для отображения в ПЛК) ─────────────────────────────────────
 function CassetteLabel({ no, day, month, year, hour }) {
   if (!no && !day) return (
     <Typography sx={{ color: T.textMuted, fontSize: '0.75rem', fontFamily: T.monoFont }}>—</Typography>
@@ -259,7 +251,6 @@ function CassetteLabel({ no, day, month, year, hour }) {
 
 const HRule = () => <Divider sx={{ borderColor: T.borderSoft, my: 1.5 }} />;
 
-// ─── Индикатор подключения SignalR ─────────────────────────────────────────────
 function ConnectionIndicator({ connected, connecting, error }) {
   if (error) return (
     <Tooltip title={`Ошибка: ${error}`}>
@@ -288,11 +279,9 @@ function ConnectionIndicator({ connected, connecting, error }) {
   return null;
 }
 
-// ─── Секция: управление ОДНОЙ кассетой в ОДНОМ слоте ──────────────────────────
+// ─── Секция: управление кассетой (с поддержкой слота) ─────────────────────────
 function CassetteControl({ furnaceNo, slot, activeSession, availableCassettes, loading, onLoadClick, onUnloadClick }) {
   const [selected, setSelected] = useState('');
-
-  // Для печей 3 и 4 добавляем подпись слота
   const slotLabel = slot != null ? `Слот ${slot}` : '';
 
   if (activeSession) {
@@ -431,24 +420,18 @@ function CassetteControl({ furnaceNo, slot, activeSession, availableCassettes, l
 }
 
 // ─── Карточка печи ────────────────────────────────────────────────────────────
-function FurnaceCard({
-  furnaceNo, plcData,
-  activeSessions,           // массив сессий для этой печи (0, 1 или 2 элемента)
-  availableCassettes,
-  onLoad, onUnload
-}) {
+function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, onLoad, onUnload }) {
   const [loading, setLoading] = useState(false);
   const [pendingCassette, setPendingCassette] = useState(null);
-  const [pendingSlot, setPendingSlot] = useState(null);     // слот для загрузки/выгрузки
+  const [pendingSlot, setPendingSlot] = useState(null);
   const [openConfirm, setOpenConfirm] = useState(false);
-  const [actionType, setActionType] = useState(null);       // 'load' | 'unload'
+  const [actionType, setActionType] = useState(null);
 
   const hasTwoSlots = DUAL_SLOT_FURNACES.includes(furnaceNo);
   const isFault = plcData?.proc_fault;
   const isRun = plcData?.proc_run;
   const isEnd = plcData?.proc_end;
 
-  // Находим сессии по слотам
   const sessionSlot1 = hasTwoSlots
     ? activeSessions.find(s => s.slotNumber === 1) || null
     : (activeSessions[0] || null);
@@ -488,11 +471,10 @@ function FurnaceCard({
 
   const actColor = isFault ? T.danger : isRun ? '#f0a500' : T.textPrimary;
 
-  // Текст для диалога подтверждения
   const getConfirmText = () => {
     if (actionType === 'load') {
       const slotStr = pendingSlot != null ? ` (слот ${pendingSlot})` : '';
-      return `Загрузить кассету №${pendingCassette} в печь №{furnaceNo}${slotStr}?`;
+      return `Загрузить кассету №${pendingCassette} в печь №${furnaceNo}${slotStr}?`;
     } else {
       const session = pendingSlot != null
         ? (pendingSlot === 1 ? sessionSlot1 : sessionSlot2)
@@ -603,7 +585,6 @@ function FurnaceCard({
 
       <HRule />
 
-      {/* ── Блок управления кассетами ────────────────────────────────────────── */}
       <Box sx={{ mt: 'auto' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
           <Typography sx={{
@@ -625,7 +606,6 @@ function FurnaceCard({
         </Stack>
 
         {hasTwoSlots ? (
-          // Печи 3 и 4 — два слота
           <Stack spacing={1.5}>
             <CassetteControl
               furnaceNo={furnaceNo} slot={1}
@@ -645,7 +625,6 @@ function FurnaceCard({
             />
           </Stack>
         ) : (
-          // Печи 1 и 2 — один слот
           <CassetteControl
             furnaceNo={furnaceNo} slot={null}
             activeSession={sessionSlot1}
@@ -664,7 +643,6 @@ function FurnaceCard({
         {formatTime(new Date())}
       </Typography>
 
-      {/* ── Диалог подтверждения ─────────────────────────────────────────────── */}
       <Dialog open={openConfirm} onClose={() => setOpenConfirm(false)} maxWidth="xs" fullWidth
         PaperProps={{ sx: { bgcolor: '#1a2330', border: `1px solid ${T.border}`, borderRadius: 2 } }}>
         <DialogTitle sx={{ color: T.textPrimary, fontFamily: T.sansFont, fontSize: '0.95rem', fontWeight: 600 }}>
@@ -703,7 +681,6 @@ export default function TemperingHMI() {
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // Преобразование OPC UA → данные карточек
   const plcDataList = useMemo(() => {
     return FURNACES.map(no => transformOpcToPlcData(values, no));
   }, [values]);
@@ -773,14 +750,12 @@ export default function TemperingHMI() {
     return () => clearInterval(iv);
   }, [loadAllData]);
 
-  // Группировка сессий по печам
   const getSessionsByFurnace = useCallback((n) => {
     return activeSessions.filter(s => s.furnaceNumber === n);
   }, [activeSessions]);
 
   const getPlcData = (n) => plcDataList.find(f => f.furnace_no === n);
 
-  // ── Обработчики загрузки/выгрузки ──────────────────────────────────────────
   const handleLoadCassette = async (furnaceNo, cassetteNumber, slot) => {
     try {
       await api.post('/tempering/load', { furnaceNo, cassetteNumber, slot });
