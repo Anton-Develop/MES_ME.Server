@@ -185,15 +185,18 @@ namespace MES_ME.Server.Controllers
                 // или WriteAsync с прямыми NodeId.
                 // В вашем appsettings.json есть алиасы: E1_Melt, E1_PartNo, E1_Pack, E1_Sheet
                 ///ModeLen 0- это 3м листы, 1 - 6м, чет это для последовательности
-                 success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Melt", request.EntrPlateData_Melt );
+                  success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Melt", request.EntrPlateData_Melt );
                   success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_PartNo", request.EntrPlateData_PartNo);
                   success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Pack", request.EntrPlateData_Pack);
                   success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_Sheet", request.EntrPlateData_Sheet);
+                  success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_AlloyCodeText", request.EntrPlateData_AlloyCodeText);
+                  success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_ThiknessText", request.EntrPlateData_ThiknessText);
                   success &= await _opcService.WriteByAliasAsync("PLC210.ModeLen", request.ModeLen );
                 // Устанавливаем признак присутствия листа (E1_Ocp = true)
                    success &= await _opcService.WriteByAliasAsync("PLC210.EntrPlateData_InsertToE1", true);
             }
-            catch (Exception ex)
+            
+        catch (Exception ex)
         {
             _logger.LogError(ex, "Ошибка записи в OPC UA при подаче листа {MatId}", request.UniqueId);
             return StatusCode(500, new { message = "Ошибка связи с OPC-сервером." });

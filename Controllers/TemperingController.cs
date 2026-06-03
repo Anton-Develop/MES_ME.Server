@@ -77,11 +77,11 @@ public class TemperingController : ControllerBase
         await _opcService.WriteByAliasAsync(dayAlias, loadTime.Day);
         await _opcService.WriteByAliasAsync(monthAlias, loadTime.Month);
         await _opcService.WriteByAliasAsync(yearAlias, loadTime.Year);
-        await _opcService.WriteByAliasAsync(hourAlias, loadTime.Hour);
+        await _opcService.WriteByAliasAsync(hourAlias, (ushort)loadTime.Hour);
 
         _logger.LogInformation("✅ OPC UA записано: печь №{Furnace}, слот {Slot}, кассета №{Cassette}",
             furnaceNo, slot ?? 0, cassetteNumber);
-    }
+    } 
 
     /// <summary>
     /// Обнуляет теги кассеты в OPC UA строго для указанного слота.
@@ -103,18 +103,18 @@ public class TemperingController : ControllerBase
         {
             // Для печей 3 и 4 слот ОБЯЗАН быть указан (1 или 2)
             string suffix = slot == 2 ? "2" : "1";
-            noAlias = $"RelFurn{furnaceNo}.Cassette{suffix}_CaasetteNo{suffix}";
-            dayAlias = $"RelFurn{furnaceNo}.Cassette{suffix}_Day";
-            monthAlias = $"RelFurn{furnaceNo}.Cassette{suffix}_Month";
-            yearAlias = $"RelFurn{furnaceNo}.Cassette{suffix}_Year";
-            hourAlias = $"RelFurn{furnaceNo}.Cassette{suffix}_Hour";
+            noAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{suffix}_CaasetteNo{suffix}";
+            dayAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{suffix}_Day";
+            monthAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{suffix}_Month";
+            yearAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{suffix}_Year";
+            hourAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{suffix}_Hour";
         }
 
         await _opcService.WriteByAliasAsync(noAlias, 0);
         await _opcService.WriteByAliasAsync(dayAlias, 0);
         await _opcService.WriteByAliasAsync(monthAlias, 0);
         await _opcService.WriteByAliasAsync(yearAlias, 0);
-        await _opcService.WriteByAliasAsync(hourAlias, 0);
+        await _opcService.WriteByAliasAsync(hourAlias, (ushort)0);
 
         _logger.LogInformation("🧹 OPC UA очищено: печь №{Furnace}, слот {Slot}", furnaceNo, slot ?? 0);
     }

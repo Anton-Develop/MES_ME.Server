@@ -20,6 +20,12 @@ const statusColor = s => ({
 const toBool = v => v === true || v === 1 || v === '1' || v === 'true';
 const toStr  = v => (v === null || v === undefined) ? '—' : String(v);
 
+const valveState = v => {
+  if (v === 1 || v === '1' || v === true) return 1;
+  if (v === 6 || v === '6') return 6;
+  return 0;
+};
+
 // ── Primitives ─────────────────────────────────────────────────────────────
 const Led = ({on, color='#3fb950', size=10}) => (
   <span style={{
@@ -40,14 +46,25 @@ const Seg = ({value, unit='', width=70}) => (
   </div>
 );
 
-const SvgSeg = ({x, y, value, unit='', w=46, h=18}) => (
-  <g>
-    <rect x={x} y={y} width={w} height={h} rx={2} fill={C.display} stroke="#1c6ca8" strokeWidth={1}/>
-    <text x={x+w-4} y={y+h/2+4} textAnchor="end" fill="#4fc3f7"
-      fontSize={10} fontFamily="monospace" fontWeight={700}>{value}</text>
-    {unit && <text x={x+w+2} y={y+h/2+4} fill={C.dim} fontSize={8}>{unit}</text>}
-  </g>
-);
+// ── SVG LED для клапана (внутри зоны ЗАКАЛКА) ──
+const ValveLed = ({cx, cy, state, r=4.5}) => {
+  const color  = state === 1 ? C.green : state === 6 ? C.red : '#252a30';
+  const stroke = state === 6 ? C.red   : state === 1 ? '#2ea043' : '#444';
+  return (
+    <g>
+      {state === 1 && (
+        <circle cx={cx} cy={cy} r={r+2.5} fill="none" stroke={C.green} strokeWidth={0.6} opacity={0.4}/>
+      )}
+      {state === 6 && (
+        <circle cx={cx} cy={cy} r={r+2.5} fill="none" stroke={C.red} strokeWidth={0.6} opacity={0.5}/>
+      )}
+      <circle cx={cx} cy={cy} r={r} fill={color} stroke={stroke} strokeWidth={0.8}/>
+      {state === 6 && (
+        <text x={cx} y={cy+2.5} textAnchor="middle" fill="#fff" fontSize={6} fontWeight={700}>!</text>
+      )}
+    </g>
+  );
+};
 
 // ── SVG helpers ─────────────────────────────────────────────────────────────
 const Rollers = ({x, y, count, w=16, gap=5, h=30}) => (
@@ -89,18 +106,6 @@ const Nozzles9 = ({x, y, active, side}) => (
   })}</>
 );
 
-// ── Animated flow arrow ─────────────────────────────────────────────────────
-const FlowArrow = ({x1, y1, x2, y2, active}) => (
-  <line
-    x1={x1} y1={y1} x2={x2} y2={y2}
-    stroke={active ? '#3fb950' : '#58a6ff'}
-    strokeWidth={active ? 2.5 : 1.5}
-    strokeDasharray={active ? '6 4' : 'none'}
-    markerEnd="url(#arr)"
-    style={active ? {animation:'dashMove 0.4s linear infinite'} : {}}
-  />
-);
-
 // ── Main ────────────────────────────────────────────────────────────────────
 export default function QuenchingHMI() {
   const [time, setTime]                   = useState(new Date());
@@ -115,82 +120,102 @@ export default function QuenchingHMI() {
   const [plans, setPlans]                 = useState([]);
   const [submitting , setsubmitting]      = useState(false);
 
-  // ── Live tracking state (derived from OPC, triggers re-render properly) ──
   const [liveData, setLiveData] = useState({
     entry:   null,
     furnace: [null, null, null, null],
-    quench:  null,   // X1
-    cool:    null,   // X1 (тот же лист)
-    output:  null,   // X2
+    quench:  null,
+    cool:    null,
+    output:  null,
     arrows: {
       toFurnace: false,
       zones: [false, false, false, false],
     },
   });
 
-  // ── OPC UA ──────────────────────────────────────────────────────────────
   const { values, connected, write } = useOpcUa([
     'PLC210.T_F1_MedAct','PLC210.T_F2_MedAct','PLC210.T_F3_MedAct','PLC210.T_F4_MedAct',
     'PLC210.E1_Ocp','PLC210.E1_Melt','PLC210.E1_PartNo','PLC210.E1_Pack','PLC210.E1_Sheet',
     'PLC210.F1_ZoneOccup','PLC210.F1_InArrow','PLC210.F1_OutArrow','PLC210.F1_Melt','PLC210.F1_PartNo','PLC210.F1_Pack','PLC210.F1_Sheet',
     'PLC210.F2_ZoneOccup','PLC210.F2_OutArrow','PLC210.F2_Melt','PLC210.F2_PartNo','PLC210.F2_Pack','PLC210.F2_Sheet',
     'PLC210.F3_ZoneOccup','PLC210.F3_OutArrow','PLC210.F3_Melt','PLC210.F3_PartNo','PLC210.F3_Pack','PLC210.F3_Sheet',
-    'PLC210.F4_ZoneOccup','PLC210.F4_OutArrow','PLC210.F4_Melt','PLC210.F4_PartNo','PLC210.F4_Pack','PLC210.F4_Sheet',
+    'PLC210.F4_ZoneOccup','PLC210.F4_OutArrow','PLC210.F4_Melt','PLC210.F4_PartNo','PLC210.F4_Pack','PLC210.F4_Sheet','PLC210.F4_AlloyCodeText','PLC210.F4_Thikness',
     'PLC210.X1_ZoneOccup','PLC210.X1_Melt','PLC210.X1_PartNo','PLC210.X1_Pack','PLC210.X1_Sheet',
     'PLC210.X2_ZoneOccup','PLC210.X2_Melt','PLC210.X2_PartNo','PLC210.X2_Pack','PLC210.X2_Sheet',
+    'PLC210.ModeLen','PLC210.TmpSet','PLC210.X1_UnLoadSpeed','PLC210.F4_UnLoadSpeed',
+    'PLC210.Valave_1x1_MnAt','PLC210.Valave_1x2_MnAt','PLC210.Valave_1x3_MnAt','PLC210.Valave_1x4_MnAt','PLC210.Valave_1x5_MnAt',
+    'PLC210.Valave_1x6_MnAt','PLC210.Valave_1x7_MnAt','PLC210.Valave_1x8_MnAt','PLC210.Valave_1x9_MnAt',
+    'PLC210.Valave_2x1_MnAt','PLC210.Valave_2x2_MnAt','PLC210.Valave_2x3_MnAt','PLC210.Valave_2x4_MnAt','PLC210.Valave_2x5_MnAt',
+    'PLC210.Valave_2x6_MnAt','PLC210.Valave_2x7_MnAt','PLC210.Valave_2x8_MnAt','PLC210.Valave_2x9_MnAt',
   ]);
 
-  // ── Пересчёт liveData при любом изменении values ─────────────────────
-useEffect(() => {
+  useEffect(() => {
     const makeSheet = (prefix) => {
-        const fullPrefix = `PLC210.${prefix}`;
-        const occ = toBool(values[`${fullPrefix}_ZoneOccup`]?.value ?? values[`${fullPrefix}_Ocp`]?.value);
-        if (!occ) return null;
-        return {
-            melt:  toStr(values[`${fullPrefix}_Melt`]?.value),
-            sheet: toStr(values[`${fullPrefix}_Sheet`]?.value),
-            pack:  toStr(values[`${fullPrefix}_Pack`]?.value),
-            batch: toStr(values[`${fullPrefix}_PartNo`]?.value),
-        };
+      const fullPrefix = `PLC210.${prefix}`;
+      const occ = toBool(values[`${fullPrefix}_ZoneOccup`]?.value ?? values[`${fullPrefix}_Ocp`]?.value);
+      if (!occ) return null;
+      return {
+        melt:  toStr(values[`${fullPrefix}_Melt`]?.value),
+        sheet: toStr(values[`${fullPrefix}_Sheet`]?.value),
+        pack:  toStr(values[`${fullPrefix}_Pack`]?.value),
+        batch: toStr(values[`${fullPrefix}_PartNo`]?.value),
+        grade: toStr(values[`${fullPrefix}_AlloyCodeText`]?.value),    
+        thick: toStr(values[`${fullPrefix}_Thikness`]?.value),    
+      };
+      
     };
 
     const entryOcc = toBool(values['PLC210.E1_Ocp']?.value);
     const entrySheet = entryOcc ? {
-        melt:  toStr(values['PLC210.E1_Melt']?.value),
-        sheet: toStr(values['PLC210.E1_Sheet']?.value),
-        pack:  toStr(values['PLC210.E1_Pack']?.value),
-        batch: toStr(values['PLC210.E1_PartNo']?.value),
+      melt:  toStr(values['PLC210.E1_Melt']?.value),
+      sheet: toStr(values['PLC210.E1_Sheet']?.value),
+      pack:  toStr(values['PLC210.E1_Pack']?.value),
+      batch: toStr(values['PLC210.E1_PartNo']?.value),
     } : null;
 
     const x1Sheet = makeSheet('X1');
 
-    setLiveData({
-        entry:   entrySheet,
-        furnace: [1,2,3,4].map(i => makeSheet(`F${i}`)),
-        quench:  x1Sheet,
-        cool:    x1Sheet,
-        output:  makeSheet('X2'),
-        arrows: {
-            toFurnace: toBool(values['PLC210.F1_InArrow']?.value),
-            zones: [1,2,3,4].map(i => toBool(values[`PLC210.F${i}_OutArrow`]?.value)),
-        },
-    });
-}, [values]);
+   
 
-// ── Temperatures ─────────────────────────────────────────────────────────
-const realTemps = [
+    setLiveData({
+      entry:   entrySheet,
+      furnace: [1,2,3,4].map(i => makeSheet(`F${i}`)),
+      quench:  x1Sheet,
+      cool:    x1Sheet,
+      output:  makeSheet('X2'),
+      arrows: {
+        toFurnace: toBool(values['PLC210.F1_InArrow']?.value),
+        zones: [1,2,3,4].map(i => toBool(values[`PLC210.F${i}_OutArrow`]?.value)),
+      },
+    });
+  }, [values]);
+
+  const realTemps = [
     Math.round(values['PLC210.T_F1_MedAct']?.value ?? 0),
     Math.round(values['PLC210.T_F2_MedAct']?.value ?? 0),
     Math.round(values['PLC210.T_F3_MedAct']?.value ?? 0),
     Math.round(values['PLC210.T_F4_MedAct']?.value ?? 0),
-];
+  ];
+
+  // ── ЖИВЫЕ ПАРАМЕТРЫ ──
+  const rawSpeed   = values['PLC210.F4_UnLoadSpeed']?.value;
+  const rawTmpSet  = values['PLC210.TmpSet']?.value;
+  const rawModeLen = values['PLC210.ModeLen']?.value;
+
+  const speedDisplay = (rawSpeed != null && !isNaN(rawSpeed)) ? Number(rawSpeed) : '—';
+  const tempSetDisplay = (rawTmpSet  != null && !isNaN(rawTmpSet))  ? Number(rawTmpSet).toFixed(1)   : '—';
+  const lengthDisplay  = rawModeLen === 1 || rawModeLen === '1' ? '6'
+                           : rawModeLen === 0 || rawModeLen === '0' ? '3'
+                           : '—';
+
+  // ── СОСТОЯНИЯ 18 КЛАПАНОВ ──
+  const topValves    = Array.from({length:9}, (_,i) => valveState(values[`PLC210.Valave_1x${i+1}_MnAt`]?.value));
+  const bottomValves = Array.from({length:9}, (_,i) => valveState(values[`PLC210.Valave_2x${i+1}_MnAt`]?.value));
 
   const setZoneTemp = async (zone, temp) => {
     const ok = await write(`z${zone}_setpoint`, temp);
     console.log('Write result:', ok);
   }; // eslint-disable-line no-unused-vars
 
-  // ── API ──────────────────────────────────────────────────────────────────
   const fetchPlans = async () => {
     try {
       setLoading(true);
@@ -225,161 +250,109 @@ const realTemps = [
 
   useEffect(() => { fetchPlans(); }, []);
 
-
- const addToConveyor = async () => {
+  const addToConveyor = async () => {
     if (!canAdd || submitting) return;
     setsubmitting(true);
-     try {
-		const modelen = selSheet.length > 3 ? 1 : 0;
-        
-
+    try {
+      const modelen = selSheet.length > 3 ? 1 : 0;
       await api.post('/quenchinghmi/write-entry', {
         EntrPlateData_Melt: selSheet.melt,
         EntrPlateData_PartNo: selSheet.batch,
         EntrPlateData_Pack: selSheet.pack,
         EntrPlateData_Sheet: selSheet.sheet,
-          UniqueId: selSheet.uniqueId,
-          ModeLen: modelen,
-
+        UniqueId: selSheet.uniqueId,
+        ModeLen: modelen,
       });
       setInputSheet(selSheet);
       setSelectedPlan(prev => ({
-      ...prev,
-      sheets: prev.sheets.map(s =>
-        s.id === selSheetId ? {...s, status:'На рольганге', loc:'Вход'} : s
-      ),
-    }));
-    setSelSheet(null);
+        ...prev,
+        sheets: prev.sheets.map(s =>
+          s.id === selSheetId ? {...s, status:'На рольганге', loc:'Вход'} : s
+        ),
+      }));
+      setSelSheet(null);
     } catch (err) {
       setError ('Ошибка подачи листа: ${err.message}');
-      
     }
     finally {
       setsubmitting(false)
-    }   
+    }
   };
-    // ── Установка брака ──────────────────────────────────────────────────────────────────
-    const [defectModal, setDefectModal] = useState({
-        open: false,
-        sheet: null,
-        loading: false,
-        error: null,
-        reason: '',
-        defectTypeId: null,
+
+  const [defectModal, setDefectModal] = useState({
+    open: false, sheet: null, loading: false, error: null,
+    reason: '', defectTypeId: null,
+  });
+  const [defectTypes, setDefectTypes] = useState([]);
+
+  useEffect(() => {
+    api.get('/defects/types')
+      .then(res => setDefectTypes(res.data))
+      .catch(err => console.error('Ошибка загрузки типов брака:', err));
+  }, []);
+
+  const handleSheetClick = (zoneName, sheetData) => {
+    if (!sheetData) return;
+    openDefectModal({
+      melt: sheetData.melt, batch: sheetData.batch,
+      pack: sheetData.pack, sheet: sheetData.sheet, zone: zoneName,
     });
+  };
 
-    const [defectTypes, setDefectTypes] = useState([]);
+  const openDefectModal = async (sheetInfo) => {
+    setDefectModal({
+      open: true, sheet: null, loading: true, error: null,
+      reason: '', defectTypeId: null, detectedZone: sheetInfo.zone || 'X2',
+    });
+    try {
+      const res = await api.get('/quenchinghmi/find-sheet', {
+        params: {
+          melt: sheetInfo.melt, batch: sheetInfo.batch,
+          pack: sheetInfo.pack, sheet: sheetInfo.sheet,
+        },
+      });
+      setDefectModal((prev) => ({ ...prev, sheet: res.data, loading: false }));
+    } catch (err) {
+      setDefectModal((prev) => ({
+        ...prev, loading: false,
+        error: `Лист не найден в БД: ${err.response?.data?.message || err.message}`,
+      }));
+    }
+  };
 
-    // Загрузка типов брака
-    useEffect(() => {
-        api.get('/defects/types')
-            .then(res => setDefectTypes(res.data))
-            .catch(err => console.error('Ошибка загрузки типов брака:', err));
-    }, []);
+  const closeDefectModal = () => {
+    setDefectModal({
+      open: false, sheet: null, loading: false, error: null,
+      reason: '', defectTypeId: null, detectedZone: 'X2',
+    });
+  };
 
-    
+  const markAsDefect = async () => {
+    if (!defectModal.sheet) return;
+    const sheetLabel = `${defectModal.sheet.meltNumber}/${defectModal.sheet.sheetNumber}`;
+    if (!window.confirm(
+      `Подтвердите установку статуса "БРАК" для листа ${sheetLabel}?\n\nЗона: ${defectModal.detectedZone}\nПричина: ${defectModal.reason || 'Не указана'}`
+    )) return;
 
-       
-   
+    setDefectModal((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      await api.post('/defects', {
+        matId: defectModal.sheet.matId,
+        defectTypeId: defectModal.defectTypeId,
+        description: defectModal.reason || 'Не указана',
+        detectedAtZone: defectModal.detectedZone,
+        severity: 2,
+      });
+      closeDefectModal();
+      if (selectedPlan) fetchPlanSheets(selectedPlan.id);
+    } catch (err) {
+      setDefectModal((prev) => ({
+        ...prev, loading: false,
+        error: err.response?.data?.message || err.message,
+      }));
+    }
+  };
 
-    // ── Defect Management Handlers ────────────────────────────────────────
-
-    // Универсальный клик по листу в любой зоне SVG
-    const handleSheetClick = (zoneName, sheetData) => {
-        if (!sheetData) return;
-        openDefectModal({
-            melt: sheetData.melt,
-            batch: sheetData.batch,
-            pack: sheetData.pack,
-            sheet: sheetData.sheet,
-            zone: zoneName,
-        });
-    };
-
-    // Открытие модалки: ищем MatId в БД по бизнес-ключам
-    const openDefectModal = async (sheetInfo) => {
-        setDefectModal({
-            open: true,
-            sheet: null,
-            loading: true,
-            error: null,
-            reason: '',
-            defectTypeId: null,
-            detectedZone: sheetInfo.zone || 'X2',
-        });
-
-        try {
-            const res = await api.get('/quenchinghmi/find-sheet', {
-                params: {
-                    melt: sheetInfo.melt,
-                    batch: sheetInfo.batch,
-                    pack: sheetInfo.pack,
-                    sheet: sheetInfo.sheet,
-                },
-            });
-            setDefectModal((prev) => ({ ...prev, sheet: res.data, loading: false }));
-        } catch (err) {
-            setDefectModal((prev) => ({
-                ...prev,
-                loading: false,
-                error: `Лист не найден в БД: ${err.response?.data?.message || err.message}`,
-            }));
-        }
-    };
-
-    // Закрытие модалки
-    const closeDefectModal = () => {
-        setDefectModal({
-            open: false,
-            sheet: null,
-            loading: false,
-            error: null,
-            reason: '',
-            defectTypeId: null,
-            detectedZone: 'X2',
-        });
-    };
-
-    // 🚨 Установка брака через API
-    const markAsDefect = async () => {
-        if (!defectModal.sheet) return;
-
-        const sheetLabel = `${defectModal.sheet.meltNumber}/${defectModal.sheet.sheetNumber}`;
-        if (
-            !window.confirm(
-                `Подтвердите установку статуса "БРАК" для листа ${sheetLabel}?\n\nЗона: ${defectModal.detectedZone}\nПричина: ${defectModal.reason || 'Не указана'}`
-            )
-        ) {
-            return;
-        }
-
-        setDefectModal((prev) => ({ ...prev, loading: true, error: null }));
-
-        try {
-            await api.post('/defects', {
-                matId: defectModal.sheet.matId,
-                defectTypeId: defectModal.defectTypeId,
-                description: defectModal.reason || 'Не указана',
-                detectedAtZone: defectModal.detectedZone,
-                severity: 2,
-            });
-
-            closeDefectModal();
-
-            // Обновляем список листов плана, чтобы увидеть новый статус
-            if (selectedPlan) {
-                fetchPlanSheets(selectedPlan.id);
-            }
-        } catch (err) {
-            setDefectModal((prev) => ({
-                ...prev,
-                loading: false,
-                error: err.response?.data?.message || err.message,
-            }));
-        }
-    };
-
-  // ── Clock + coolant temp sim ─────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => {
       setTime(new Date());
@@ -388,7 +361,6 @@ const realTemps = [
     return () => clearInterval(id);
   }, []);
 
-  // ── Plan / sheet helpers ─────────────────────────────────────────────────
   const handleSelectPlan = (plan) => {
     setSelectedPlan(plan);
     fetchPlanSheets(plan.id);
@@ -401,13 +373,10 @@ const realTemps = [
   const selSheet   = planSheets.find(s => s.id === selSheetId);
   const canAdd     = !!selSheetId && selSheet?.status === 'Ожидание' && !inputSheet;
 
-  // SVG-источник: OPC live имеет приоритет, план — fallback
   const zones     = liveData.furnace.map((live, i) => live ?? inLoc(`Зона ${i+1}`));
   const qS        = liveData.quench  ?? inLoc('Закалка');
   const cS        = liveData.cool    ?? inLoc('Охл.');
-  const svgEntry  = liveData.entry   ?? inputSheet;  // вход рольганг
-
- 
+  const svgEntry  = liveData.entry   ?? inputSheet;
 
   const loadToFurnace = () => {
     if (!inputSheet) return;
@@ -424,7 +393,6 @@ const realTemps = [
 
   const fmt = d => d.toTimeString().slice(0,8);
 
-  // ── SVG layout constants ─────────────────────────────────────────────────
   const VW = 1000, VH = 230;
   const rY = 110, rH = 30, rW = 16, rGap = 5;
 
@@ -440,10 +408,6 @@ const realTemps = [
 
   const zoneX = i => fX + i*(zW+zGap);
 
-  const presX = outX - 4;
-  const presY = rY - 56;
-
-  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{
       background:C.bg, color:C.text, fontFamily:"'Courier New',monospace",
@@ -457,7 +421,6 @@ const realTemps = [
         borderRadius:6, padding:'7px 12px', marginBottom:8,
       }}>
 
-        {/* 1. LED indicators */}
         <div style={{display:'flex', flexDirection:'column', gap:4, flexShrink:0, minWidth:155}}>
           {[
             {on:false,           color:C.red,    label:'Аварийный останов'},
@@ -474,7 +437,6 @@ const realTemps = [
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 2. Zone temps */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, letterSpacing:1, marginBottom:3}}>ТЕМП. ЗОН</div>
           <div style={{display:'flex', gap:5}}>
@@ -489,7 +451,6 @@ const realTemps = [
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 3. Current sheet info (зона 1) */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, letterSpacing:1, marginBottom:3}}>ЛИСТ В ЗОНЕ 4</div>
           <div style={{display:'grid', gridTemplateColumns:'repeat(4,auto)', gap:'2px 8px', alignItems:'center'}}>
@@ -504,7 +465,6 @@ const realTemps = [
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 4. Grade + thick */}
         <div style={{flexShrink:0}}>
           <div style={{fontSize:14, color:C.dim, marginBottom:3}}>Марка / Толщ.</div>
           <Seg value={zones[3]?.grade||'──'} width={52}/>
@@ -514,26 +474,25 @@ const realTemps = [
 
         <div style={{width:1, height:48, background:C.panelBd, flexShrink:0}}/>
 
-        {/* 5. Параметры */}
         <div style={{flexShrink:0}}>
-          <div style={{fontSize:14, color:C.dim, marginBottom:3}}>Параметры</div>
+          <div style={{fontSize:18, color:C.dim, marginBottom:3}}>Параметры</div>
           <div style={{display:'flex', flexDirection:'column', gap:3}}>
-            {[['Скорость','850','мм/с'],['Уст.темп.','915.0','°C'],['Длина','3','м']].map(([l,v,u]) => (
+            {[
+              ['Скорость',  speedDisplay,   'м/с'],
+              ['Уст.темп.', tempSetDisplay, '°C'],
+              ['Длина   ',     lengthDisplay,  'м'],
+            ].map(([l,v,u]) => (
               <div key={l} style={{display:'flex', alignItems:'center', gap:6}}>
-                <span style={{fontSize:10, color:C.dim, minWidth:62}}>{l}</span>
+                <span style={{fontSize:14, color:C.dim, minWidth:62}}>{l}</span>
                 <Seg value={v} unit={u} width={58}/>
               </div>
             ))}
           </div>
         </div>
 
-        {/* 6. OPC status + clock */}
         <div style={{marginLeft:'auto', textAlign:'right', flexShrink:0}}>
           <div style={{display:'flex', alignItems:'center', gap:5, justifyContent:'flex-end', marginBottom:2}}>
             <Led on={connected} color={C.green} size={8}/>
-            <span style={{fontSize:10, color: connected ? C.green : C.red}}>
-            {/*  {connected ? 'OPC подключён' : 'OPC отключён'}*/}
-            </span>
           </div>
           <div style={{fontSize:24, color:C.accent, fontWeight:700, letterSpacing:3}}>{fmt(time)}</div>
           <div style={{fontSize:14, color:C.dim}}>{new Date().toLocaleDateString('ru-RU')}</div>
@@ -542,15 +501,14 @@ const realTemps = [
 
       {/* ══ PROCESS PANEL ═════════════════════════════════════════════════ */}
       <div style={{
-        background:C.panel, border:`1px solid ${C.panelBd}`,
+        background:C.panel, border:`2px solid ${C.panelBd}`,
         borderRadius:6, padding:'8px 10px', marginBottom:8,
         display:'flex', flexDirection:'column', gap:5,
       }}>
-        <div style={{fontSize:14, color:C.dim, letterSpacing:1}}>
+        <div style={{fontSize:18, color:C.dim, letterSpacing:1}}>
           ТЕХНОЛОГИЧЕСКАЯ СХЕМА — ЛИНИЯ ЗАКАЛКИ
         </div>
 
-        {/* Zone strip */}
         <div style={{display:'flex', gap:5, flexWrap:'wrap'}}>
           {[
             {label:'Вход. рольганг', sheet:svgEntry,  color:C.accent},
@@ -573,9 +531,9 @@ const realTemps = [
                 background: sheet ? color : '#252a30',
                 boxShadow: sheet ? `0 0 4px ${color}` : 'none',
               }}/>
-              <span style={{fontSize:14, color:C.dim}}>{label}:</span>
-              <span style={{fontSize:14, color: sheet ? C.text : C.dim, fontFamily:'monospace'}}>
-                {sheet ? `${sheet.melt} / ${sheet.sheet}` : '—'}
+              <span style={{fontSize:18, color:C.dim}}>{label}:</span>
+              <span style={{fontSize:18, color: sheet ? C.text : C.dim, fontFamily:'monospace'}}>
+                {sheet ? `${sheet.melt}/${sheet.batch}/${sheet.pack}/${sheet.sheet}` : '—'}
               </span>
             </div>
           ))}
@@ -588,6 +546,11 @@ const realTemps = [
               @keyframes dashMove { to { stroke-dashoffset: -20; } }
               .flow-active { animation: dashMove 0.4s linear infinite; }
               .sheet-hover-target:hover { stroke-width: 2; opacity: 0.8; }
+              @keyframes faultPulse {
+                0%, 100% { opacity: 1; }
+                50%      { opacity: 0.35; }
+              }
+              .valve-fault { animation: faultPulse 0.8s ease-in-out infinite; }
             `}</style>
             {ZONE_FILL.map((_,i) => (
               <linearGradient key={i} id={`gz${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -607,7 +570,6 @@ const realTemps = [
             </marker>
           </defs>
 
-          {/* Ground */}
           <line x1={0} y1={rY+rH+6} x2={VW} y2={rY+rH+6}
             stroke={C.panelBd} strokeWidth={1}/>
 
@@ -615,19 +577,15 @@ const realTemps = [
           <text x={inX+inN*(rW+rGap)/2} y={rY-14} textAnchor="middle"
             fill={C.dim} fontSize={9}>Вход. рольганг</text>
           <Rollers x={inX} y={rY} count={inN} w={rW} gap={rGap} h={rH}/>
-                  {svgEntry && (
-                      <g
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => handleSheetClick('E1', svgEntry)}
-                      >
-                          <SheetRect x={inX + 1} y={rY - 13} w={inN * (rW + rGap) - 4} h={13}
-                              label={`${svgEntry.melt}/${svgEntry.batch}/${svgEntry.pack}/${svgEntry.sheet}`} color={C.accent} />
-                          <rect x={inX - 1} y={rY - 15} width={inN * (rW + rGap) + 2} height={17}
-                              rx={3} fill="transparent" stroke="#58a6ff" strokeWidth={0}
-                              className="sheet-hover-target"
-                          />
-                      </g>
-
+          {svgEntry && (
+            <g style={{ cursor: 'pointer' }} onClick={() => handleSheetClick('E1', svgEntry)}>
+              <SheetRect x={inX + 1} y={rY - 13} w={inN * (rW + rGap) - 4} h={13}
+                label={`${svgEntry.melt}/${svgEntry.batch}/${svgEntry.pack}/${svgEntry.sheet}`} color={C.accent} />
+              <rect x={inX - 1} y={rY - 15} width={inN * (rW + rGap) + 2} height={17}
+                rx={3} fill="transparent" stroke="#58a6ff" strokeWidth={0}
+                className="sheet-hover-target"
+              />
+            </g>
           )}
           {inputSheet && (
             <g style={{cursor:'pointer'}} onClick={loadToFurnace}>
@@ -642,7 +600,6 @@ const realTemps = [
               fill="#333" fontSize={9}>▶ В ПЕЧЬ</text>
           )}
 
-          {/* Arrow input → furnace */}
           <line
             x1={inX+inN*(rW+rGap)+2} y1={rY+rH/2}
             x2={fX-4}                 y2={rY+rH/2}
@@ -670,35 +627,23 @@ const realTemps = [
                   fill={ZONE_LABEL[i]} fontSize={9} fontWeight={700}>ЗОНА {i+1} НАГРЕВА</text>
                 <text x={zx+zW/2} y={rY-14} textAnchor="middle"
                   fill={ZONE_LABEL[i]} fontSize={13} fontWeight={700}>{realTemps[i]} °C</text>
-                {sh
-                  ? <SheetRect x={zx+5} y={rY-1} w={zW-10} h={rH-4}
-                            label={`${sh.melt}/${sh.batch}/${sh.pack}/${sh.sheet}`} color={ZONE_FILL[i]}/>
-                  : <text x={zx+zW/2} y={rY+rH/2+4} textAnchor="middle"
-                      fill="#333" fontSize={9}>— пусто —</text>
-                    }
-                    {/* ✅ ЛИСТ В ЗОНЕ — КЛИКАБЕЛЬНЫЙ */}
-                    {sh ? (
-                        <g
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => handleSheetClick(`F${i + 1}`, sh)}
-                        >
-                            <SheetRect
-                                x={zx + 5} y={rY - 1} w={zW - 10} h={rH - 4}
-                                label={`${sh.melt}/${sh.batch}/${sh.pack}/${sh.sheet}`}
-                                color={ZONE_FILL[i]}
-                            />
-                            {/* Подсветка при наведении */}
-                            <rect
-                                x={zx + 3} y={rY - 3} w={zW - 6} h={rH}
-                                rx={3} fill="transparent" stroke="#58a6ff" strokeWidth={0}
-                                className="sheet-hover-target"
-                            />
-                        </g>
-                    ) : (
-                        <text x={zx + zW / 2} y={rY + rH / 2 + 4} textAnchor="middle"
-                            fill="#333" fontSize={9}>— пусто —</text>
-                    )}
-                {/* Arrow out of this zone */}
+                {sh ? (
+                  <g style={{ cursor: 'pointer' }} onClick={() => handleSheetClick(`F${i + 1}`, sh)}>
+                    <SheetRect
+                      x={zx + 5} y={rY - 1} w={zW - 10} h={rH - 4}
+                      label={`${sh.melt}/${sh.batch}/${sh.pack}/${sh.sheet}`}
+                      color={ZONE_FILL[i]}
+                    />
+                    <rect
+                      x={zx + 3} y={rY - 3} w={zW - 6} h={rH}
+                      rx={3} fill="transparent" stroke="#58a6ff" strokeWidth={0}
+                      className="sheet-hover-target"
+                    />
+                  </g>
+                ) : (
+                  <text x={zx + zW / 2} y={rY + rH / 2 + 4} textAnchor="middle"
+                    fill="#333" fontSize={9}>— пусто —</text>
+                )}
                 {i < 3 && (
                   <line
                     x1={zx+zW+1} y1={rY+rH/2}
@@ -714,13 +659,11 @@ const realTemps = [
             );
           })}
 
-          {/* Furnace outer border */}
           <rect x={fX-3} y={rY-46} width={furnW+6} height={rH+54} rx={4}
             fill="none" stroke="#3a3a3a" strokeWidth={1} strokeDasharray="5,3"/>
           <text x={fX+furnW/2} y={rY+rH+26} textAnchor="middle"
             fill="#3a3a3a" fontSize={9} letterSpacing={5}>П Е Ч Ь   З А К А Л К И</text>
 
-          {/* Arrow furnace → quench */}
           {(() => {
             const moving = liveData.arrows.zones[3];
             return (
@@ -736,7 +679,7 @@ const realTemps = [
             );
           })()}
 
-          {/* ── QUENCHING ── */}
+          {/* ── ЗАКАЛКА ── */}
           <rect x={qX} y={rY-42} width={qW} height={rH+46} rx={3}
             fill="url(#gq)"
             stroke={qS ? '#3b82f6' : '#1e2a3a'}
@@ -745,94 +688,95 @@ const realTemps = [
           />
           <text x={qX+qW/2} y={rY-30} textAnchor="middle"
             fill="#93c5fd" fontSize={9} fontWeight={700}>ЗАКАЛКА</text>
-          <text x={qX+qW/2} y={rY-19} textAnchor="middle"
-            fill="#60a5fa" fontSize={8}>9 × 9 клапанов</text>
-          <Nozzles9 x={qX+5} y={rY-10} active={running && !!qS} side="top"/>
+          {/*<text x={qX+qW/2} y={rY-19} textAnchor="middle"
+            fill="#60a5fa" fontSize={8}>9 × 9 клапанов</text>*/}
+
+          {/* ── LED КЛАПАНОВ ВЕРХ (9 шт) — внутри блока ЗАКАЛКА ── */}
+          {topValves.map((st, i) => {
+            const cx = qX + 10 + i * ((qW - 20) / 8);
+            const cy = rY -8;
+            return (
+              <g key={`qtv${i}`} className={st === 6 ? 'valve-fault' : ''}>
+                <ValveLed cx={cx} cy={cy} state={st} r={4}/>
+              </g>
+            );
+          })}
+
+          {/* Сопла и лист */}
+          <Nozzles9 x={qX+5} y={rY-4} active={running && !!qS} side="top"/>
           <Nozzles9 x={qX+5} y={rY+rH+6} active={running && !!qS} side="bottom"/>
           {qS
             ? <SheetRect x={qX+5} y={rY-1} w={qW-10} h={rH-4}
-                          label={`${qS.melt}/${qS.batch}/${qS.pack}/${qS.sheet}/`} color="#1e3a8a"/>
+                label={`${qS.melt}/${qS.batch}/${qS.pack}/${qS.sheet}`} color="#1e3a8a"/>
             : <text x={qX+qW/2} y={rY+rH/2+4} textAnchor="middle"
                 fill="#252a50" fontSize={9}>— пусто —</text>
           }
+
+          {/* ── LED КЛАПАНОВ НИЗ (9 шт) — внутри блока ЗАКАЛКА ── */}
+          {bottomValves.map((st, i) => {
+            const cx = qX + 10 + i * ((qW - 20) / 8);
+            const cy = rY + rH + 8;
+            return (
+              <g key={`qbv${i}`} className={st === 6 ? 'valve-fault' : ''}>
+                <ValveLed cx={cx} cy={cy} state={st} r={4}/>
+              </g>
+            );
+          })}
+
+          {/* Подписи "Верх"/"Низ" сбоку от LED */}
+          <text x={qX - 2} y={rY - 5} textAnchor="end" fill="#60a5fa" fontSize={7} fontWeight={700}>ВЕРХ</text>
+          <text x={qX - 2} y={rY + rH + 11} textAnchor="end" fill="#60a5fa" fontSize={7} fontWeight={700}>НИЗ</text>
+
           <g style={{cursor:'default'}}>
-            <rect x={qX} y={rY+rH+12} width={qW} height={16}
+            <rect x={qX} y={rY+rH+18} width={qW} height={14}
               rx={3} fill="#1a2a4a" stroke="#3b82f6" strokeWidth={1}/>
-            <text x={qX+qW/2} y={rY+rH+23} textAnchor="middle"
-              fill="#60a5fa" fontSize={9} fontWeight={700}>▶ В ЗАКАЛКУ</text>
+            <text x={qX+qW/2} y={rY+rH+28} textAnchor="middle"
+              fill="#60a5fa" fontSize={8} fontWeight={700}>▶ В ЗАКАЛКУ</text>
           </g>
 
-          {/* Arrow quench → cooling */}
           <line x1={qX+qW+4} y1={rY+rH/2} x2={outX-4} y2={rY+rH/2}
             stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
-
-          {/* ── НАПОРНЫЕ КЛАПАНА ── */}
-          <text x={presX+35} y={presY-35} fill={C.dim} fontSize={14} letterSpacing={0.5}>НАПОРНЫЕ КЛАПАНА</text>
-          {['Скор.','Лам.1','Лам.2'].map((l,i) => (
-            <text key={l} x={presX+i*54+22+30} y={presY-20} textAnchor="middle"
-              fill={C.dim} fontSize={14}>{l}</text>
-          ))}
-          <text x={presX+25} y={presY} fill={C.dim} fontSize={14} textAnchor="end">Верх</text>
-          {[2.00,3.00,3.00].map((v,i) => (
-            <SvgSeg key={i} x={presX+i*54+30} y={presY-12} value={v.toFixed(2)} w={46} h={15}/>
-          ))}
-          <text x={presX+25} y={presY+20} fill={C.dim} fontSize={14} textAnchor="end">Низ</text>
-          {[10.00,10.00,10.00].map((v,i) => (
-            <SvgSeg key={i} x={presX+i*54+30} y={presY+10} value={v.toFixed(2)} w={46} h={15}/>
-          ))}
 
           {/* ── COOLING CONVEYOR (X1) ── */}
           <text x={outX+outN*(rW+rGap)/2} y={rY-14} textAnchor="middle"
             fill={C.dim} fontSize={14}>Охлаждение</text>
           <Rollers x={outX} y={rY} count={outN} w={rW} gap={rGap} h={rH}/>
-                  {cS && (
-                      <g
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => handleSheetClick('X1', cS)}
-                      >
-                          <SheetRect x={outX + 1} y={rY - 13} w={outN * (rW + rGap) - 4} h={13}
-                              label={`${cS.melt}/${cS.batch}/${cS.pack}/${cS.sheet}`} color="#0e4a6b" />
-                      </g>
+          {cS && (
+            <g style={{ cursor: 'pointer' }} onClick={() => handleSheetClick('X1', cS)}>
+              <SheetRect x={outX + 1} y={rY - 13} w={outN * (rW + rGap) - 4} h={13}
+                label={`${cS.melt}/${cS.batch}/${cS.pack}/${cS.sheet}`} color="#0e4a6b" />
+            </g>
           )}
-          <text x={outX+outN*(rW+rGap)/2} y={rY+rH+22} textAnchor="middle"
-            fill={C.dim} fontSize={14}>{coolT} °C</text>
+          {/*<text x={outX+outN*(rW+rGap)/2} y={rY+rH+22} textAnchor="middle"
+            fill={C.dim} fontSize={14}>{coolT} °C</text>*/}
 
-          {/* Arrow cooling → output */}
           <line
             x1={outX+outN*(rW+rGap)+4} y1={rY+rH/2}
             x2={finX-10}               y2={rY+rH/2}
             stroke={C.accent} strokeWidth={1.5} markerEnd="url(#arr)"/>
 
-          {/* ── OUTPUT CONVEYOR (X2) ── */}
-                  <text x={(finX + finN * (rW + rGap) / 2) - 10} y={rY - 14} textAnchor="middle"
-                      fill={C.dim} fontSize={14}>Выдача</text>
-                  <Rollers x={finX - 10} y={rY} count={finN} w={rW} gap={rGap} h={rH} />
-                  {liveData.output && (
-                      <g
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => handleSheetClick('X2', liveData.output)}
-                      >
-                          <SheetRect
-                              x={finX - 10 + 1} y={rY - 13}
-                              w={finN * (rW + rGap) - 4} h={13}
-                              label={`${liveData.output.melt}/${liveData.output.batch}/${liveData.output.pack}/${liveData.output.sheet}`}
-                              color="#2d1f4a"
-                          />
-                          {liveData.output.isDefect && (
-                              <text x={finX - 10 + finN * (rW + rGap) / 2} y={rY + 14} textAnchor="middle"
-                                  fill={C.red} fontSize={10} fontWeight={700}>⚠ БРАК</text>
-                          )}
-                      </g>
-                  )}
-              </svg>
-
-
+          <text x={(finX + finN * (rW + rGap) / 2) - 10} y={rY - 14} textAnchor="middle"
+            fill={C.dim} fontSize={14}>Выдача</text>
+          <Rollers x={finX - 10} y={rY} count={finN} w={rW} gap={rGap} h={rH} />
+          {liveData.output && (
+            <g style={{ cursor: 'pointer' }} onClick={() => handleSheetClick('X2', liveData.output)}>
+              <SheetRect
+                x={finX - 10 + 1} y={rY - 13}
+                w={finN * (rW + rGap) - 4} h={13}
+                label={`${liveData.output.melt}/${liveData.output.batch}/${liveData.output.pack}/${liveData.output.sheet}`}
+                color="#2d1f4a"
+              />
+              {liveData.output.isDefect && (
+                <text x={finX - 10 + finN * (rW + rGap) / 2} y={rY + 14} textAnchor="middle"
+                  fill={C.red} fontSize={10} fontWeight={700}>⚠ БРАК</text>
+              )}
+            </g>
+          )}
+        </svg>
       </div>
 
       {/* ══ PLANS + SHEETS ════════════════════════════════════════════════ */}
       <div style={{display:'flex', gap:8}}>
-
-        {/* Plans */}
         <div style={{
           background:C.panel, border:`1px solid ${C.panelBd}`,
           borderRadius:6, padding:10, width:265, flexShrink:0,
@@ -842,22 +786,22 @@ const realTemps = [
           </div>
           <div style={{display:'flex', flexDirection:'column', gap:4}}>
             {loading && (
-              <div style={{color:C.dim, padding:10, textAlign:'center', fontSize:11}}>
+              <div style={{color:C.dim, padding:10, textAlign:'center', fontSize:14}}>
                 Загрузка планов...
               </div>
             )}
             {error && !loading && (
-              <div style={{color:C.red, padding:10, fontSize:11, border:`1px solid ${C.red}`, borderRadius:4}}>
+              <div style={{color:C.red, padding:10, fontSize:14, border:`1px solid ${C.red}`, borderRadius:4}}>
                 ⚠ {error}
                 <button onClick={fetchPlans} style={{marginLeft:8, background:'transparent',
                   color:C.accent, border:`1px solid ${C.accent}`, borderRadius:3,
-                  padding:'1px 6px', cursor:'pointer', fontSize:11}}>
+                  padding:'1px 6px', cursor:'pointer', fontSize:14}}>
                   Повторить
                 </button>
               </div>
             )}
             {!loading && !error && plans.length === 0 && (
-              <div style={{color:C.dim, padding:10, textAlign:'center', fontSize:11}}>
+              <div style={{color:C.dim, padding:10, textAlign:'center', fontSize:14}}>
                 Нет доступных планов
               </div>
             )}
@@ -891,22 +835,21 @@ const realTemps = [
           </div>
         </div>
 
-        {/* Sheets */}
         <div style={{
           background:C.panel, border:`1px solid ${C.panelBd}`,
           borderRadius:6, padding:10, flex:1, minWidth:0,
         }}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
-            <div style={{fontSize:11, color:C.accent, fontWeight:700, letterSpacing:1}}>
+            <div style={{fontSize:14, color:C.accent, fontWeight:700, letterSpacing:1}}>
               {sheetsLoading
                 ? 'Загрузка листов...'
                 : selectedPlan
                   ? `СОСТАВ: ${selectedPlan.planName} — ${planSheets.length} листов`
                   : 'ВЫБЕРИТЕ ПЛАН ИЗ СПИСКА'}
             </div>
-            <button 
-              onClick={addToConveyor} 
-              disabled={!canAdd} 
+            <button
+              onClick={addToConveyor}
+              disabled={!canAdd}
               style={{
               background: canAdd ? '#1a4731' : '#21262d',
               color: canAdd ? C.green : C.dim,
@@ -916,7 +859,6 @@ const realTemps = [
               fontFamily:'monospace', fontWeight:700,
             }}
             >
-              
               {submitting ? '⏳ Запись....': '▶  Подать на входной рольганг'}</button>
           </div>
 
@@ -945,10 +887,10 @@ const realTemps = [
                           opacity: row.status==='Завершён' ? 0.4 : 1,
                         }}
                       >
-                        <td style={{padding:'3px 7px', color:C.dim}}>{i+1}</td> 
+                        <td style={{padding:'3px 7px', color:C.dim}}>{i+1}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.melt}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.batch}</td>
-                        <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.pack}</td> 
+                        <td style={{padding:'3px 7px', fontFamily:'monospace'}}>{row.pack}</td>
                         <td style={{padding:'3px 7px', fontFamily:'monospace', color:C.accent, fontWeight:700}}>{row.sheet}</td>
                         <td style={{padding:'3px 7px', color:C.yellow}}>{row.grade}</td>
                         <td style={{padding:'3px 7px', textAlign:'left'}}>{row.thick}</td>
@@ -976,147 +918,142 @@ const realTemps = [
             </div>
           )}
         </div>
-          </div>
-          {/* ══ DEFECT MODAL ═════════════════════════════════════════════════ */}
-          {defectModal.open && (
-              <div style={{
-                  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                  background: 'rgba(0,0,0,0.75)', zIndex: 1000,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: 20,
-              }} onClick={closeDefectModal}>
-                  <div
-                      style={{
-                          background: C.panel, border: `2px solid ${C.red}`,
-                          borderRadius: 8, padding: '20px 25px',
-                          minWidth: 480, maxWidth: 600, color: C.text,
-                          boxShadow: `0 0 30px ${C.red}55`,
-                      }}
-                      onClick={e => e.stopPropagation()}
-                  >
-                      {/* Заголовок */}
-                      <div style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          marginBottom: 15, paddingBottom: 10, borderBottom: `1px solid ${C.panelBd}`,
-                      }}>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>
-                              🚨 Установка статуса БРАК
-                          </div>
-                          <button onClick={closeDefectModal} style={{
-                              background: 'transparent', border: 'none', color: C.dim,
-                              fontSize: 24, cursor: 'pointer', padding: '0 8px',
-                          }}>×</button>
-                      </div>
+      </div>
 
-                      {defectModal.loading && !defectModal.sheet ? (
-                          <div style={{ padding: 20, textAlign: 'center', color: C.dim }}>
-                              Загрузка данных листа...
-                          </div>
-                      ) : defectModal.sheet ? (
-                          <>
-                              {/* Информация о листе */}
-                              <div style={{
-                                  background: C.bg, padding: 12, borderRadius: 4,
-                                  marginBottom: 15, fontFamily: 'monospace',
-                              }}>
-                                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px 12px', fontSize: 14 }}>
-                                      <span style={{ color: C.dim }}>MatId:</span>
-                                      <span style={{ color: C.accent, fontWeight: 700 }}>{defectModal.sheet.matId}</span>
-                                      <span style={{ color: C.dim }}>Плавка:</span>
-                                      <span>{defectModal.sheet.meltNumber}</span>
-                                      <span style={{ color: C.dim }}>Партия:</span>
-                                      <span>{defectModal.sheet.batchNumber}</span>
-                                      <span style={{ color: C.dim }}>Пачка:</span>
-                                      <span>{defectModal.sheet.packNumber}</span>
-                                      <span style={{ color: C.dim }}>Лист:</span>
-                                      <span style={{ color: C.accent, fontWeight: 700 }}>{defectModal.sheet.sheetNumber}</span>
-                                      <span style={{ color: C.dim }}>Зона обнаружения:</span>
-                                      <span style={{ color: C.yellow, fontWeight: 700 }}>{defectModal.detectedZone}</span>
-                                  </div>
-                              </div>
-
-                              {/* Тип дефекта */}
-                              <div style={{ marginBottom: 15 }}>
-                                  <label style={{ display: 'block', fontSize: 13, color: C.dim, marginBottom: 5 }}>
-                                      Тип дефекта:
-                                  </label>
-                                  <select
-                                      value={defectModal.defectTypeId || ''}
-                                      onChange={e => setDefectModal(prev => ({ ...prev, defectTypeId: parseInt(e.target.value) || null }))}
-                                      style={{
-                                          width: '100%', background: C.bg, color: C.text,
-                                          border: `1px solid ${C.panelBd}`, borderRadius: 4,
-                                          padding: 8, fontSize: 14,
-                                      }}
-                                  >
-                                      <option value="">-- Выберите тип --</option>
-                                      {defectTypes.map(dt => (
-                                          <option key={dt.id} value={dt.id}>{dt.name}</option>
-                                      ))}
-                                  </select>
-                              </div>
-
-                              {/* Причина */}
-                              <div style={{ marginBottom: 15 }}>
-                                  <label style={{ display: 'block', fontSize: 13, color: C.dim, marginBottom: 5 }}>
-                                      Причина брака:
-                                  </label>
-                                  <textarea
-                                      value={defectModal.reason}
-                                      onChange={e => setDefectModal(prev => ({ ...prev, reason: e.target.value }))}
-                                      placeholder="Опишите причину брака..."
-                                      rows={3}
-                                      style={{
-                                          width: '100%', background: C.bg, color: C.text,
-                                          border: `1px solid ${C.panelBd}`, borderRadius: 4,
-                                          padding: 8, fontSize: 14, fontFamily: 'inherit',
-                                          resize: 'vertical', boxSizing: 'border-box',
-                                      }}
-                                  />
-                              </div>
-
-                              {/* Ошибки */}
-                              {defectModal.error && (
-                                  <div style={{
-                                      background: '#f8514933', border: `1px solid ${C.red}`,
-                                      padding: 10, borderRadius: 4, marginBottom: 15,
-                                      color: C.red, fontSize: 13,
-                                  }}>
-                                      ⚠ {defectModal.error}
-                                  </div>
-                              )}
-
-                              {/* Кнопки */}
-                              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                  <button onClick={closeDefectModal} style={{
-                                      background: 'transparent', color: C.dim,
-                                      border: `1px solid ${C.panelBd}`, borderRadius: 4,
-                                      padding: '8px 16px', cursor: 'pointer', fontSize: 14,
-                                  }}>
-                                      Отмена
-                                  </button>
-                                  <button
-                                      onClick={markAsDefect}
-                                      disabled={defectModal.loading}
-                                      style={{
-                                          background: C.red, color: '#fff',
-                                          border: 'none', borderRadius: 4,
-                                          padding: '8px 16px', cursor: 'pointer', fontSize: 14,
-                                          fontWeight: 700, opacity: defectModal.loading ? 0.6 : 1,
-                                      }}
-                                  >
-                                      {defectModal.loading ? '⏳ Установка...' : '🚨 Установить БРАК'}
-                                  </button>
-                              </div>
-                          </>
-                      ) : (
-                          <div style={{ padding: 20, textAlign: 'center', color: C.red }}>
-                              {defectModal.error || 'Лист не найден'}
-                          </div>
-                      )}
-                  </div>
+      {/* ══ DEFECT MODAL ═════════════════════════════════════════════════ */}
+      {defectModal.open && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.75)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 20,
+        }} onClick={closeDefectModal}>
+          <div
+            style={{
+              background: C.panel, border: `2px solid ${C.red}`,
+              borderRadius: 8, padding: '20px 25px',
+              minWidth: 480, maxWidth: 600, color: C.text,
+              boxShadow: `0 0 30px ${C.red}55`,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginBottom: 15, paddingBottom: 10, borderBottom: `1px solid ${C.panelBd}`,
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>
+                🚨 Установка статуса БРАК
               </div>
-          )}
+              <button onClick={closeDefectModal} style={{
+                background: 'transparent', border: 'none', color: C.dim,
+                fontSize: 24, cursor: 'pointer', padding: '0 8px',
+              }}>×</button>
+            </div>
+
+            {defectModal.loading && !defectModal.sheet ? (
+              <div style={{ padding: 20, textAlign: 'center', color: C.dim }}>
+                Загрузка данных листа...
+              </div>
+            ) : defectModal.sheet ? (
+              <>
+                <div style={{
+                  background: C.bg, padding: 12, borderRadius: 4,
+                  marginBottom: 15, fontFamily: 'monospace',
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px 12px', fontSize: 14 }}>
+                    <span style={{ color: C.dim }}>MatId:</span>
+                    <span style={{ color: C.accent, fontWeight: 700 }}>{defectModal.sheet.matId}</span>
+                    <span style={{ color: C.dim }}>Плавка:</span>
+                    <span>{defectModal.sheet.meltNumber}</span>
+                    <span style={{ color: C.dim }}>Партия:</span>
+                    <span>{defectModal.sheet.batchNumber}</span>
+                    <span style={{ color: C.dim }}>Пачка:</span>
+                    <span>{defectModal.sheet.packNumber}</span>
+                    <span style={{ color: C.dim }}>Лист:</span>
+                    <span style={{ color: C.accent, fontWeight: 700 }}>{defectModal.sheet.sheetNumber}</span>
+                    <span style={{ color: C.dim }}>Зона обнаружения:</span>
+                    <span style={{ color: C.yellow, fontWeight: 700 }}>{defectModal.detectedZone}</span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 15 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: C.dim, marginBottom: 5 }}>
+                    Тип дефекта:
+                  </label>
+                  <select
+                    value={defectModal.defectTypeId || ''}
+                    onChange={e => setDefectModal(prev => ({ ...prev, defectTypeId: parseInt(e.target.value) || null }))}
+                    style={{
+                      width: '100%', background: C.bg, color: C.text,
+                      border: `1px solid ${C.panelBd}`, borderRadius: 4,
+                      padding: 8, fontSize: 14,
+                    }}
+                  >
+                    <option value="">-- Выберите тип --</option>
+                    {defectTypes.map(dt => (
+                      <option key={dt.id} value={dt.id}>{dt.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: 15 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: C.dim, marginBottom: 5 }}>
+                    Причина брака:
+                  </label>
+                  <textarea
+                    value={defectModal.reason}
+                    onChange={e => setDefectModal(prev => ({ ...prev, reason: e.target.value }))}
+                    placeholder="Опишите причину брака..."
+                    rows={3}
+                    style={{
+                      width: '100%', background: C.bg, color: C.text,
+                      border: `1px solid ${C.panelBd}`, borderRadius: 4,
+                      padding: 8, fontSize: 14, fontFamily: 'inherit',
+                      resize: 'vertical', boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                {defectModal.error && (
+                  <div style={{
+                    background: '#f8514933', border: `1px solid ${C.red}`,
+                    padding: 10, borderRadius: 4, marginBottom: 15,
+                    color: C.red, fontSize: 13,
+                  }}>
+                    ⚠ {defectModal.error}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={closeDefectModal} style={{
+                    background: 'transparent', color: C.dim,
+                    border: `1px solid ${C.panelBd}`, borderRadius: 4,
+                    padding: '8px 16px', cursor: 'pointer', fontSize: 14,
+                  }}>
+                    Отмена
+                  </button>
+                  <button
+                    onClick={markAsDefect}
+                    disabled={defectModal.loading}
+                    style={{
+                      background: C.red, color: '#fff',
+                      border: 'none', borderRadius: 4,
+                      padding: '8px 16px', cursor: 'pointer', fontSize: 14,
+                      fontWeight: 700, opacity: defectModal.loading ? 0.6 : 1,
+                    }}
+                  >
+                    {defectModal.loading ? '⏳ Установка...' : '🚨 Установить БРАК'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: 20, textAlign: 'center', color: C.red }}>
+                {defectModal.error || 'Лист не найден'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

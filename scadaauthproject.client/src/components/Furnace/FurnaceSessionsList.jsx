@@ -22,12 +22,20 @@ const fmtDate = (d) => d
   : '—';
 
 const fmtMin = (v) => v != null ? `${Number(v).toFixed(1)} мин` : '—';
-
+const formatSlab = (val) => {
+  if (val === null || val === undefined) return '';
+  return String(val).padStart(5, '0');
+};
 // Конфигурация столбцов для сортировки и фильтрации
 const columns = [
   { id: 'sheet', label: 'Лист', type: 'string' },
-  { id: 'slab', label: 'Сляб', type: 'string' },
-  { id: 'melt', label: 'Плавка', type: 'string' },
+  { id: 'slab', 
+    label: 'Сляб', 
+    type: 'number',
+    render: (row) => formatSlab(row.slab)
+    
+  },
+  { id: 'melt', label: 'Плавка', type: 'number' },
   { id: 'partNo', label: 'Партия', type: 'string' },
   { id: 'pack', label: 'Пачка', type: 'string' },
   { id: 'reheatNum', label: '№ нагрева', type: 'number' },
@@ -39,7 +47,7 @@ const columns = [
   { id: 'f3Min', label: 'F3', type: 'number' },
   { id: 'f4Min', label: 'F4', type: 'number' },
   { id: 'zonesPath', label: 'Маршрут', type: 'string' },
-  { id: 'alloyCodeText', label: 'Сплав', type: 'string' },
+  { id: 'alloyCodeText', label: 'Марка стали', type: 'string' },
   { id: 'hadAlarm', label: 'Авария', type: 'boolean' },
 ];
 
@@ -318,11 +326,32 @@ const FurnaceSessionsList = () => {
       <Paper sx={{ p: 2, mb: 2, borderRadius: 2 }}>
         <Grid container spacing={1.5} alignItems="flex-end">
           <Grid item xs={6} sm={2}>
-            <TextField
-              label="Сляб" size="small" fullWidth value={draft.slab}
-              onChange={e => setDraft(d => ({ ...d, slab: e.target.value }))}
-            />
-          </Grid>
+  <TextField
+    label="Сляб" 
+    size="small" 
+    fullWidth 
+    value={draft.slab}
+    onChange={e => {
+      // Разрешаем вводить только цифры, чтобы не было букв
+      const val = e.target.value.replace(/\D/g, '');
+      setDraft(d => ({ ...d, slab: val }));
+    }}
+    onBlur={(e) => {
+      // 🔑 КЛЮЧЕВОЙ МОМЕНТ: при потере фокуса добавляем нули
+      const rawValue = e.target.value;
+      if (rawValue) {
+        // padStart(5, '0') добавит нули слева, пока длина не станет 5
+        // "9080" -> "09080", "12" -> "00012"
+        const formatted = rawValue.padStart(5, '0');
+        setDraft(d => ({ ...d, slab: formatted }));
+      }
+    }}
+    inputProps={{ 
+      maxLength: 5,       // Не даем ввести больше 5 цифр
+      inputMode: 'numeric' // На телефоне откроется цифровая клавиатура
+    }}
+  />
+</Grid>
           <Grid item xs={6} sm={2}>
             <TextField
               label="Плавка" size="small" fullWidth value={draft.melt}
@@ -331,7 +360,7 @@ const FurnaceSessionsList = () => {
           </Grid>
           <Grid item xs={6} sm={2}>
             <TextField
-              label="Код сплава" size="small" fullWidth value={draft.alloyCode}
+              label="Марка стали" size="small" fullWidth value={draft.alloyCode}
               onChange={e => setDraft(d => ({ ...d, alloyCode: e.target.value }))}
             />
           </Grid>
@@ -478,7 +507,7 @@ const FurnaceSessionsList = () => {
               </TableCell>
             </TableRow>
           </TableHead>
-          <TableBody>
+                    <TableBody>
             {loading ? (
               <TableRow>
                 <TableCell colSpan={columns.length + 1} align="center" sx={{ py: 4 }}>
@@ -503,7 +532,12 @@ const FurnaceSessionsList = () => {
                   <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
                     {s.sheet}
                   </TableCell>
-                  <TableCell>{s.slab ?? '—'}</TableCell>
+                  
+                  {/* 🔑 ИСПРАВЛЕНИЕ ЗДЕСЬ: используем formatSlab */}
+                  <TableCell sx={{ fontFamily: 'monospace' }}>
+                    {formatSlab(s.slab)}
+                  </TableCell>
+
                   <TableCell>{s.melt ?? '—'}</TableCell>
                   <TableCell>{s.partNo ?? '—'}</TableCell>
                   <TableCell>{s.pack ?? '—'}</TableCell>
@@ -539,59 +573,83 @@ const FurnaceSessionsList = () => {
                       <Chip label="АВАРИЯ" size="small" color="error" />
                     )}
                   </TableCell>
-                      <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                          <Tooltip title="Сводный отчёт по листу">
-                              <IconButton
-                                  size="small"
-                                  color="secondary"
-                                  onClick={() => {
-                                      const furnaceKey = `${s.melt}-${s.partNo}-${s.pack}-${s.sheet}-${s.reheatNum ?? 0}`;
-                                      const quenchingKey = `${s.sheet}|${s.melt}|${s.partNo}|${s.pack}|${s.reheatNum ?? 0}`;
-                                      // ⚠️ ВАЖНО: БЕЗ ПРОБЕЛОВ в URL!
-                                      navigate(`/sheet-report?furnaceKey=${encodeURIComponent(furnaceKey)}&quenchingKey=${encodeURIComponent(quenchingKey)}`);
-                                  }}
-                              >
-                                  <Assessment fontSize="small" />
-                              </IconButton>
-                          </Tooltip>
-                      </TableCell>
-                      <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                          <Tooltip title="Открыть отчёт по нагреву">
-                              <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() => handleViewReport(s.businessKey)}
-                                  disabled={!s.businessKey}
-                              >
-                                  <Visibility fontSize="small" />
-                              </IconButton>
-                          </Tooltip>
+                    <TableCell align="center" sx={{ py: 1 }}>
+  <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+    
+    {/* 1. Сводный отчёт по листу */}
+    <Tooltip title="Сводный отчёт по листу">
+      <IconButton
+        size="small"
+        color="secondary"
+        onClick={() => {
+          const furnaceKey = `${s.melt}-${s.partNo}-${s.pack}-${s.sheet}-${s.reheatNum ?? 0}`;
+          const quenchingKey = `${s.sheet}|${s.melt}|${s.partNo}|${s.pack}|${s.reheatNum ?? 0}`;
+          
+          // 🔑 ОТКРЫВАЕМ В НОВОЙ ВКЛАДКЕ
+          const url = `/sheet-report?furnaceKey=${encodeURIComponent(furnaceKey)}&quenchingKey=${encodeURIComponent(quenchingKey)}`;
+          window.open(url, '_blank');
+        }}
+        sx={{ p: 0.75 }}
+      >
+        <Assessment fontSize="small" />
+      </IconButton>
+    </Tooltip>
 
-                          <Tooltip title="Отчёт по закалке">
-                              <IconButton
-                                  size="small"
-                                  color="info"
-                                  disabled={!s.businessKey}
-                                  onClick={() => {
-                                      // 🔥 ИСПРАВЛЕНО: Умный поиск закалки по reheatNum
-                                      quenchingApi.getSessionsBySheet(s.sheet)
-                                          .then(res => {
-                                              const sessions = res.data || [];
-                                              const matched = sessions.find(qs =>
-                                                  qs.melt === s.melt &&
-                                                  qs.partNo === s.partNo &&
-                                                  qs.pack === s.pack &&
-                                                  qs.reheatNum === (s.reheatNum ?? 0)
-                                              );
-                                              const key = matched?.businessKey || sessions[0]?.businessKey;
-                                              if (key) navigate(`/quenching/report?key=${encodeURIComponent(key)}`);
-                                          });
-                                  }}
-                              >
-                                  <WaterDrop fontSize="small" />
-                              </IconButton>
-                          </Tooltip>
-                      </TableCell>
+    {/* 2. Отчет по нагреву */}
+    <Tooltip title="Открыть отчёт по нагреву">
+      <IconButton
+        size="small"
+        color="primary"
+        onClick={() => {
+          if (!s.businessKey) return;
+          // 🔑 ОТКРЫВАЕМ В НОВОЙ ВКЛАДКЕ
+          const url = `/furnace/report?key=${encodeURIComponent(s.businessKey)}`;
+          window.open(url, '_blank');
+        }}
+        disabled={!s.businessKey}
+        sx={{ p: 0.75 }}
+      >
+        <Visibility fontSize="small" />
+      </IconButton>
+    </Tooltip>
+
+    {/* 3. Отчет по закалке */}
+    <Tooltip title="Отчёт по закалке">
+      <IconButton
+        size="small"
+        color="info"
+        disabled={!s.businessKey}
+        onClick={() => {
+          if (!s.businessKey) return;
+          
+          // Логика поиска ключа закалки остается той же
+          quenchingApi.getSessionsBySheet(s.sheet)
+            .then(res => {
+              const sessions = res.data || [];
+              const matched = sessions.find(qs =>
+                qs.melt === s.melt &&
+                qs.partNo === s.partNo &&
+                qs.pack === s.pack &&
+                qs.reheatNum === (s.reheatNum ?? 0)
+              );
+              const key = matched?.businessKey || sessions[0]?.businessKey;
+              
+              if (key) {
+                // 🔑 ОТКРЫВАЕМ В НОВОЙ ВКЛАДКЕ
+                const url = `/quenching/report?key=${encodeURIComponent(key)}`;
+                window.open(url, '_blank');
+              }
+            })
+            .catch(err => console.error("Ошибка поиска отчета по закалке:", err));
+        }}
+        sx={{ p: 0.75 }}
+      >
+        <WaterDrop fontSize="small" />
+      </IconButton>
+    </Tooltip>
+
+  </Box>
+</TableCell>
                 </TableRow>
               ))
             )}
