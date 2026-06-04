@@ -16,14 +16,15 @@ const AdminSidebar = ({ open, toggleDrawer, menuItems }) => {
 
   const handleItemClick = (link) => {
     navigate(link);
-    if (isMobile) toggleDrawer(false)();
+    // Закрываем меню при клике на пункт (работает и на мобильном, и на десктопе)
+    // Если на десктопе вы хотите, чтобы меню оставалось открытым после клика — верните условие if (isMobile)
+    toggleDrawer(false)(); 
   };
 
   const isActive = (link) => location.pathname === link;
 
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Spacer под AppBar */}
       <Toolbar />
 
       <Box
@@ -116,7 +117,8 @@ const AdminSidebar = ({ open, toggleDrawer, menuItems }) => {
         anchor="left"
         open={open}
         onClose={toggleDrawer(false)}
-        ModalProps={{ keepMounted: true }}
+        disableScrollLock // 👈 РАЗРЕШАЕМ СКРОЛЛ СТРАНИЦЫ ПРИ ОТКРЫТОМ МЕНЮ
+        // ModalProps={{ keepMounted: true }} // 👈 УБРАЛИ, так как оно ломает скролл
         sx={{
           display: { xs: 'block', sm: 'none' },
           '& .MuiDrawer-paper': {
@@ -128,7 +130,7 @@ const AdminSidebar = ({ open, toggleDrawer, menuItems }) => {
         {drawerContent}
       </Drawer>
 
-      {/* Десктоп: persistent — скрывается/открывается по кнопке */}
+      {/* Десктоп: persistent */}
       <Drawer
         variant="persistent"
         anchor="left"

@@ -1,5 +1,5 @@
 // src/components/MainLayout.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // 1. Добавили useEffect
 import { Box, CssBaseline, CircularProgress, useTheme, useMediaQuery } from '@mui/material';
 import Navbar from './Navbar';
 import TokenExpiryWarning from './TokenExpiryWarning'
@@ -37,6 +37,11 @@ const MainLayout = () => {
 
   const handleToggleSidebar = () => setSidebarOpen(prev => !prev);
 
+  // 2. АВТОМАТИЧЕСКОЕ ЗАКРЫТИЕ ПРИ ПЕРЕХОДЕ ПО СТРАНИЦАМ
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   if (authLoading || routesLoading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
@@ -71,11 +76,14 @@ const MainLayout = () => {
 
       <Box
         component="main"
+        onClick={() => {
+          // 👇 Закрываем меню при любом клике по основному контенту
+          if (sidebarOpen) setSidebarOpen(false);
+        }}
         sx={{
           flexGrow: 1,
-          pt: '64px', // высота AppBar
+          pt: '64px',
           minHeight: '100vh',
-          // На десктопе сдвигаем контент при открытом сайдбаре
           ml: {
             xs: 0,
             sm: sidebarOpen ? `${DRAWER_WIDTH}px` : 0,
