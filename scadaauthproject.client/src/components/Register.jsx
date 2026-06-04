@@ -1,5 +1,5 @@
 // src/pages/Register.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   TextField,
@@ -11,6 +11,7 @@ import {
   Select,
   MenuItem,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import api from '../api';
 
@@ -18,14 +19,54 @@ const Register = () => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('operator');
+  const [role, setRole] = useState('');
+  const [roles, setRoles] = useState([]);          // список ролей с бэкенда
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesError, setRolesError] = useState('');
+
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
-  // ИСПРАВЛЕНО: добавлен флаг загрузки
   const [loading, setLoading] = useState(false);
+
+  // Загружаем роли один раз при открытии страницы
+  useEffect(() => {
+    let cancelled = false;
+    setRolesLoading(true);
+    setRolesError('');
+
+    api.get('/roles')
+      .then(res => {
+        if (cancelled) return;
+        const list = Array.isArray(res.data) ? res.data : [];
+        setRoles(list);
+
+        // Выбираем роль по умолчанию: сначала ищем "operator", иначе — первую
+        const defaultRole =
+          list.find(r => r.name?.toLowerCase() === 'operator') || list[0];
+        if (defaultRole) {
+          setRole(defaultRole.name);
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Ошибка загрузки ролей:', err);
+        setRolesError('Не удалось загрузить список ролей.');
+      })
+      .finally(() => {
+        if (!cancelled) setRolesLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!role) {
+      setIsError(true);
+      setMessage('Выберите роль перед регистрацией.');
+      return;
+    }
+
     setLoading(true);
     setMessage('');
     setIsError(false);
@@ -33,13 +74,17 @@ const Register = () => {
       await api.post('/auth/register', { username, email, password, role });
       setMessage('Пользователь успешно создан.');
       setIsError(false);
-      // ИСПРАВЛЕНО: сбрасываем форму после успешной регистрации
       setUsername('');
       setEmail('');
       setPassword('');
-      setRole('operator');
+      // роль оставляем — удобно, если регистрируют несколько операторов подряд
     } catch (err) {
-      setMessage('Ошибка: ' + (err.response?.data?.Message || err.response?.data?.message || 'Неизвестная ошибка'));
+      setMessage(
+        'Ошибка: ' +
+          (err.response?.data?.Message ||
+            err.response?.data?.message ||
+            'Неизвестная ошибка')
+      );
       setIsError(true);
     } finally {
       setLoading(false);
@@ -51,6 +96,13 @@ const Register = () => {
       <Box sx={{ textAlign: 'center', mb: 4 }}>
         <Typography variant="h4">Регистрация пользователя</Typography>
       </Box>
+
+      {rolesError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRolesError('')}>
+          {rolesError}
+        </Alert>
+      )}
+
       <Box component="form" onSubmit={handleSubmit}>
         <TextField
           fullWidth
@@ -81,30 +133,40 @@ const Register = () => {
           required
           autoComplete="new-password"
         />
+
         <FormControl fullWidth margin="normal" required>
           <InputLabel>Роль</InputLabel>
           <Select
             value={role}
             onChange={e => setRole(e.target.value)}
             label="Роль"
+            disabled={rolesLoading || !!rolesError || roles.length === 0}
+            endAdornment={
+              rolesLoading ? <CircularProgress size={18} sx={{ mr: 2 }} /> : null
+            }
           >
-            <MenuItem value="operator">Оператор</MenuItem>
-            <MenuItem value="master">Мастер</MenuItem>
-            <MenuItem value="developer">Разработчик</MenuItem>
-            <MenuItem value="superadmin">Суперадмин</MenuItem>
+            {roles.length === 0 && !rolesLoading && (
+              <MenuItem value="" disabled>Нет доступных ролей</MenuItem>
+            )}
+            {roles.map(r => (
+              <MenuItem key={r.id} value={r.name}>
+                {r.name}
+                {r.description ? ` — ${r.description}` : ''}
+              </MenuItem>
+            ))}
           </Select>
         </FormControl>
+
         <Button
           type="submit"
           fullWidth
           variant="contained"
           sx={{ mt: 2 }}
-          disabled={loading}
+          disabled={loading || rolesLoading || !role}
         >
           {loading ? 'Регистрация...' : 'Зарегистрировать'}
         </Button>
 
-        {/* ИСПРАВЛЕНО: заменён Typography на Alert для семантически правильного вывода статуса */}
         {message && (
           <Alert severity={isError ? 'error' : 'success'} sx={{ mt: 2 }}>
             {message}

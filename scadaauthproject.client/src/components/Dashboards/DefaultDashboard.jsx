@@ -6,8 +6,8 @@ import DashboardCard from './DashboardCard';
 import { useAuth } from '../../context/AuthContext';
 
 const defaultActions = [
-  { text: 'Журнал учёта листов',  icon: <AssignmentIcon />,  route: '/sheet-accounting' },
-  { text: 'Входные данные',       icon: <TableChartIcon />,  route: '/input-data' },
+ // { text: 'Журнал учёта листов',  icon: <AssignmentIcon />,  route: '/sheet-accounting' },
+ // { text: 'Входные данные',       icon: <TableChartIcon />,  route: '/input-data' },
 ];
 
 const DefaultDashboard = () => {
