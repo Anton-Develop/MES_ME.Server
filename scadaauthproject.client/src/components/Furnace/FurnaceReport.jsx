@@ -11,6 +11,7 @@ import HighchartsReact from 'highcharts-react-official';
 import Exporting from 'highcharts/modules/exporting';
 import ExportData from 'highcharts/modules/export-data';
 import FullScreen from 'highcharts/modules/full-screen';
+import PageContainer from '../PageContainer';
 import { furnaceApi } from '../../api/furnaceApi'; // Инициализируем модули 
 // Безопасная инициализация: вызываем только если это функция
 if (typeof Exporting === 'function') Exporting(Highcharts);
@@ -592,15 +593,7 @@ const FurnaceReport = () => {
   ];
 
   return (
-    <Box
-      sx={{
-        p: 3,
-        '@media print': {
-          p: 1,
-          '& .no-print': { display: 'none !important' },
-        },
-      }}
-    >
+    <PageContainer>
       {/* Кнопки */}
       <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
         <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
@@ -727,7 +720,7 @@ const FurnaceReport = () => {
       <Typography variant="caption" color="text.disabled" display="block" textAlign="right" mt={3}>
         Отчёт сформирован: {fmtDate(new Date())} | business_key: {key}
       </Typography>
-    </Box>
+    </PageContainer>
   );
 };
 

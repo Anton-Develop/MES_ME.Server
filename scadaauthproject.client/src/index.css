@@ -86,3 +86,20 @@ button:focus-visible {
   }
 }
 }
+
+* {
+  box-sizing: border-box; /* Чтобы padding не ломал ширину */
+}
+
+html, body, #root {
+  overflow-x: hidden;
+  max-width: 100vw;
+  margin: 0;
+  padding: 0;
+}
+
+/* Изображения и видео не вылезают за границы */
+img, video, iframe {
+  max-width: 100%;
+  height: auto;
+}

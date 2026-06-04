@@ -63,7 +63,7 @@ const MainLayout = () => {
   const DashboardComponent = DASHBOARD_BY_ROLE[user.role] ?? DefaultDashboard;
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'grey.50' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'grey.50',overflowX: 'hidden', }}>
       <CssBaseline />
 
       <Navbar toggleSidebar={handleToggleSidebar} onLogout={handleLogout} />

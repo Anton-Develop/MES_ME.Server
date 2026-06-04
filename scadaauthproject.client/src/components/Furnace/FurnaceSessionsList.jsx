@@ -4,7 +4,7 @@ import {
   Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, TextField, Button,
   Typography, Chip, CircularProgress, Grid, IconButton,
-  Tooltip, Alert, Popover, InputAdornment,
+  Tooltip, Alert, Popover, InputAdornment, useTheme, useMediaQuery
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,7 +13,10 @@ import {
 } from '@mui/icons-material';
 import { furnaceApi } from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
+import PageContainer from '../PageContainer';
 
+
+  
 const fmtDate = (d) => d
   ? new Date(d).toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric',
@@ -42,10 +45,10 @@ const columns = [
   { id: 'enteredAt', label: 'Вход', type: 'datetime' },
   { id: 'exitedAt', label: 'Выход', type: 'datetime' },
   { id: 'totalMin', label: 'Время', type: 'number' },
-  { id: 'f1Min', label: 'F1', type: 'number' },
-  { id: 'f2Min', label: 'F2', type: 'number' },
-  { id: 'f3Min', label: 'F3', type: 'number' },
-  { id: 'f4Min', label: 'F4', type: 'number' },
+  //{ id: 'f1Min', label: 'F1', type: 'number' },
+  //{ id: 'f2Min', label: 'F2', type: 'number' },
+  //{ id: 'f3Min', label: 'F3', type: 'number' },
+  //{ id: 'f4Min', label: 'F4', type: 'number' },
   { id: 'zonesPath', label: 'Маршрут', type: 'string' },
   { id: 'alloyCodeText', label: 'Марка стали', type: 'string' },
   { id: 'hadAlarm', label: 'Авария', type: 'boolean' },
@@ -307,7 +310,7 @@ const FurnaceSessionsList = () => {
   const hasActiveClientFilters = Object.keys(columnFilters).length > 0 || globalSearch;
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
         <Typography variant="h5" fontWeight={600}>
           Сессии нагрева листов
@@ -449,8 +452,9 @@ const FurnaceSessionsList = () => {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+
       {/* Таблица */}
-      <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+      <TableContainer component={Paper} sx={{ borderRadius: 2, overflowX: 'auto',maxWidth: '100%' }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
@@ -556,10 +560,10 @@ const FurnaceSessionsList = () => {
                   <TableCell sx={{ fontWeight: 600, color: 'warning.dark' }}>
                     {fmtMin(s.totalMin)}
                   </TableCell>
-                  <TableCell sx={{ fontSize: '0.78rem' }}>{fmtMin(s.f1Min)}</TableCell>
+                 {/* <TableCell sx={{ fontSize: '0.78rem' }}>{fmtMin(s.f1Min)}</TableCell>
                   <TableCell sx={{ fontSize: '0.78rem' }}>{fmtMin(s.f2Min)}</TableCell>
                   <TableCell sx={{ fontSize: '0.78rem' }}>{fmtMin(s.f3Min)}</TableCell>
-                  <TableCell sx={{ fontSize: '0.78rem' }}>{fmtMin(s.f4Min)}</TableCell>
+                  <TableCell sx={{ fontSize: '0.78rem' }}>{fmtMin(s.f4Min)}</TableCell>*/}
                   <TableCell>
                     <Chip
                       label={s.zonesPath ?? '—'}
@@ -712,8 +716,9 @@ const FurnaceSessionsList = () => {
           </Box>
         </Box>
       </Popover>
-    </Box>
+    </PageContainer>
   );
+
 };
 
 export default FurnaceSessionsList;
