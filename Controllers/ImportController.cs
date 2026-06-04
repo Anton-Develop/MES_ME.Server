@@ -226,9 +226,14 @@ namespace MES_ME.Server.Controllers
                 }
 
                 // --- ШАГ 3: Вставка отфильтрованных данных в inputdata_raw и вызов процедуры ---
-                using var connection = new NpgsqlConnection(_connectionString);
-                await connection.OpenAsync();
+                var importConnectionString = new NpgsqlConnectionStringBuilder(_connectionString)
+                    {
+                        CommandTimeout = 600 // 10 минут
+                    }.ConnectionString;
 
+                using var connection = new NpgsqlConnection(importConnectionString);
+                await connection.OpenAsync();
+                
                 using var transaction = await connection.BeginTransactionAsync(); // Открываем транзакцию
 
                 try
@@ -246,7 +251,7 @@ namespace MES_ME.Server.Controllers
                     // --- ШАГ 4: Вызов процедуры преобразования ---
                     using (var cmd = new NpgsqlCommand("CALL mes.migrate_raw_to_main();", connection, transaction))
                     {
-                        cmd.CommandTimeout = 300; // Увеличиваем таймаут на 5 минут, если данных много
+                        cmd.CommandTimeout = 600; // Увеличиваем таймаут на 5 минут, если данных много
                         await cmd.ExecuteNonQueryAsync();
                     }
 

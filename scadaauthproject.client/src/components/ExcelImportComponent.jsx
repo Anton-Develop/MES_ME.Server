@@ -71,9 +71,12 @@ const ExcelImportComponent = () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
+    const startTime = Date.now();
+
     try {
       const response = await api.post('/import/upload-excel', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 600000,
         onUploadProgress: (progressEvent) => {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           setUploadProgress(progress);
@@ -89,21 +92,63 @@ const ExcelImportComponent = () => {
       setFileInfo(null);
       setUploadProgress(0);
     } catch (err) {
-      console.error('Ошибка импорта:', err);
+    const endTime = Date.now();
+    
+    // ⬇️ РАСШИРЕННОЕ ЛОГИРОВАНИЕ ОШИБОК
+    console.error('=== ОШИБКА ЗАГРУЗКИ ===');
+    console.error('Время выполнения:', `${((endTime - startTime) / 1000).toFixed(2)} секунд`);
+    console.error('Полная ошибка:', err);
+    console.error('Тип ошибки:', err.constructor.name);
+    console.error('Сообщение ошибки:', err.message);
+    console.error('Код ошибки:', err.code);
+    
+    if (err.response) {
+      // Сервер вернул ответ с ошибкой
+      console.error('--- ОТВЕТ СЕРВЕРА С ОШИБКОЙ ---');
+      console.error('Статус:', err.response.status);
+      console.error('Заголовки ответа:', err.response.headers);
+      console.error('Данные ответа:', err.response.data);
+      console.error('Текст ответа:', JSON.stringify(err.response.data, null, 2));
+    } else if (err.request) {
+      // Запрос был отправлен, но нет ответа
+      console.error('--- НЕТ ОТВЕТА ОТ СЕРВЕРА ---');
+      console.error('Запрос:', err.request);
+      console.error('Возможные причины:');
+      console.error('- Таймаут соединения');
+      console.error('- Сервер недоступен');
+      console.error('- CORS ошибка');
+      console.error('- Сетевая проблема');
+    } else {
+      // Ошибка при настройке запроса
+      console.error('--- ОШИБКА НАСТРОЙКИ ЗАПРОСА ---');
+      console.error('Детали:', err.message);
+    }
 
-      let errorMsg = 'Неизвестная ошибка при загрузке файла.';
-      if (err.response) {
-        const { status, data } = err.response;
-        if (status === 401) {
-          errorMsg = 'Сессия истекла. Пожалуйста, войдите снова.';
-        } else if (data?.message || data?.Message || data?.error) {
-          errorMsg = data.message || data.Message || data.error;
-        } else {
-          errorMsg = `Ошибка сервера (${status})`;
-        }
-      } else if (err.request) {
-        errorMsg = 'Нет ответа от сервера. Проверьте соединение.';
+
+    // Формируем понятное сообщение для пользователя
+    let errorMsg = 'Неизвестная ошибка при загрузке файла.';
+    
+    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      errorMsg = `Превышено время ожидания (10 минут). Файл слишком большой или сервер перегружен. Время загрузки: ${((endTime - startTime) / 1000).toFixed(1)}с`;
+    } else if (err.response) {
+      const { status, data } = err.response;
+      
+      if (status === 401) {
+        errorMsg = 'Сессия истекла. Пожалуйста, войдите снова.';
+      } else if (status === 413) {
+        errorMsg = 'Файл слишком большой. Максимальный размер: 100 МБ';
+      } else if (status === 504 || status === 502) {
+        errorMsg = `Сервер не ответил вовремя (${status}). Попробуйте позже или обратитесь к администратору.`;
+      } else if (status === 408) {
+        errorMsg = 'Таймаут запроса. Сервер слишком долго обрабатывает файл.';
+      } else if (data?.message || data?.Message || data?.error) {
+        errorMsg = data.message || data.Message || data.error;
+      } else {
+        errorMsg = `Ошибка сервера (${status}): ${JSON.stringify(data)}`;
       }
+    } else if (err.request) {
+      errorMsg = `Нет ответа от сервера. Проверьте соединение. Время ожидания: ${((endTime - startTime) / 1000).toFixed(1)}с`;
+    }
 
       setError(errorMsg);
     } finally {

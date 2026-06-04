@@ -188,7 +188,7 @@ internal static class Sql
         WHERE hs.id IS NULL
           AND agg.exited_at IS NOT NULL
           AND agg.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
-          AND agg.total_minutes <= 35
+          AND agg.total_minutes <= 50
     ),
     existing_max AS (
         SELECT sheet, melt, part_no, pack, 
@@ -288,7 +288,7 @@ internal static class Sql
          AND zp.pack = agg.pack AND zp.pass_id = agg.pass_id
         WHERE hs.id IS NULL
           AND agg.exited_at IS NOT NULL
-          AND agg.total_minutes <= 35
+          AND agg.total_minutes <= 50
           AND agg.exited_at < NOW() - INTERVAL '5 minutes'
     ),
     existing_max AS (

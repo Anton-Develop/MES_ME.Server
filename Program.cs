@@ -139,11 +139,29 @@ public class Program
 
         builder.Services.AddControllers();
 
+        // ⬇️ ДОБАВЬТЕ: Настройки для больших файлов
+        builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+        {
+            options.MultipartBodyLengthLimit = 104857600; // 100 MB
+            options.ValueLengthLimit = 104857600;
+            options.MultipartHeadersLengthLimit = 104857600;
+        });
+
+        builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+        {
+            options.Limits.MaxRequestBodySize = 104857600; // 100 MB
+            options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(10);
+            options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(10);
+        });
+
+        
+
         // ============================
         // Build Application
         // ============================
         var app = builder.Build();
 
+        
         // ============================
         // ✅ КРИТИЧНО: Загрузка политик авторизации ИЗ БД
         // Выполняется ПОСЛЕ Build(), когда DI уже собран.
