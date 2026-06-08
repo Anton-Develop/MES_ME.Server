@@ -592,7 +592,7 @@ public class TemperingController : ControllerBase
                 new CommandDefinition(@"
                 SELECT cs.cassette_business_key 
                 FROM mes.cassette_sheets cs
-                INNER JOIN mes.input_data id ON cs.mat_id = id.mat_id
+                INNER JOIN mes.inputdata id ON cs.mat_id = id.matid
                 WHERE id.sheet_number = @Sheet
                   AND id.melt_number = @Melt
                   AND id.batch_number = @PartNo
