@@ -307,11 +307,14 @@ namespace MES_ME.Server.Controllers
             var validStatuses = new[]
             {
                 "Подготовлен к прокату",
-                "Прошел закалку",
-                "Добавлен в кассету",
-                "Прошел отпуск",
-                "Недокат",
-                "Чистый выброс"
+				"В плане закалки",
+				"Прошел закалку",
+				"Добавлен в кассету",
+				"Прошел отпуск",
+				"Недокат",
+				"Чистый выброс",
+				"Годный", 
+				"Брак"	
             };
 
             if (!validStatuses.Contains(request.NewStatus, StringComparer.OrdinalIgnoreCase))

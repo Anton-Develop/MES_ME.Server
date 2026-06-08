@@ -57,20 +57,20 @@ public class TemperingController : ControllerBase
         if (furnaceNo <= 2)
         {
             string prefix = furnaceNo == 1 ? "RelFurn12.RelFurn1" : "RelFurn12.RelFurn2";
-            noAlias = $"{prefix}.CaasetteNo";
-            dayAlias = $"{prefix}.Day";
-            monthAlias = $"{prefix}.Month";
-            yearAlias = $"{prefix}.Year";
-            hourAlias = $"{prefix}.Hour";
+            noAlias = $"{prefix}.FromHmi_CaasetteNo";
+            dayAlias = $"{prefix}.FromHmi_Day";
+            monthAlias = $"{prefix}.FromHmi_Month";
+            yearAlias = $"{prefix}.FromHmi_Year";
+            hourAlias = $"{prefix}.FromHmi_Hour";
         }
         else
         {
             string s = slot == 2 ? "2" : "1";
-            noAlias = $"RelFurn{furnaceNo}.Cassette{s}_CaasetteNo{s}";
-            dayAlias = $"RelFurn{furnaceNo}.Cassette{s}_Day";
-            monthAlias = $"RelFurn{furnaceNo}.Cassette{s}_Month";
-            yearAlias = $"RelFurn{furnaceNo}.Cassette{s}_Year";
-            hourAlias = $"RelFurn{furnaceNo}.Cassette{s}_Hour";
+            noAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{s}_CaasetteNo{s}";
+            dayAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{s}_Day";
+            monthAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{s}_Month";
+            yearAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{s}_Year";
+            hourAlias = $"RelFurn{furnaceNo}.FromHmi_Cassette{s}_Hour";
         }
 
         await _opcService.WriteByAliasAsync(noAlias, cassetteNumber);
@@ -79,6 +79,9 @@ public class TemperingController : ControllerBase
         await _opcService.WriteByAliasAsync(yearAlias, loadTime.Year);
         await _opcService.WriteByAliasAsync(hourAlias, (ushort)loadTime.Hour);
 
+
+      
+          
         _logger.LogInformation("✅ OPC UA записано: печь №{Furnace}, слот {Slot}, кассета №{Cassette}",
             furnaceNo, slot ?? 0, cassetteNumber);
     } 
@@ -93,11 +96,11 @@ public class TemperingController : ControllerBase
         if (furnaceNo <= 2)
         {
             string prefix = furnaceNo == 1 ? "RelFurn12.RelFurn1" : "RelFurn12.RelFurn2";
-            noAlias = $"{prefix}.CaasetteNo";
-            dayAlias = $"{prefix}.Day";
-            monthAlias = $"{prefix}.Month";
-            yearAlias = $"{prefix}.Year";
-            hourAlias = $"{prefix}.Hour";
+            noAlias = $"{prefix}.FromHmi_CaasetteNo";
+            dayAlias = $"{prefix}.FromHmi_Day";
+            monthAlias = $"{prefix}.FromHmi_Month";
+            yearAlias = $"{prefix}.FromHmi_Year";
+            hourAlias = $"{prefix}.FromHmi_Hour";
         }
         else
         {
@@ -361,6 +364,128 @@ public class TemperingController : ControllerBase
             sheetCount = totalSheets
         });
     }
+    // ═══════════════════════════════════════════════════════════════════════════
+    // POST /cancel-load — Отмена загрузки (возврат кассеты в активные)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    [HttpPost("cancel-load")]
+    public async Task<IActionResult> CancelLoad([FromBody] CancelLoadRequest request)
+    {
+        if (request.FurnaceNo < 1 || request.FurnaceNo > 4)
+            return BadRequest("Некорректный номер печи (1-4)");
+
+        var dualSlot = IsDualSlotFurnace(request.FurnaceNo);
+        if (dualSlot && !request.Slot.HasValue)
+            return BadRequest("Для печей №3 и №4 необходимо указать слот (1 или 2).");
+
+        var userName = GetUserName();
+        await using var con = await _dataSource.OpenConnectionAsync();
+        await using var tx = await con.BeginTransactionAsync();
+
+        try
+        {
+            // 1. Поиск активной сессии
+            dynamic? session;
+            if (dualSlot)
+            {
+                session = await con.QueryFirstOrDefaultAsync(
+                    @"SELECT id, business_key, cassette_number, slot_number, loaded_at
+                      FROM mes.tempering_sessions_new 
+                      WHERE furnace_number = @F AND slot_number = @Slot AND unloaded_at IS NULL
+                      ORDER BY loaded_at DESC LIMIT 1",
+                    new { F = request.FurnaceNo, Slot = request.Slot!.Value }, tx);
+            }
+            else
+            {
+                session = await con.QueryFirstOrDefaultAsync(
+                    @"SELECT id, business_key, cassette_number, slot_number, loaded_at
+                      FROM mes.tempering_sessions_new 
+                      WHERE furnace_number = @F AND unloaded_at IS NULL
+                      ORDER BY loaded_at DESC LIMIT 1",
+                    new { F = request.FurnaceNo }, tx);
+            }
+
+            if (session == null)
+            {
+                return NotFound(
+                    dualSlot
+                        ? $"В печи №{request.FurnaceNo} в слоте {request.Slot} нет активной кассеты."
+                        : $"В печи №{request.FurnaceNo} нет активной кассеты."
+                );
+            }
+
+            string businessKey = (string)session.business_key;
+            int cassetteNumber = (int)session.cassette_number;
+            int? slotNum = (int?)session.slot_number;
+
+            // 2. Удаляем сессию (полная отмена факта загрузки)
+            var deleted = await con.ExecuteAsync(
+                "DELETE FROM mes.tempering_sessions_new WHERE id = @Id",
+                new { Id = session.id }, tx);
+            if (deleted == 0)
+                return StatusCode(500, "Не удалось удалить сессию.");
+
+            // 3. Возвращаем кассету в active_cassettes
+            // Проверяем, нет ли уже такой кассеты (защита от дубликатов)
+            var alreadyActive = await con.QueryFirstOrDefaultAsync<int>(
+                "SELECT COUNT(*) FROM mes.active_cassettes WHERE business_key = @Key",
+                new { Key = businessKey }, tx);
+
+            if (alreadyActive == 0)
+            {
+                await con.ExecuteAsync(
+                    @"INSERT INTO mes.active_cassettes (business_key, cassette_number, is_closed, created_at, created_by)
+          VALUES (@Key, @Num, TRUE, NOW(), @User)",
+                    new { Key = businessKey, Num = cassetteNumber, User = userName }, tx);
+            }
+
+            // 4. Откат статусов листов (возвращаем в "Закрыта")
+            var sheets = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.CassetteBusinessKey == businessKey).ToListAsync();
+
+            foreach (var cs in sheets)
+            {
+                var sheet = await _context.InputData.FindAsync(cs.MatId);
+                if (sheet != null)
+                {
+                    sheet.Status = "Закрыта";
+                    sheet.QuenchingStatus = "Закрыта";
+                }
+            }
+            await _context.SaveChangesAsync();
+
+            // 5. Коммитим транзакцию
+            await tx.CommitAsync();
+
+            // 6. Очистка OPC UA (вне транзакции — это внешняя система)
+            try
+            {
+                await ClearCassetteInOpcAsync(request.FurnaceNo, slotNum);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "⚠️ Ошибка очистки OPC UA при отмене загрузки в печь №{Furnace}", request.FurnaceNo);
+            }
+
+            var slotInfo = dualSlot ? $", слот {slotNum}" : "";
+            _logger.LogInformation("↩️ Загрузка кассеты №{Cassette} в печь №{Furnace}{SlotInfo} отменена пользователем {User}. Кассета возвращена в активные.",
+                cassetteNumber, request.FurnaceNo, slotInfo, userName);
+
+            return Ok(new
+            {
+                message = $"Кассета №{cassetteNumber} возвращена в активные",
+                businessKey,
+                slot = slotNum,
+                furnaceNo = request.FurnaceNo,
+                sheetCount = sheets.Count
+            });
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
 
     [HttpGet("sessions")]
     public async Task<IActionResult> GetTemperingSessions([FromQuery] int? furnaceNo, [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] int page = 1, [FromQuery] int pageSize = 200, CancellationToken ct = default)
@@ -389,6 +514,11 @@ public class LoadCassetteRequest
 }
 
 public class UnloadCassetteRequest
+{
+    public int FurnaceNo { get; set; }
+    public int? Slot { get; set; }
+}
+public class CancelLoadRequest
 {
     public int FurnaceNo { get; set; }
     public int? Slot { get; set; }

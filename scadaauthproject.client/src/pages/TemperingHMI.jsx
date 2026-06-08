@@ -109,6 +109,8 @@ const toNumber = (v) => {
   return isNaN(num) ? null : num;
 };
 
+
+
 // ─── Форматирование ───────────────────────────────────────────────────────────
 const fmtTemp = (v) => v != null ? `${Number(v).toFixed(1)}°` : '—';
 const fmtMin = (v) => v != null ? `${Number(v).toFixed(0)} мин` : '—';
@@ -280,7 +282,7 @@ function ConnectionIndicator({ connected, connecting, error }) {
 }
 
 // ─── Секция: управление кассетой (с поддержкой слота) ─────────────────────────
-function CassetteControl({ furnaceNo, slot, activeSession, availableCassettes, loading, onLoadClick, onUnloadClick }) {
+function CassetteControl({ furnaceNo, slot, activeSession, availableCassettes, loading, onLoadClick, onUnloadClick, onCancelClick }) {
   const [selected, setSelected] = useState('');
   const slotLabel = slot != null ? `Слот ${slot}` : '';
 
@@ -323,17 +325,40 @@ function CassetteControl({ furnaceNo, slot, activeSession, availableCassettes, l
           </Typography>
         )}
 
-        <Button fullWidth variant="outlined" size="small"
-          onClick={() => onUnloadClick(slot)} disabled={loading}
-          startIcon={<StopIcon sx={{ fontSize: '0.9rem !important' }} />}
-          sx={{
-            color: T.danger, borderColor: `${T.danger}66`,
-            fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.05em',
-            fontFamily: T.sansFont, py: 0.75,
-            '&:hover': { borderColor: T.danger, bgcolor: `${T.danger}11` },
-          }}>
-          Выгрузить кассету
-        </Button>
+            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                <Button
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    onClick={() => onUnloadClick(slot)}
+                    disabled={loading}
+                    startIcon={<StopIcon sx={{ fontSize: '0.9rem !important' }} />}
+                    sx={{
+                        color: T.danger, borderColor: `${T.danger}66`,
+                        fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.05em',
+                        fontFamily: T.sansFont, py: 0.75,
+                        '&:hover': { borderColor: T.danger, bgcolor: `${T.danger}11` },
+                    }}>
+                    Выгрузить
+                </Button>
+                <Tooltip title="Отменить загрузку и вернуть кассету в список активных">
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                        size="small"
+                        onClick={() => onCancelClick(slot)}
+                        disabled={loading}
+                        startIcon={<RefreshIcon sx={{ fontSize: '0.9rem !important' }} />}
+                        sx={{
+                            color: T.warning, borderColor: `${T.warning}66`,
+                            fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.05em',
+                            fontFamily: T.sansFont, py: 0.75,
+                            '&:hover': { borderColor: T.warning, bgcolor: `${T.warning}11` },
+                        }}>
+                        Отменить
+                    </Button>
+                </Tooltip>
+            </Stack>
       </Box>
     );
   }
@@ -420,7 +445,7 @@ function CassetteControl({ furnaceNo, slot, activeSession, availableCassettes, l
 }
 
 // ─── Карточка печи ────────────────────────────────────────────────────────────
-function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, onLoad, onUnload }) {
+function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, onLoad, onUnload, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [pendingCassette, setPendingCassette] = useState(null);
   const [pendingSlot, setPendingSlot] = useState(null);
@@ -454,20 +479,28 @@ function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, o
     setPendingSlot(slot);
     setActionType('unload');
     setOpenConfirm(true);
-  };
+    };
 
-  const confirmAction = async () => {
-    setLoading(true);
-    try {
-      if (actionType === 'load') {
-        await onLoad(furnaceNo, parseInt(pendingCassette), pendingSlot);
-      } else {
-        await onUnload(furnaceNo, pendingSlot);
-      }
-      setOpenConfirm(false);
-    } catch { /* parent handles error */ }
-    finally { setLoading(false); }
-  };
+  const handleCancelClick = (slot) => {
+        setPendingSlot(slot);
+        setActionType('cancel');
+        setOpenConfirm(true);
+    };
+
+    const confirmAction = async () => {
+        setLoading(true);
+        try {
+            if (actionType === 'load') {
+                await onLoad(furnaceNo, parseInt(pendingCassette), pendingSlot);
+            } else if (actionType === 'unload') {
+                await onUnload(furnaceNo, pendingSlot);
+            } else if (actionType === 'cancel') {
+                await onCancel(furnaceNo, pendingSlot);
+            }
+            setOpenConfirm(false);
+        } catch { /* parent handles error */ }
+        finally { setLoading(false); }
+    };
 
   const actColor = isFault ? T.danger : isRun ? '#f0a500' : T.textPrimary;
 
@@ -614,6 +647,7 @@ function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, o
               loading={loading}
               onLoadClick={handleLoadClick}
               onUnloadClick={handleUnloadClick}
+              onCancelClick={handleCancelClick}
             />
             <CassetteControl
               furnaceNo={furnaceNo} slot={2}
@@ -621,7 +655,8 @@ function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, o
               availableCassettes={availableCassettes}
               loading={loading}
               onLoadClick={handleLoadClick}
-              onUnloadClick={handleUnloadClick}
+                          onUnloadClick={handleUnloadClick}
+                          onCancelClick={handleCancelClick}
             />
           </Stack>
         ) : (
@@ -631,7 +666,8 @@ function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, o
             availableCassettes={availableCassettes}
             loading={loading}
             onLoadClick={handleLoadClick}
-            onUnloadClick={handleUnloadClick}
+                          onUnloadClick={handleUnloadClick}
+                          onCancelClick={handleCancelClick}
           />
         )}
       </Box>
@@ -645,9 +681,11 @@ function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, o
 
       <Dialog open={openConfirm} onClose={() => setOpenConfirm(false)} maxWidth="xs" fullWidth
         PaperProps={{ sx: { bgcolor: '#1a2330', border: `1px solid ${T.border}`, borderRadius: 2 } }}>
-        <DialogTitle sx={{ color: T.textPrimary, fontFamily: T.sansFont, fontSize: '0.95rem', fontWeight: 600 }}>
-          {actionType === 'load' ? 'Подтверждение загрузки' : 'Подтверждение выгрузки'}
-        </DialogTitle>
+              <DialogTitle sx={{ color: T.textPrimary, fontFamily: T.sansFont, fontSize: '0.95rem', fontWeight: 600 }}>
+                  {actionType === 'load' ? 'Подтверждение загрузки' :
+                      actionType === 'cancel' ? 'Отмена загрузки' :
+                          'Подтверждение выгрузки'}
+              </DialogTitle>
         <DialogContent dividers sx={{ borderColor: T.borderSoft }}>
           <Typography variant="body2" sx={{ color: T.textSecondary, fontFamily: T.sansFont, fontSize: '0.85rem' }}>
             {getConfirmText()}
@@ -657,14 +695,18 @@ function FurnaceCard({ furnaceNo, plcData, activeSessions, availableCassettes, o
           <Button onClick={() => setOpenConfirm(false)} sx={{ color: T.textSecondary, fontSize: '0.8rem' }}>
             Отмена
           </Button>
-          <Button onClick={confirmAction} variant="contained"
-            sx={{
-              bgcolor: actionType === 'load' ? T.accent : T.danger,
-              color: '#0d1117', fontWeight: 700, fontSize: '0.8rem',
-              '&:hover': { bgcolor: actionType === 'load' ? '#79c0ff' : '#ff6b6b' },
-            }}>
-            Подтвердить
-          </Button>
+                  <Button onClick={confirmAction} variant="contained"
+                      sx={{
+                          bgcolor: actionType === 'load' ? T.accent :
+                              actionType === 'cancel' ? T.warning : T.danger,
+                          color: '#0d1117', fontWeight: 700, fontSize: '0.8rem',
+                          '&:hover': {
+                              bgcolor: actionType === 'load' ? '#79c0ff' :
+                                  actionType === 'cancel' ? '#e3b341' : '#ff6b6b'
+                          },
+                      }}>
+                      Подтвердить
+                  </Button>
         </DialogActions>
       </Dialog>
     </Paper>
@@ -696,6 +738,7 @@ export default function TemperingHMI() {
       setActiveSessions(r.data);
     } catch { /* silent */ }
   }, []);
+
 
   const loadReadyCassettes = useCallback(async () => {
     try {
@@ -779,7 +822,17 @@ export default function TemperingHMI() {
       throw err;
     }
   };
-
+    const handleCancelLoad = async (furnaceNo, slot) => {
+        try {
+            const r = await api.post('/tempering/cancel-load', { furnaceNo, slot });
+            const slotStr = slot != null ? ` (слот ${slot})` : '';
+            showMessage(r.data?.message || `Загрузка отменена, кассета возвращена в активные${slotStr}`, 'success');
+            await loadAllData();
+        } catch (err) {
+            showMessage(err.response?.data?.message || err.response?.data?.title || 'Ошибка при отмене загрузки', 'error');
+            throw err;
+        }
+    };
   return (
     <Box sx={{ p: { xs: 1.5, md: 2.5 }, bgcolor: T.bg, minHeight: '100vh' }}>
       {/* ── Шапка */}
@@ -829,12 +882,14 @@ export default function TemperingHMI() {
         '@media (max-width:1100px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
         '@media (max-width:600px)': { gridTemplateColumns: '1fr' },
       }}>
-        {FURNACES.map(no => (
-          <FurnaceCard key={no} furnaceNo={no} plcData={getPlcData(no)}
-            activeSessions={getSessionsByFurnace(no)}
-            availableCassettes={availableCassettes}
-            onLoad={handleLoadCassette} onUnload={handleUnloadCassette} />
-        ))}
+              {FURNACES.map(no => (
+                  <FurnaceCard key={no} furnaceNo={no} plcData={getPlcData(no)}
+                      activeSessions={getSessionsByFurnace(no)}
+                      availableCassettes={availableCassettes}
+                      onLoad={handleLoadCassette}
+                      onUnload={handleUnloadCassette}
+                      onCancel={handleCancelLoad} />
+              ))}
       </Box>
 
       {/* ── Панель доступных кассет */}

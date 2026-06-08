@@ -144,7 +144,9 @@ namespace MES_ME.Server.Controllers
                         Len = length,
                         Wt = (double)(inputDatum.ActualNetWeightKg ?? 0.0m),
                         Status = "Ожидание",
-                        Loc = ""
+                        Loc = "",
+                        Slab =inputDatum.SlabNumber ?? "",
+                        SheetInPack = inputDatum.SheetsCount.ToString() ?? ""
                     };
                 })
                 .ToList();
@@ -234,6 +236,61 @@ namespace MES_ME.Server.Controllers
                 s.SteelGrade, s.SheetDimensions, s.SlabNumber, s.Status
             });
         }
-    
+
+
+
+        // Добавьте этот метод после метода FindSheet
+
+        [HttpPost("delete-from-zone")]
+        public async Task<IActionResult> DeleteFromZone([FromBody] DeleteFromZoneRequest request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.UniqueId) || string.IsNullOrEmpty(request.Zone))
+            {
+                return BadRequest(new { message = "Не указан UniqueId листа или зона." });
+            }
+
+            // 1. Найти лист в БД
+            var sheet = await _context.InputData.FindAsync(request.UniqueId);
+            if (sheet == null)
+            {
+                return NotFound(new { message = $"Лист с ID {request.UniqueId} не найден." });
+            }
+
+            // 2. Записать команду удаления в OPC UA
+            bool success = true;
+            try
+            {
+                // Формируем имя тега: PLC210.DelPlate_E1, PLC210.DelPlate_F1, и т.д.
+                var tagName = $"PLC210.DelPlate_{request.Zone}";
+                success = await _opcService.WriteByAliasAsync(tagName, true);
+
+                _logger.LogInformation("Команда удаления листа {MatId} из зоны {Zone}: {Success}",
+                    request.UniqueId, request.Zone, success);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка записи в OPC UA при удалении листа {MatId} из зоны {Zone}",
+                    request.UniqueId, request.Zone);
+                return StatusCode(500, new { message = "Ошибка связи с OPC-сервером." });
+            }
+
+            if (!success)
+            {
+                return StatusCode(500, new { message = "Не удалось записать команду удаления в OPC UA." });
+            }
+
+            // 3. Обновить статус листа в БД на "Ожидание" (возврат в план)
+            sheet.Status = "Ожидание";
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = $"Лист {request.UniqueId} удален из зоны {request.Zone}." });
+        }
+
+    }
+
+    public class DeleteFromZoneRequest
+    {
+        public string UniqueId { get; set; } = ""; // MatId листа
+        public string Zone { get; set; } = "";     // E1, F1, F2, F3, F4, X1, X2
     }
 }

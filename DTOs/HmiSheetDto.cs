@@ -17,6 +17,8 @@ public class HmiSheetDto
     public double Wt { get; set; }    // actual_net_weight_kg из InputDatum
     public string Status { get; set; } = string.Empty; // quenching_status или status из InputDatum
     public string Loc { get; set; } = string.Empty;    // Текущее положение, которое пока может быть пустым или установленным в "В плане"
+    public string Slab {  get; set; }   = string.Empty;
+    public string SheetInPack { get;set ; } = string.Empty; 
 
 
 

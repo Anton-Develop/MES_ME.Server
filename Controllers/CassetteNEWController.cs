@@ -554,17 +554,17 @@ namespace MES_ME.Server.Controllers
             await using var con = await _dataSource.OpenConnectionAsync();
 
             var totalCount = await con.QueryFirstOrDefaultAsync<int>(
-                "SELECT COUNT(*) FROM mes.furnace_cassette_sessions WHERE unloaded_at IS NOT NULL");
+                "SELECT COUNT(*) FROM mes.tempering_sessions_new tsn  WHERE unloaded_at IS NOT null");
 
             var sessions = await con.QueryAsync(
-                @"SELECT fcs.id, fcs.furnace_number, fcs.cassette_id, 
+                @"SELECT fcs.id, fcs.furnace_number, fcs.business_key , 
                  fcs.loaded_at, fcs.loaded_by, fcs.unloaded_at, fcs.unloaded_by,
                  fcs.completed_by_plc, fcs.status,
                  (SELECT COUNT(*) FROM mes.cassette_sheets cs 
-                  WHERE cs.cassette_business_key LIKE fcs.cassette_id || '/%') AS sheet_count
-          FROM mes.furnace_cassette_sessions fcs
+                  WHERE cs.cassette_business_key LIKE fcs.business_key) AS sheet_count
+          FROM mes.tempering_sessions_new  fcs
           WHERE fcs.unloaded_at IS NOT NULL
-          ORDER BY fcs.unloaded_at DESC
+          ORDER BY fcs.unloaded_at desc
           LIMIT @Limit OFFSET @Offset",
                 new { Limit = pageSize, Offset = (page - 1) * pageSize });
 
