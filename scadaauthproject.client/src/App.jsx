@@ -42,6 +42,7 @@ import FurnaceReport from './components/Furnace/FurnaceReport';
 
 import QuenchingReport from './components/Furnace/QuenchingReport';
 import SheetCustomerReport from './components/Furnace/SheetCustomerReport';
+import TemperingReport from './components/Furnace/TemperingReport';
 
 
 
@@ -63,7 +64,7 @@ const App = () => (
                         {/* Публичные маршруты */}
                         <Route path="/login" element={<Login />} />
                         <Route path="/unauthorized" element={<Unauthorized />} />
-
+						<Route path="/tempering/report" element={<TemperingReport />} />
                         {/* Все защищённые маршруты вложены в MainLayout */}
                         <Route
                             path="/"
@@ -232,6 +233,7 @@ const App = () => (
 							<Route path="CassetteBuilder" element={<ProtectedRoute><CassetteBuilder /></ProtectedRoute>} />
 							<Route path="OperatorWorkplace" element={<ProtectedRoute><OperatorWorkplace /></ProtectedRoute>} />
 							<Route path="CassetteHistoryPage" element={<ProtectedRoute><CassetteHistoryPage /></ProtectedRoute>} />
+							
 							
                             {/* Фолбэк — любой неизвестный путь */}
                             <Route path="*" element={<Navigate to="/unauthorized" replace />} />

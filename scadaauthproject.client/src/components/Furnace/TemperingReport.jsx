@@ -1,0 +1,240 @@
+// src/components/Reports/TemperingReport.jsx
+import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  Box, Paper, Grid, Typography, Chip, Divider, Button,
+  CircularProgress, Alert, Stack, Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow
+} from '@mui/material';
+import { Print, ArrowBack } from '@mui/icons-material';
+import api from '../../api'; // Ваш настроенный axios instance
+
+const fmtDate = (d) => d
+  ? new Date(d).toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  : '—';
+
+const fmtMin = (v) => v != null ? `${Number(v).toFixed(0)} мин` : '—';
+const fmtTemp = (v) => v != null ? `${Number(v).toFixed(0)} °C` : '—';
+
+const TemperingReport = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = new URLSearchParams(location.search);
+  const businessKey = searchParams.get('key');
+  const isPrint = searchParams.get('print') === 'true';
+
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!businessKey) {
+      setLoading(false);
+      return;
+    }
+
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await api.get(`/tempering/session-by-key?key=${encodeURIComponent(businessKey)}`);
+        setData(res.data);
+      } catch (err) {
+        setError(err.response?.data?.error || 'Ошибка загрузки данных отпуска');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [businessKey]);
+
+  useEffect(() => {
+    if (isPrint && !loading && data) {
+      const timer = setTimeout(() => window.print(), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isPrint, loading, data]);
+
+  if (loading) {
+    return (
+      <Box sx={{ p: 5, textAlign: 'center' }}>
+        <CircularProgress />
+        <Typography variant="body2" color="text.secondary" mt={2}>Загрузка отчёта по отпуску...</Typography>
+      </Box>
+    );
+  }
+
+  if (error || !data?.session) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>{error || 'Данные не найдены'}</Alert>
+        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
+          Назад
+        </Button>
+      </Box>
+    );
+  }
+
+  const { session, sheets } = data;
+  const firstSheet = sheets?.[0] || {};
+
+  // Определение статуса для чипа
+  const getStatusChip = () => {
+    if (session.status?.includes('Авария') || session.status?.includes('fault')) {
+      return <Chip label="АВАРИЯ" color="error" size="small" />;
+    }
+    if (session.status?.includes('вручную')) {
+      return <Chip label="ВЫГРУЖЕН ВРУЧНУЮ" color="warning" size="small" />;
+    }
+    return <Chip label="ЗАВЕРШЕН ШТАТНО" color="success" size="small" />;
+  };
+
+  return (
+    <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh', '@media print': { p: 1, bgcolor: '#fff', '& .no-print': { display: 'none !important' } } }}>
+      
+      {/* Кнопки управления */}
+      <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
+          Назад
+        </Button>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button variant="contained" startIcon={<Print />} onClick={() => window.print()}>
+          Печать
+        </Button>
+      </Box>
+
+      {/* Шапка отчета */}
+      <Paper sx={{ p: 2.5, mb: 2, borderRadius: 2 }}>
+        <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
+          <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            Отчёт по отпуску листа №{firstSheet.Sheet || '—'}
+          </Typography>
+          {getStatusChip()}
+        </Stack>
+
+        {/* Метаданные */}
+        <Grid container spacing={1.5} sx={{ mb: 2 }}>
+          {[
+            { label: 'Лист', value: firstSheet.Sheet },
+            { label: 'Сляб', value: firstSheet.Slab ?? '—' },
+            { label: 'Плавка', value: firstSheet.Melt ?? '—' },
+            { label: 'Партия', value: firstSheet.PartNo ?? '—' },
+            { label: 'Пачка', value: firstSheet.Pack ?? '—' },
+        { label: 'Марка стали', value: firstSheet.AlloyCodeText || firstSheet.AlloyCode || '—' },
+            { label: 'Толщина', value: firstSheet.Thickness != null ? `${Number(firstSheet.Thickness).toFixed(1)} мм` : '—' },
+            { label: 'Кассета', value: session.cassetteNumber ? `№${session.cassetteNumber}` : '—' },
+            { label: 'Печь', value: session.furnaceNumber ? `№${session.furnaceNumber}` : '—' },
+            { label: 'Слот', value: session.slotNumber != null ? `№${session.slotNumber}` : '—' },
+          ].map(({ label, value }) => (
+            <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">{label}</Typography>
+                <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+                  {value}
+                </Typography>
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
+
+        <Divider sx={{ my: 1.5 }} />
+
+        {/* Временные метки и операторы */}
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6} md={3}>
+            <Typography variant="caption" color="text.secondary">Загружена в печь</Typography>
+            <Typography variant="body2" fontWeight={600}>{fmtDate(session.loadedAt)}</Typography>
+            <Typography variant="caption" color="text.secondary">Оператор: {session.loadedBy || '—'}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Typography variant="caption" color="text.secondary">Выгружена из печи</Typography>
+            <Typography variant="body2" fontWeight={600}>{fmtDate(session.unloadedAt)}</Typography>
+            <Typography variant="caption" color="text.secondary">Оператор: {session.unloadedBy || '—'}</Typography>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {/* Технологические параметры */}
+      <Paper sx={{ p: 2.5, mb: 2, borderRadius: 2, borderTop: '4px solid #d29922' }}>
+        <Typography variant="h6" fontWeight={600} mb={2}>Параметры процесса отпуска</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={6} sm={4} md={2}>
+            <Typography variant="caption" color="text.secondary">Заданная t°</Typography>
+            <Typography variant="h5" fontWeight={700} color="primary">
+              {/* Если у вас есть temp_ref в сессии, подставьте его. Иначе можно взять из PLC-лога */}
+              {fmtTemp(session.tempRef)} 
+            </Typography>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Typography variant="caption" color="text.secondary">Общее время</Typography>
+            <Typography variant="h6" fontWeight={600}>
+              {fmtMin(session.totalTimeMin || '—')}
+            </Typography>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Typography variant="caption" color="text.secondary">Время нагрева</Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {fmtMin(session.heatingTimeMin || '—')}
+            </Typography>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <Typography variant="caption" color="text.secondary">Время выдержки</Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {fmtMin(session.holdingTimeMin || '—')}
+            </Typography>
+          </Grid>
+        </Grid>
+        <Alert severity="info" sx={{ mt: 2, fontSize: '0.85rem' }}>
+          * Точные температурные кривые формируются на основе данных ПЛК. Статус сессии: <strong>{session.status}</strong>.
+        </Alert>
+      </Paper>
+
+      {/* Список листов в кассете */}
+      <Paper sx={{ p: 2.5, borderRadius: 2 }}>
+        <Typography variant="h6" fontWeight={600} mb={2}>
+          Листы в кассете №{session.cassetteNumber} ({sheets.length} шт.)
+        </Typography>
+        <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Лист</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Сляб</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Плавка</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Партия</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Марка стали</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Толщина</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Статус</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {sheets.map((s, idx) => (
+                <TableRow key={s.MatId || idx} hover>
+                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.Sheet}</TableCell>
+                  <TableCell>{s.Slab ?? '—'}</TableCell>
+                  <TableCell>{s.Melt ?? '—'}</TableCell>
+                  <TableCell>{s.PartNo ?? '—'}</TableCell>
+                  <TableCell>{s.AlloyCodeText || s.AlloyCode || '—'}</TableCell>
+                  <TableCell>{s.Thickness != null ? `${Number(s.Thickness).toFixed(1)}` : '—'}</TableCell>
+                  <TableCell>
+                    <Chip label={s.Status || 'Отпуск пройден'} size="small" color="success" variant="outlined" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
+
+      <Typography variant="caption" color="text.disabled" display="block" textAlign="right" mt={3}>
+        Отчёт сформирован: {fmtDate(new Date())} | Ключ кассеты: {session.businessKey}
+      </Typography>
+    </Box>
+  );
+};
+
+export default TemperingReport;

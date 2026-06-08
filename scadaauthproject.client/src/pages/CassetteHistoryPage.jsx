@@ -45,22 +45,21 @@ export default function CassetteHistoryPage() {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  const openAudit = async (session) => {
-    setSelectedSession(session);
-    setAuditLoading(true);
-    try {
-      // Формируем businessKey из cassette_id и loaded_at
-      const date = new Date(session.loaded_at);
-      const bk = `${session.cassette_id}/${date.toISOString().slice(0, 10).replace(/-/g, '')}-${date.toISOString().slice(11, 16).replace(':', '')}`;
-      const res = await api.get(`/cassettenew/${encodeURIComponent(bk)}/audit`);
-      setAuditLog(res.data);
-    } catch (err) {
-      console.error('Ошибка загрузки аудита:', err);
-      setAuditLog([]);
-    } finally {
-      setAuditLoading(false);
-    }
-  };
+const openAudit = async (session) => {
+  setSelectedSession(session);
+  setAuditLoading(true);
+  try {
+    // Используем готовый business_key из ответа API ("8888/20260608-0629")
+    const bk = session.business_key;
+    const res = await api.get(`/cassettenew/${encodeURIComponent(bk)}/audit`);
+    setAuditLog(res.data);
+  } catch (err) {
+    console.error('Ошибка загрузки аудита:', err);
+    setAuditLog([]);
+  } finally {
+    setAuditLoading(false);
+  }
+};
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
@@ -84,7 +83,9 @@ export default function CassetteHistoryPage() {
               <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: C.dim }}>Нет завершённых кассет</td></tr>
             ) : sessions.map(s => (
               <tr key={s.id} style={{ borderBottom: `1px solid ${C.panelBd}22` }}>
-                <td style={{ padding: '5px 8px', fontFamily: 'monospace', color: C.accent, fontWeight: 700 }}>№{s.cassette_id}</td>
+               <td style={{ padding: '5px 8px', fontFamily: 'monospace', color: C.accent, fontWeight: 700 }} >
+  №{s.business_key ? s.business_key.split('/')[0] : '—'}
+</td >
                 <td style={{ padding: '5px 8px' }}>Печь {s.furnace_number}</td>
                 <td style={{ padding: '5px 8px', color: C.dim }}>{new Date(s.loaded_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
                 <td style={{ padding: '5px 8px', color: C.dim, fontSize: 11 }}>{s.loaded_by}</td>
@@ -124,9 +125,9 @@ export default function CassetteHistoryPage() {
           <div style={{ background: C.panel, border: `2px solid ${C.accent}`, borderRadius: 8, padding: 24, minWidth: 600, maxWidth: 800, maxHeight: '80vh', color: C.text, display: 'flex', flexDirection: 'column' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h2 style={{ margin: 0, fontSize: 16, color: C.accent }}>
-                📜 Журнал кассеты №{selectedSession.cassette_id} (Печь {selectedSession.furnace_number})
-              </h2>
+              <h2 style={{ margin: 0, fontSize: 16, color: C.accent }} >
+  📜 Журнал кассеты №{selectedSession.business_key ? selectedSession.business_key.split('/')[0] : '—'} (Печь {selectedSession.furnace_number})
+</h2>
               <button onClick={() => setSelectedSession(null)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 20, cursor: 'pointer' }}>×</button>
             </div>
 

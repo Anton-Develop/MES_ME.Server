@@ -9,7 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   Visibility, Print, Refresh, ArrowUpward, ArrowDownward,
-  FilterList, Close, Search, Clear, WaterDrop,Assessment,
+  FilterList, Close, Search, Clear, WaterDrop,Assessment,Thermostat,
 } from '@mui/icons-material';
 import { furnaceApi } from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
@@ -651,6 +651,41 @@ const FurnaceSessionsList = () => {
         <WaterDrop fontSize="small" />
       </IconButton>
     </Tooltip>
+	
+	
+<Tooltip title="Отчёт по отпуску">
+  <IconButton
+    size="small"
+    color="warning"
+    onClick={async () => {
+      try {
+        // 1. Запрашиваем у бэкенда ключ кассеты по параметрам текущего листа
+        const response = await fetch(`/api/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(s.sheet)}&melt=${encodeURIComponent(s.melt)}&partNo=${encodeURIComponent(s.partNo)}&pack=${encodeURIComponent(s.pack)}`);
+        
+        if (!response.ok) {
+          const errData = await response.json();
+          alert(errData.error || "Лист не найден в кассетах отпуска");
+          return;
+        }
+        
+        const data = await response.json();
+        
+        // 2. Если ключ найден, открываем отчет в новой вкладке
+        if (data.cassetteBusinessKey) {
+          const url = `/tempering/report?key=${encodeURIComponent(data.cassetteBusinessKey)}`;
+          window.open(url, '_blank');
+        }
+      } catch (err) {
+        console.error("Ошибка поиска кассеты:", err);
+        alert("Ошибка при поиске данных по отпуску");
+      }
+    }}
+    sx={{ p: 0.75 }}
+  >
+    <Thermostat fontSize="small" />
+  </IconButton>
+</Tooltip>
+	
 
   </Box>
 </TableCell>

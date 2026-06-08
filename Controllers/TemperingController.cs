@@ -504,6 +504,117 @@ public class TemperingController : ControllerBase
         }
         catch (Exception ex) { _logger.LogError(ex, "GetTemperingSessionById failed"); return StatusCode(500, new { error = "Ошибка" }); }
     }
+
+
+    /// <summary>
+    /// GET /api/tempering/session-by-key?key={businessKey}
+    /// Получение полных данных сессии отпуска по ключу кассеты
+    /// </summary>
+    [HttpGet("session-by-key")]
+    public async Task<IActionResult> GetTemperingSessionByKey([FromQuery] string key, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            // 1. Данные сессии (теперь просто читаем сохраненные значения)
+            var session = await con.QueryFirstOrDefaultAsync(@"
+            SELECT 
+                id, 
+                furnace_number AS ""furnaceNumber"", 
+                slot_number AS ""slotNumber"",
+                business_key AS ""businessKey"", 
+                cassette_number AS ""cassetteNumber"",
+                loaded_at AS ""loadedAt"", 
+                unloaded_at AS ""unloadedAt"",
+                loaded_by AS ""loadedBy"", 
+                unloaded_by AS ""unloadedBy"",
+                status AS ""status"", 
+                completed_by_plc AS ""completedByPlc"",
+                total_time_min AS ""totalTimeMin"",  -- <-- ДОБАВИТЬ: читаем из колонки
+                max_temp AS ""tempRef""               -- <-- ДОБАВИТЬ: читаем из колонки
+            FROM mes.tempering_sessions_new
+            WHERE business_key = @Key
+            ORDER BY loaded_at DESC LIMIT 1",
+                new { Key = key });
+
+            if (session == null)
+                return NotFound(new { error = "Сессия отпуска не найдена" });
+
+            // 2. Данные о листах в этой кассете (с алиасами для фронтенда)
+            var sheets = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.CassetteBusinessKey == key)
+                .Join(_context.InputData,
+                      cs => cs.MatId,
+                      sheet => sheet.MatId,
+                      (cs, sheet) => new
+                      {
+                          sheet.MatId,
+                          Sheet = sheet.SheetNumber,       // Алиас для фронтенда
+                          Slab = sheet.SlabNumber,         // Алиас для фронтенда
+                          Melt = sheet.MeltNumber,         // Алиас для фронтенда
+                          PartNo = sheet.BatchNumber,      // Алиас для фронтенда
+                          Pack = sheet.PackNumber,         // Алиас для фронтенда
+                          AlloyCodeText = sheet.SteelGrade,// Алиас для фронтенда
+                          Thickness = sheet.SheetDimensions, // Алиас для фронтенда
+                          sheet.Status
+                      })
+                .OrderBy(s => s.MatId)
+                .ToListAsync(ct);
+
+            return Ok(new { session, sheets });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetTemperingSessionByKey failed for key={Key}", key);
+            return StatusCode(500, new { error = "Ошибка при получении данных сессии" });
+        }
+
+    }
+    /// <summary>
+    /// GET /api/tempering/cassette-key-by-sheet
+    /// Находит бизнес-ключ кассеты по параметрам листа
+    /// </summary>
+    [HttpGet("cassette-key-by-sheet")]
+    public async Task<IActionResult> GetCassetteKeyBySheet(
+        [FromQuery] string sheet,
+        [FromQuery] string melt,
+        [FromQuery] string partNo,
+        [FromQuery] string pack,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            // ✅ ПРАВИЛЬНЫЙ ЗАПРОС: ищем cassette_business_key через таблицу связей
+            var cassetteBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
+                new CommandDefinition(@"
+                SELECT cs.cassette_business_key 
+                FROM mes.cassette_sheets cs
+                INNER JOIN mes.input_data id ON cs.mat_id = id.mat_id
+                WHERE id.sheet_number = @Sheet
+                  AND id.melt_number = @Melt
+                  AND id.batch_number = @PartNo
+                  AND id.pack_number = @Pack
+                ORDER BY cs.added_at DESC
+                LIMIT 1",
+                    new { Sheet = sheet, Melt = melt, PartNo = partNo, Pack = pack },
+                    cancellationToken: ct));
+
+            if (string.IsNullOrEmpty(cassetteBusinessKey))
+            {
+                return NotFound(new { error = "Лист не найден ни в одной кассете отпуска. Возможно, он ещё не прошёл закалку." });
+            }
+
+            return Ok(new { cassetteBusinessKey });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetCassetteKeyBySheet failed for sheet={Sheet}", sheet);
+            return StatusCode(500, new { error = "Ошибка при поиске кассеты" });
+        }
+    }
 }
 
 public class LoadCassetteRequest

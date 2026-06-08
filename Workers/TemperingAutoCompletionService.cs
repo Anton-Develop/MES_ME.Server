@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Npgsql;
+using Microsoft.Extensions.Logging;
 
 namespace MES_ME.Server.Workers;
 
@@ -122,9 +123,71 @@ public class TemperingAutoCompletionService : BackgroundService
         if (processed > 0)
             _logger.LogInformation("✅ Автозавершение: обработано {Count} печей", processed);
     }
-
     private async Task ProcessCompletedFurnaceAsync(
-        NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
+     NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
+    {
+        // 1. Сначала получаем статистику из PLC именно для этой сессии
+        var plcStats = await con.QueryFirstOrDefaultAsync(@"
+        SELECT 
+            MAX(temp_act) as max_temp,
+            EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60 as duration_min
+        FROM plc.tempering_data
+        WHERE furnace_no = @FurnaceNo 
+          AND time >= (SELECT loaded_at FROM mes.tempering_sessions_new WHERE id = @SessionId)
+    ", new { item.FurnaceNo, item.SessionId });
+
+        int? durationMin = plcStats?.duration_min != null ? Convert.ToInt32(plcStats.duration_min) : null;
+        decimal? maxTemp = plcStats?.max_temp;
+
+        // 2. Обновляем сессию, сохраняя рассчитанные значения в новые колонки
+        var updatedBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
+            new CommandDefinition(@"
+            UPDATE mes.tempering_sessions_new 
+            SET unloaded_at = @UnloadedAt, 
+                completed_by_plc = TRUE, 
+                unloaded_by = 'PLC_AUTO',
+                status = 'Отпуск завершён',
+                total_time_min = COALESCE(@DurationMin, total_time_min), -- Сохраняем время
+                max_temp = COALESCE(@MaxTemp, max_temp)                  -- Сохраняем температуру
+            WHERE id = @SessionId
+              AND unloaded_at IS NULL
+            RETURNING business_key",
+            new
+            {
+                UnloadedAt = DateTime.UtcNow,
+                SessionId = item.SessionId,
+                DurationMin = durationMin,
+                MaxTemp = maxTemp
+            },
+            cancellationToken: ct));
+
+        if (string.IsNullOrEmpty(updatedBusinessKey))
+        {
+            _logger.LogWarning("Сессия {SessionId} уже была выгружена (race condition)", item.SessionId);
+            return;
+        }
+
+        // 3. Обновляем статусы всех листов кассеты
+        var updatedCount = await con.ExecuteAsync(
+             new CommandDefinition(@"
+            UPDATE mes.input_data 
+            SET status = 'Отпуск пройден',
+                quenching_status = 'Отпуск пройден'
+            WHERE mat_id IN (
+                SELECT cs.mat_id 
+                FROM mes.cassette_sheets cs
+                WHERE cs.cassette_business_key = @BusinessKey
+            ) 
+            AND status IN ('В печи отпуска', 'Добавлен в кассету', 'В кассете')",
+                new { BusinessKey = updatedBusinessKey },
+                cancellationToken: ct));
+
+        _logger.LogInformation(
+             "📤 Печь №{Furnace}: кассета №{Cassette} (key={Key}) автовыгружена PLC. " +
+             "Время: {Duration} мин, Макс. t°: {Temp}. Обновлено {Count} листов.",
+            item.FurnaceNo, item.CassetteNumber, updatedBusinessKey, durationMin, maxTemp, updatedCount);
+    }
+    /*private async Task ProcessCompletedFurnaceAsync( NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
     {
         // 1. Обновляем сессию — помечаем как выгруженную PLC'ом
         var updatedBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
@@ -172,7 +235,7 @@ public class TemperingAutoCompletionService : BackgroundService
             "Обновлено {Count} листов → 'Отпуск пройден'",
             item.FurnaceNo, item.CassetteNumber, updatedBusinessKey, updatedCount);
     }
-
+    */
     // DTO для результата запроса
     private class FurnaceCompletionDto
     {
