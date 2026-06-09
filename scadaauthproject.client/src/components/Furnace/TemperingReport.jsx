@@ -7,7 +7,9 @@ import {
   TableContainer, TableHead, TableRow
 } from '@mui/material';
 import { Print, ArrowBack } from '@mui/icons-material';
-import api from '../../api'; // Ваш настроенный axios instance
+import Highcharts from 'highcharts';
+import HighchartsReact from 'highcharts-react-official';
+import api from '../../api';
 
 const fmtDate = (d) => d
   ? new Date(d).toLocaleString('ru-RU', {
@@ -59,11 +61,84 @@ const TemperingReport = () => {
     }
   }, [isPrint, loading, data]);
 
+  // ✅ Подготовка данных для графика Highcharts
+  const chartOptions = useMemo(() => {
+    if (!data?.tempData || data.tempData.length === 0) {
+      return null;
+    }
+
+    const categories = data.tempData.map(d => {
+      const date = new Date(d.time);
+      return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    });
+
+    return {
+      chart: {
+        type: 'spline',
+        height: 400,
+        zoomType: 'x'
+      },
+      title: {
+        text: 'Температурный профиль отпуска'
+      },
+      xAxis: {
+        categories: categories,
+        title: { text: 'Время' },
+        labels: { rotation: -45 }
+      },
+      yAxis: {
+        title: { text: 'Температура, °C' },
+        min: 0
+      },
+      tooltip: {
+        shared: true,
+        valueSuffix: ' °C'
+      },
+      legend: {
+        enabled: true
+      },
+      plotOptions: {
+        series: {
+          marker: { enabled: false },
+          animation: false
+        }
+      },
+      series: [
+        {
+          name: 'Заданная температура',
+          data: data.tempData.map(d => d.tempRef),
+          color: '#1976d2',
+          dashStyle: 'Dash'
+        },
+        {
+          name: 'Фактическая температура',
+          data: data.tempData.map(d => d.tempAct),
+          color: '#d29922'
+        },
+        {
+          name: 'T1',
+          data: data.tempData.map(d => d.t1),
+          color: '#2e7d32',
+          visible: false
+        },
+        {
+          name: 'T2',
+          data: data.tempData.map(d => d.t2),
+          color: '#c62828',
+          visible: false
+        }
+      ],
+      credits: { enabled: false }
+    };
+  }, [data?.tempData]);
+
   if (loading) {
     return (
       <Box sx={{ p: 5, textAlign: 'center' }}>
         <CircularProgress />
-        <Typography variant="body2" color="text.secondary" mt={2}>Загрузка отчёта по отпуску...</Typography>
+        <Typography variant="body2" color="text.secondary" mt={2}>
+          Загрузка отчёта по отпуску...
+        </Typography>
       </Box>
     );
   }
@@ -82,7 +157,6 @@ const TemperingReport = () => {
   const { session, sheets } = data;
   const firstSheet = sheets?.[0] || {};
 
-  // Определение статуса для чипа
   const getStatusChip = () => {
     if (session.status?.includes('Авария') || session.status?.includes('fault')) {
       return <Chip label="АВАРИЯ" color="error" size="small" />;
@@ -95,7 +169,6 @@ const TemperingReport = () => {
 
   return (
     <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh', '@media print': { p: 1, bgcolor: '#fff', '& .no-print': { display: 'none !important' } } }}>
-      
       {/* Кнопки управления */}
       <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
         <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
@@ -111,25 +184,25 @@ const TemperingReport = () => {
       <Paper sx={{ p: 2.5, mb: 2, borderRadius: 2 }}>
         <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
           <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            Отчёт по отпуску листа №{firstSheet.Sheet || '—'}
-          </Typography>
-          {getStatusChip()}
+          Отчёт по отпуску листа №{firstSheet.sheet || '—'}
+        </Typography>
+         {/*  {getStatusChip()}*/}
         </Stack>
 
         {/* Метаданные */}
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
           {[
-            { label: 'Лист', value: firstSheet.Sheet },
-            { label: 'Сляб', value: firstSheet.Slab ?? '—' },
-            { label: 'Плавка', value: firstSheet.Melt ?? '—' },
-            { label: 'Партия', value: firstSheet.PartNo ?? '—' },
-            { label: 'Пачка', value: firstSheet.Pack ?? '—' },
-        { label: 'Марка стали', value: firstSheet.AlloyCodeText || firstSheet.AlloyCode || '—' },
-            { label: 'Толщина', value: firstSheet.Thickness != null ? `${Number(firstSheet.Thickness).toFixed(1)} мм` : '—' },
-            { label: 'Кассета', value: session.cassetteNumber ? `№${session.cassetteNumber}` : '—' },
-            { label: 'Печь', value: session.furnaceNumber ? `№${session.furnaceNumber}` : '—' },
-            { label: 'Слот', value: session.slotNumber != null ? `№${session.slotNumber}` : '—' },
-          ].map(({ label, value }) => (
+          { label: 'Лист', value: firstSheet.sheet },
+          { label: 'Сляб', value: firstSheet.slab ?? '—' },
+          { label: 'Плавка', value: firstSheet.melt ?? '—' }, 
+          { label: 'Партия', value: firstSheet.partNo ?? '—' },
+          { label: 'Пачка', value: firstSheet.pack ?? '—' },
+          { label: 'Марка стали', value: firstSheet.alloyCodeText  ?? '—' },
+          { label: 'Толщина', value: firstSheet.thickness != null ? `${Number(firstSheet.thickness).toFixed(1)} мм` : '—' },
+          { label: 'Кассета', value: session.cassetteNumber ? `№${session.cassetteNumber}` : '—' },
+          { label: 'Печь', value: session.furnaceNumber ? `№${session.furnaceNumber}` : '—' },
+          { label: 'Слот', value: session.slotNumber != null ? `№${session.slotNumber}` : '—' },
+        ].map(({ label, value }) => (
             <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
               <Box>
                 <Typography variant="caption" color="text.secondary">{label}</Typography>
@@ -165,33 +238,31 @@ const TemperingReport = () => {
           <Grid item xs={6} sm={4} md={2}>
             <Typography variant="caption" color="text.secondary">Заданная t°</Typography>
             <Typography variant="h5" fontWeight={700} color="primary">
-              {/* Если у вас есть temp_ref в сессии, подставьте его. Иначе можно взять из PLC-лога */}
-              {fmtTemp(session.tempRef)} 
+              {fmtTemp(session.tempRef)}
             </Typography>
           </Grid>
           <Grid item xs={6} sm={4} md={2}>
             <Typography variant="caption" color="text.secondary">Общее время</Typography>
             <Typography variant="h6" fontWeight={600}>
-              {fmtMin(session.totalTimeMin || '—')}
-            </Typography>
-          </Grid>
-          <Grid item xs={6} sm={4} md={2}>
-            <Typography variant="caption" color="text.secondary">Время нагрева</Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {fmtMin(session.heatingTimeMin || '—')}
-            </Typography>
-          </Grid>
-          <Grid item xs={6} sm={4} md={2}>
-            <Typography variant="caption" color="text.secondary">Время выдержки</Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {fmtMin(session.holdingTimeMin || '—')}
+              {fmtMin(session.totalTimeMin)}
             </Typography>
           </Grid>
         </Grid>
         <Alert severity="info" sx={{ mt: 2, fontSize: '0.85rem' }}>
-          * Точные температурные кривые формируются на основе данных ПЛК. Статус сессии: <strong>{session.status}</strong>.
+          * Точные температурные кривые формируются на основе данных ПЛК. 
         </Alert>
       </Paper>
+
+      {/* ✅ График температур */}
+      {chartOptions && (
+        <Paper sx={{ p: 2.5, mb: 2, borderRadius: 2 }}>
+          <Typography variant="h6" fontWeight={600} mb={2}>График температур</Typography>
+          <HighchartsReact
+            highcharts={Highcharts}
+            options={chartOptions}
+          />
+        </Paper>
+      )}
 
       {/* Список листов в кассете */}
       <Paper sx={{ p: 2.5, borderRadius: 2 }}>
@@ -213,15 +284,15 @@ const TemperingReport = () => {
             </TableHead>
             <TableBody>
               {sheets.map((s, idx) => (
-                <TableRow key={s.MatId || idx} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.Sheet}</TableCell>
-                  <TableCell>{s.Slab ?? '—'}</TableCell>
-                  <TableCell>{s.Melt ?? '—'}</TableCell>
-                  <TableCell>{s.PartNo ?? '—'}</TableCell>
-                  <TableCell>{s.AlloyCodeText || s.AlloyCode || '—'}</TableCell>
-                  <TableCell>{s.Thickness != null ? `${Number(s.Thickness).toFixed(1)}` : '—'}</TableCell>
+                <TableRow key={s.matId || idx} hover>
+                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.sheet}</TableCell>
+                  <TableCell>{s.slab ?? '—'}</TableCell>
+                  <TableCell>{s.melt ?? '—'}</TableCell>
+                  <TableCell>{s.partNo ?? '—'}</TableCell>
+                  <TableCell>{s.alloyCodeText || s.alloyCode || '—'}</TableCell>
+                  <TableCell>{s.thickness != null ? `${Number(s.thickness).toFixed(1)}` : '—'}</TableCell>
                   <TableCell>
-                    <Chip label={s.Status || 'Отпуск пройден'} size="small" color="success" variant="outlined" />
+                    <Chip label={s.status || 'Отпуск пройден'} size="small" color="success" variant="outlined" />
                   </TableCell>
                 </TableRow>
               ))}

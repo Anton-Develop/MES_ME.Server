@@ -510,15 +510,15 @@ public class TemperingController : ControllerBase
     /// GET /api/tempering/session-by-key?key={businessKey}
     /// Получение полных данных сессии отпуска по ключу кассеты
     /// </summary>
-    [HttpGet("session-by-key")]
-    public async Task<IActionResult> GetTemperingSessionByKey([FromQuery] string key, CancellationToken ct = default)
+       [HttpGet("session-by-key")]
+public async Task<IActionResult> GetTemperingSessionByKey([FromQuery] string key, CancellationToken ct = default)
+{
+    try
     {
-        try
-        {
-            await using var con = await _dataSource.OpenConnectionAsync();
+        await using var con = await _dataSource.OpenConnectionAsync();
 
-            // 1. Данные сессии (теперь просто читаем сохраненные значения)
-            var session = await con.QueryFirstOrDefaultAsync(@"
+        // 1. Данные сессии с расчетом времени и температуры
+        var session = await con.QueryFirstOrDefaultAsync(@"
             SELECT 
                 id, 
                 furnace_number AS ""furnaceNumber"", 
@@ -531,46 +531,82 @@ public class TemperingController : ControllerBase
                 unloaded_by AS ""unloadedBy"",
                 status AS ""status"", 
                 completed_by_plc AS ""completedByPlc"",
-                total_time_min AS ""totalTimeMin"",  -- <-- ДОБАВИТЬ: читаем из колонки
-                max_temp AS ""tempRef""               -- <-- ДОБАВИТЬ: читаем из колонки
-            FROM mes.tempering_sessions_new
+                -- Расчет общего времени в минутах
+                CASE 
+                    WHEN unloaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (unloaded_at - loaded_at)) / 60 
+                    ELSE EXTRACT(EPOCH FROM (NOW() - loaded_at)) / 60 
+                END AS ""totalTimeMin"",
+                -- Максимальная температура из PLC за период сессии
+                (SELECT MAX(temp_ref) FROM plc.tempering_data 
+                 WHERE furnace_no = ts.furnace_number 
+                   AND time >= ts.loaded_at 
+                   AND (ts.unloaded_at IS NULL OR time <= ts.unloaded_at)
+                ) AS ""tempRef""
+            FROM mes.tempering_sessions_new ts
             WHERE business_key = @Key
             ORDER BY loaded_at DESC LIMIT 1",
-                new { Key = key });
+            new { Key = key });
 
-            if (session == null)
-                return NotFound(new { error = "Сессия отпуска не найдена" });
+        if (session == null)
+            return NotFound(new { error = "Сессия отпуска не найдена" });
 
-            // 2. Данные о листах в этой кассете (с алиасами для фронтенда)
-            var sheets = await _context.Set<CassetteSheet>()
-                .Where(cs => cs.CassetteBusinessKey == key)
-                .Join(_context.InputData,
-                      cs => cs.MatId,
-                      sheet => sheet.MatId,
-                      (cs, sheet) => new
-                      {
-                          sheet.MatId,
-                          Sheet = sheet.SheetNumber,       // Алиас для фронтенда
-                          Slab = sheet.SlabNumber,         // Алиас для фронтенда
-                          Melt = sheet.MeltNumber,         // Алиас для фронтенда
-                          PartNo = sheet.BatchNumber,      // Алиас для фронтенда
-                          Pack = sheet.PackNumber,         // Алиас для фронтенда
-                          AlloyCodeText = sheet.SteelGrade,// Алиас для фронтенда
-                          Thickness = sheet.SheetDimensions, // Алиас для фронтенда
-                          sheet.Status
-                      })
-                .OrderBy(s => s.MatId)
-                .ToListAsync(ct);
+        // 2. Данные о листах с ПРАВИЛЬНЫМИ алиасами
+        var sheets = await _context.Set<CassetteSheet>()
+            .Where(cs => cs.CassetteBusinessKey == key)
+            .Join(_context.InputData,
+                  cs => cs.MatId,
+                  sheet => sheet.MatId,
+                  (cs, sheet) => new
+                  {
+                      MatId = sheet.MatId,
+                      Sheet = sheet.SheetNumber,       // ✅ Алиас
+                      Slab = sheet.SlabNumber,         // ✅ Алиас
+                      Melt = sheet.MeltNumber,         // ✅ Алиас
+                      PartNo = sheet.BatchNumber,      // ✅ Алиас
+                      Pack = sheet.PackNumber,         // ✅ Алиас
+                      AlloyCodeText = sheet.SteelGrade,// ✅ Алиас
+                      Thickness = sheet.SheetDimensions, // ✅ Алиас
+                      Status = sheet.Status
+                  })
+            .OrderBy(s => s.MatId)
+            .ToListAsync(ct);
 
-            return Ok(new { session, sheets });
-        }
-        catch (Exception ex)
+        // 3. ✅ Получаем данные температур из PLC для графика
+        var tempData = await con.QueryAsync(@"
+            SELECT ""time"", temp_act, temp_ref, t1, t2, t_average_furn
+            FROM plc.tempering_data
+            WHERE furnace_no = @FurnaceNo
+              AND ""time"" >= @LoadedAt
+              AND (@UnloadedAt IS NULL OR ""time"" <= @UnloadedAt)
+            ORDER BY ""time""",
+            new 
+            { 
+                FurnaceNo = session.furnaceNumber,
+                LoadedAt = session.loadedAt,
+                UnloadedAt = session.unloadedAt
+            });
+
+        return Ok(new
         {
-            _logger.LogError(ex, "GetTemperingSessionByKey failed for key={Key}", key);
-            return StatusCode(500, new { error = "Ошибка при получении данных сессии" });
-        }
-
+            session,
+            sheets,
+            tempData = tempData.Select(d => new
+            {
+                time = d.time,
+                tempAct = d.temp_act,
+                tempRef = d.temp_ref,
+                t1 = d.t1,
+                t2 = d.t2,
+                tAverage = d.t_average_furn
+            })
+        });
     }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "GetTemperingSessionByKey failed for key={Key}", key);
+        return StatusCode(500, new { error = "Ошибка при получении данных сессии" });
+    }
+}
     /// <summary>
     /// GET /api/tempering/cassette-key-by-sheet
     /// Находит бизнес-ключ кассеты по параметрам листа

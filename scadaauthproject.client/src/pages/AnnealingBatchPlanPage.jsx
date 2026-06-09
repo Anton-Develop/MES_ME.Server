@@ -16,6 +16,28 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import api from '../api';
 import PlanDetailsDialog from './PlanDetailsDialog';
 
+
+
+const SheetFiltersUI = ({ filtersState, setFiltersState, onApply, onClear }) => (
+        <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none', } }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 36, px: 2, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
+                <Typography variant="subtitle2" color="primary">Фильтры поиска листов</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ p: 1, pt: 0 }}>
+                <Grid container spacing={1}>
+                    <Grid item xs={6}><TextField size="small" label="Плавка" fullWidth value={filtersState.meltNumber} onChange={e => setFiltersState(p => ({...p, meltNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={6}><TextField size="small" label="Партия" fullWidth value={filtersState.batchNumber} onChange={e => setFiltersState(p => ({...p, batchNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={6}><TextField size="small" label="Пачка" fullWidth value={filtersState.packNumber} onChange={e => setFiltersState(p => ({...p, packNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={6}><TextField size="small" label="№ Листа" fullWidth value={filtersState.sheetNumber} onChange={e => setFiltersState(p => ({...p, sheetNumber: e.target.value}))} /></Grid>
+                    <Grid item xs={12}><TextField size="small" label="Марка стали" fullWidth value={filtersState.steelGrade} onChange={e => setFiltersState(p => ({...p, steelGrade: e.target.value}))} /></Grid>
+                    <Grid item xs={12} container spacing={1} justifyContent="flex-end">
+                        <Grid item><Button size="small" onClick={onClear} startIcon={<ClearIcon />}>Сбросить</Button></Grid>
+                        <Grid item><Button size="small" variant="contained" onClick={onApply} startIcon={<SearchIcon />}>Найти</Button></Grid>
+                    </Grid>
+                </Grid>
+            </AccordionDetails>
+        </Accordion>
+    );
 const AnnealingBatchPlanPage = () => {
     const [plans, setPlans] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -338,26 +360,7 @@ const AnnealingBatchPlanPage = () => {
     };
 
     // Компонент фильтров
-    const SheetFiltersUI = ({ filtersState, setFiltersState, onApply, onClear }) => (
-        <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none', } }}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 36, px: 2, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
-                <Typography variant="subtitle2" color="primary">Фильтры поиска листов</Typography>
-            </AccordionSummary>
-            <AccordionDetails sx={{ p: 1, pt: 0 }}>
-                <Grid container spacing={1}>
-                    <Grid item xs={6}><TextField size="small" label="Плавка" fullWidth value={filtersState.meltNumber} onChange={e => setFiltersState(p => ({...p, meltNumber: e.target.value}))} /></Grid>
-                    <Grid item xs={6}><TextField size="small" label="Партия" fullWidth value={filtersState.batchNumber} onChange={e => setFiltersState(p => ({...p, batchNumber: e.target.value}))} /></Grid>
-                    <Grid item xs={6}><TextField size="small" label="Пачка" fullWidth value={filtersState.packNumber} onChange={e => setFiltersState(p => ({...p, packNumber: e.target.value}))} /></Grid>
-                    <Grid item xs={6}><TextField size="small" label="№ Листа" fullWidth value={filtersState.sheetNumber} onChange={e => setFiltersState(p => ({...p, sheetNumber: e.target.value}))} /></Grid>
-                    <Grid item xs={12}><TextField size="small" label="Марка стали" fullWidth value={filtersState.steelGrade} onChange={e => setFiltersState(p => ({...p, steelGrade: e.target.value}))} /></Grid>
-                    <Grid item xs={12} container spacing={1} justifyContent="flex-end">
-                        <Grid item><Button size="small" onClick={onClear} startIcon={<ClearIcon />}>Сбросить</Button></Grid>
-                        <Grid item><Button size="small" variant="contained" onClick={onApply} startIcon={<SearchIcon />}>Найти</Button></Grid>
-                    </Grid>
-                </Grid>
-            </AccordionDetails>
-        </Accordion>
-    );
+    
 
     return (
         <Container maxWidth="xl" sx={{ mt: 4 }}>

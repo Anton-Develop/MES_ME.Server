@@ -14,7 +14,7 @@ import {
 import { furnaceApi } from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
 import PageContainer from '../PageContainer';
-
+import api from '../../api';
 
   
 const fmtDate = (d) => d
@@ -659,25 +659,24 @@ const FurnaceSessionsList = () => {
     color="warning"
     onClick={async () => {
       try {
-        // 1. Запрашиваем у бэкенда ключ кассеты по параметрам текущего листа
-        const response = await fetch(`/api/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(s.sheet)}&melt=${encodeURIComponent(s.melt)}&partNo=${encodeURIComponent(s.partNo)}&pack=${encodeURIComponent(s.pack)}`);
+        // 1. Запрашиваем у бэкенда ключ кассеты (обязательно используем обратные кавычки ` и await)
+        const response = await api.get(`/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(s.sheet)}&melt=${encodeURIComponent(s.melt)}&partNo=${encodeURIComponent(s.partNo)}&pack=${encodeURIComponent(s.pack)}`);
         
-        if (!response.ok) {
-          const errData = await response.json();
-          alert(errData.error || "Лист не найден в кассетах отпуска");
-          return;
-        }
-        
-        const data = await response.json();
+        // В axios данные ответа лежат в response.data
+        const data = response.data;
         
         // 2. Если ключ найден, открываем отчет в новой вкладке
         if (data.cassetteBusinessKey) {
+          // Формируем строку URL для роутинга на фронтенде (это НЕ запрос к API)
           const url = `/tempering/report?key=${encodeURIComponent(data.cassetteBusinessKey)}`;
           window.open(url, '_blank');
+        } else {
+          alert("Лист не найден в кассетах отпуска");
         }
       } catch (err) {
         console.error("Ошибка поиска кассеты:", err);
-        alert("Ошибка при поиске данных по отпуску");
+        // Выводим ошибку от бэкенда, если она есть
+        alert(err.response?.data?.error || "Ошибка при поиске данных по отпуску");
       }
     }}
     sx={{ p: 0.75 }}
