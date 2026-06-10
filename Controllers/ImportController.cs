@@ -238,6 +238,11 @@ namespace MES_ME.Server.Controllers
 
                 try
                 {
+                    // 🆕 Очищаем raw-таблицу перед каждой новой загрузкой
+                        using (var truncateCmd = new NpgsqlCommand("TRUNCATE TABLE mes.inputdata_raw;", connection, transaction))
+                        {
+                            await truncateCmd.ExecuteNonQueryAsync();
+                        }
                     // Используем таблицу inputdata_raw
                     using (var writer = connection.BeginBinaryImport("COPY \"mes\".\"inputdata_raw\" (\"status\", \"certificate_number\", \"short_order_number\", \"commercial_order_number\", \"roll_date\", \"melt_number\", \"batch_number\", \"pack_number\", \"pack_system_number\", \"steel_grade\", \"sheet_dimensions\", \"slab_number\", \"actual_net_weight_kg\", \"certificate_net_weight_kg\", \"sheets_count\", \"sheet_weight_kg\", \"raw_material_kg\", \"sheet_number\", \"quenching_date\", \"quenching_status\", \"marking\", \"repeated_to_date\", \"gp_acceptance_status_weight\", \"np_acceptance_status_weight\", \"scrap_acceptance_status_weight\", \"actual_weight\", \"non_return_scrap\", \"trimming\", \"flatness_mm\", \"defect\", \"note\", \"np_act\", \"mmk_claim_reason\", \"np_decision\", \"sample_cards_selection\", \"sample_number_vk\", \"ballistics_sample_send_date_1\", \"ballistics_sample_send_date_2\", \"ballistics_sample_send_date_3\", \"metallography_sample_send_date_1\", \"metallography_sample_send_date_2\", \"hardness_sample_send_date_1\", \"hardness_sample_send_date_2\", \"hardness_sample_send_date_3\", \"order_link\", \"igk_link\", \"testing_status\", \"gp_vp_presentation_date\", \"shipment_date\", \"order_number\", \"certificate_number_2\", \"shipped_sheets_weight_kg\", \"sheet_weight_after_to_storage_kg\", \"post_ship_diff\") FROM STDIN (FORMAT BINARY)"))
                     {

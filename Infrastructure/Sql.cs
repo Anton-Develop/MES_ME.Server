@@ -315,36 +315,42 @@ internal static class Sql
 
 
 
-    public const string SessionCount = """
-        SELECT COUNT(*)
-        FROM plc.heating_sessions
-        WHERE (@From      IS NULL OR entered_at >= @From)
-          AND (@To        IS NULL OR entered_at <= @To)
-          AND (@Slab      IS NULL OR slab       = @Slab)
-          AND (@Melt      IS NULL OR melt       = @Melt)
-          AND (@AlloyCode IS NULL OR alloy_code = @AlloyCode)
-        """;
+   public const string SessionCount = """
+    SELECT COUNT(*)
+    FROM plc.heating_sessions
+    WHERE (@From      IS NULL OR entered_at  >= @From)
+      AND (@To        IS NULL OR entered_at  <= @To)
+      AND (@Sheet     IS NULL OR sheet       = @Sheet)
+      AND (@Slab      IS NULL OR slab        = @Slab)
+      AND (@Melt      IS NULL OR melt        = @Melt)
+      AND (@Part      IS NULL OR part_no     = @Part)
+      AND (@Batch     IS NULL OR pack        = @Batch)
+      AND (@AlloyCode IS NULL OR alloy_code_text ILIKE '%' || @AlloyCode || '%')
+""";
 
-    public const string SessionList = """
-SELECT
-    id AS Id, sheet AS Sheet, business_key AS BusinessKey,
-    slab AS Slab, melt AS Melt, part_no AS PartNo, pack AS Pack, reheat_num AS ReheatNum,
-    alloy_code AS AlloyCode, alloy_code_text AS AlloyCodeText, thickness AS Thickness,
-    zones_path AS ZonesPath, entered_at AS EnteredAt, exited_at AS ExitedAt,
-    total_min AS TotalMin, f1_min AS F1Min, f2_min AS F2Min, f3_min AS F3Min, f4_min AS F4Min,
-    avg_z1_1 AS AvgZ1_1, avg_z1_2 AS AvgZ1_2, avg_z1_3 AS AvgZ1_3, avg_z1_4 AS AvgZ1_4,
-    avg_z2_1 AS AvgZ2_1, avg_z2_2 AS AvgZ2_2, avg_z2_3 AS AvgZ2_3, avg_z2_4 AS AvgZ2_4,
-    avg_z3_1 AS AvgZ3_1, avg_z3_2 AS AvgZ3_2, avg_z3_3 AS AvgZ3_3, avg_z3_4 AS AvgZ3_4,
-    avg_z4_1 AS AvgZ4_1, avg_z4_2 AS AvgZ4_2, avg_z4_3 AS AvgZ4_3, avg_z4_4 AS AvgZ4_4,
-    had_alarm AS HadAlarm, created_at AS CreatedAt
-FROM plc.heating_sessions
-WHERE (@From IS NULL OR entered_at >= @From)
-  AND (@To IS NULL OR entered_at <= @To)
-  AND (@Slab IS NULL OR slab = @Slab)
-  AND (@Melt IS NULL OR melt = @Melt)
-  AND (@AlloyCode IS NULL OR alloy_code = @AlloyCode)
-ORDER BY entered_at DESC
-LIMIT @PageSize OFFSET @Offset
+public const string SessionList = """
+    SELECT
+        id AS Id, sheet AS Sheet, business_key AS BusinessKey,
+        slab AS Slab, melt AS Melt, part_no AS PartNo, pack AS Pack, reheat_num AS ReheatNum,
+        alloy_code AS AlloyCode, alloy_code_text AS AlloyCodeText, thickness AS Thickness,
+        zones_path AS ZonesPath, entered_at AS EnteredAt, exited_at AS ExitedAt,
+        total_min AS TotalMin, f1_min AS F1Min, f2_min AS F2Min, f3_min AS F3Min, f4_min AS F4Min,
+        avg_z1_1 AS AvgZ1_1, avg_z1_2 AS AvgZ1_2, avg_z1_3 AS AvgZ1_3, avg_z1_4 AS AvgZ1_4,
+        avg_z2_1 AS AvgZ2_1, avg_z2_2 AS AvgZ2_2, avg_z2_3 AS AvgZ2_3, avg_z2_4 AS AvgZ2_4,
+        avg_z3_1 AS AvgZ3_1, avg_z3_2 AS AvgZ3_2, avg_z3_3 AS AvgZ3_3, avg_z3_4 AS AvgZ3_4,
+        avg_z4_1 AS AvgZ4_1, avg_z4_2 AS AvgZ4_2, avg_z4_3 AS AvgZ4_3, avg_z4_4 AS AvgZ4_4,
+        had_alarm AS HadAlarm, created_at AS CreatedAt
+    FROM plc.heating_sessions
+    WHERE (@From      IS NULL OR entered_at  >= @From)
+      AND (@To        IS NULL OR entered_at  <= @To)
+      AND (@Sheet     IS NULL OR sheet       = @Sheet)
+      AND (@Slab      IS NULL OR slab        = @Slab)
+      AND (@Melt      IS NULL OR melt        = @Melt)
+      AND (@Part      IS NULL OR part_no     = @Part)
+      AND (@Batch     IS NULL OR pack        = @Batch)
+      AND (@AlloyCode IS NULL OR alloy_code_text ILIKE '%' || @AlloyCode || '%')
+    ORDER BY entered_at DESC
+    LIMIT @PageSize OFFSET @Offset
 """;
 
     public const string SessionsBySheetKey = """

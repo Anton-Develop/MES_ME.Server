@@ -16,10 +16,20 @@ export const furnaceApi = {
     api.get('/furnace/temperatures', { params: { from, to, intervalMin } }),
 
   // Сессии
-  getSessions: ({ from, to, slab, melt, alloyCode, page = 1, pageSize = 20 }) =>
+  getSessions: ({ from, to, slab, melt, part, batch, sheet, alloyCode, page = 1, pageSize = 20 }) =>
     api.get('/furnace/sessions', {
-      params: { from: from || undefined, to: to || undefined, slab: slab || undefined,
-                melt: melt || undefined, alloyCode: alloyCode || undefined, page, pageSize }
+      params: { 
+        from: from || undefined, 
+        to: to || undefined, 
+        slab: slab || undefined,
+        melt: melt || undefined, 
+        part: part || undefined,       // ✅ ДОБАВЛЕНО: Партия
+        batch: batch || undefined,     // ✅ ДОБАВЛЕНО: Пачка
+        sheet: sheet || undefined,     // ✅ ДОБАВЛЕНО: Лист
+        alloyCode: alloyCode || undefined, 
+        page, 
+        pageSize 
+      }
     }),
 
   getSessionsBySheet: (sheet) =>

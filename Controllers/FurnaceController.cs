@@ -124,7 +124,10 @@ public sealed class FurnaceController : ControllerBase
         [FromQuery] DateTime? to = null,
         [FromQuery] int? slab = null,
         [FromQuery] int? melt = null,
-        [FromQuery] int? alloyCode = null,
+        [FromQuery] int? part = null,
+        [FromQuery] int? batch = null,
+        [FromQuery] int? sheet = null,
+        [FromQuery] string? alloyCode = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         CancellationToken ct = default)
@@ -139,6 +142,9 @@ public sealed class FurnaceController : ControllerBase
             Slab = slab,
             Melt = melt,
             AlloyCode = alloyCode,
+            Part = part,
+            Batch = batch,
+            Sheet = sheet,
             Page = page,
             PageSize = Math.Clamp(pageSize, 1, 200)
         };

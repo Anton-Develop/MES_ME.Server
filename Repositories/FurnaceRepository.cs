@@ -139,7 +139,10 @@ public sealed class FurnaceRepository : IFurnaceRepository
             p.Add("@To", filter.To, DbType.DateTime);
             p.Add("@Slab", filter.Slab, DbType.Int32);
             p.Add("@Melt", filter.Melt, DbType.Int32);
-            p.Add("@AlloyCode", filter.AlloyCode, DbType.Int32);
+            p.Add("@Batch",filter.Batch, DbType.Int32);
+            p.Add("@Sheet", filter.Sheet, DbType.Int32);
+            p.Add("@Part", filter.Part, DbType.Int32);
+            p.Add("@AlloyCode", filter.AlloyCode, DbType.String);
             p.Add("@PageSize", filter.PageSize, DbType.Int32);
             p.Add("@Offset", (filter.Page - 1) * filter.PageSize, DbType.Int32);
 

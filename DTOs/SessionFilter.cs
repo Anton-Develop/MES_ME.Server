@@ -8,7 +8,10 @@ public sealed record SessionFilter
     public DateTime? To        { get; init; }
     public int?      Slab      { get; init; }
     public int?      Melt      { get; init; }
-    public int?      AlloyCode { get; init; }
+    public int?      Part      { get; init; }
+    public int?      Batch     { get; init; }
+    public int?      Sheet     { get; init; }
+    public string?   AlloyCode { get; init; }
     public int       Page      { get; init; } = 1;
     public int       PageSize  { get; init; } = 50;
 }
