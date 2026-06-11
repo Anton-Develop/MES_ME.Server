@@ -668,6 +668,39 @@ const FurnaceReport = () => {
             </Typography>
           </Grid>
         </Grid>
+
+        {/* === НОВЫЙ БЛОК: Технологические параметры из PLC === */}
+     <Divider sx={{ my: 2 }} />
+     <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: 'text.secondary' }}>
+       Технологические параметры (из PLC)
+     </Typography>
+     <Grid container spacing={1.5}>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Общее время нагрева (PLC)</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {session.totHeatTime != null ? `${Number(session.totHeatTime).toFixed(1)} мин` : '—'}
+         </Typography>
+       </Grid>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Скорость загрузки (F1)</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {session.loadSpeed != null ? Number(session.loadSpeed).toFixed(2) : '—'}
+         </Typography>
+       </Grid>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Скорость выгрузки (F4)</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {session.unloadSpeed != null ? Number(session.unloadSpeed).toFixed(2) : '—'}
+         </Typography>
+       </Grid>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Уставка температуры</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {session.tmpSet != null ? `${Number(session.tmpSet).toFixed(1)} °C` : '—'}
+         </Typography>
+       </Grid>
+     </Grid>
+     {/* ========================================== */}
       </Paper>
 
       {/* ── 4 колонки: Зона 1 / 2 / 3 / 4 ── */}

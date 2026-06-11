@@ -44,6 +44,12 @@ public sealed class HeatingSession
     public float?      AvgZ4_3        { get; init; }
     public float?      AvgZ4_4        { get; init; }
     public bool        HadAlarm       { get; init; }
+
+    public float? TotHeatTime { get; init; }
+    public float? LoadSpeed { get; init; }
+    public float? UnloadSpeed { get; init; }
+    public float? TmpSet { get; init; }
+
     public DateTime    CreatedAt      { get; init; }
     public string? TempsZ1 { get; init; }  // JSON строка
     public string? TempsZ2 { get; init; }  // JSON строка

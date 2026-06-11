@@ -46,6 +46,12 @@ public sealed record HeatingReportDto
     public float?   AvgZ4_3        { get; init; }
     public float?   AvgZ4_4        { get; init; }
     public bool     HadAlarm       { get; init; }
+
+    public float? TotHeatTime { get; init; }
+    public float? LoadSpeed { get; init; }
+    public float? UnloadSpeed { get; init; }
+    public float? TmpSet { get; init; }
+
     // Детальный трек зон и температуры — заполняются отдельными запросами
     public List<ZoneHistoryDto>      ZoneTrack    { get; init; } = new();
     public List<TemperatureBucketDto> Temperatures { get; init; } = new();

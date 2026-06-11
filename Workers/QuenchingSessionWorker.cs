@@ -205,7 +205,11 @@ public sealed class QuenchingSessionWorker : BackgroundService
             ValveX2_2DownPosRef = AvgNullable(raw.ValveX2_2DownPosRef),
             ValveX2_2DownPosFbk = AvgNullable(raw.ValveX2_2DownPosFbk),
 
-            HadAlarm = (bool)c.had_alarm
+            HadAlarm = (bool)c.had_alarm,
+            // НОВЫЕ ПОЛЯ для X1
+            X1CoolTime = ConvertToNullableFloat(c.x1_cool_time),
+            X1NoWatTime = ConvertToNullableFloat(c.x1_no_wat_time),
+            X1UnloadSpeed = ConvertToNullableFloat(c.x1_unload_speed)
         };
 
         await repo.UpsertQuenchingSessionAsync(parameters, ct);

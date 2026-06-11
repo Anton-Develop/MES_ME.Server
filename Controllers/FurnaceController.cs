@@ -294,7 +294,11 @@ public sealed class FurnaceController : ControllerBase
             AvgZ4_4 = session.AvgZ4_4,
             HadAlarm = session.HadAlarm,
             ZoneTrack = track,
-            Temperatures = (await tempsTask).ToList()
+            Temperatures = (await tempsTask).ToList(),
+            TotHeatTime = session.TotHeatTime,
+            LoadSpeed = session.LoadSpeed,
+            UnloadSpeed = session.UnloadSpeed,
+            TmpSet = session.TmpSet
         };
     }
 }    

@@ -158,7 +158,11 @@ internal static class Sql
             MAX(fzd.slab) AS slab,
             MAX(fzd.alloy_code) AS alloy_code,
             MAX(fzd.alloy_code_text) AS alloy_code_text,
-            MAX(fzd.thickness) AS thickness
+            MAX(fzd.thickness) AS thickness,
+            MAX(fzd.tot_heat_time) AS tot_heat_time,
+            MAX(fzd.load_speed) AS load_speed,
+            MAX(fzd.unload_speed) AS unload_speed,
+            MAX(fzd.tmp_set) AS tmp_set
         FROM with_session ws
         JOIN plc.furnace_zone_data fzd
           ON fzd.sheet = ws.sheet AND fzd.melt = ws.melt AND fzd.part_no = ws.part_no 
@@ -259,7 +263,11 @@ internal static class Sql
             MAX(fzd.slab) AS slab,
             MAX(fzd.alloy_code) AS alloy_code,
             MAX(fzd.alloy_code_text) AS alloy_code_text,
-            MAX(fzd.thickness) AS thickness
+            MAX(fzd.thickness) AS thickness,
+            MAX(fzd.tot_heat_time) AS tot_heat_time,
+            MAX(fzd.load_speed) AS load_speed,
+            MAX(fzd.unload_speed) AS unload_speed,
+            MAX(fzd.tmp_set) AS tmp_set
         FROM with_session ws
         JOIN plc.furnace_zone_data fzd
           ON fzd.sheet = ws.sheet AND fzd.melt = ws.melt AND fzd.part_no = ws.part_no 
@@ -339,7 +347,8 @@ public const string SessionList = """
         avg_z2_1 AS AvgZ2_1, avg_z2_2 AS AvgZ2_2, avg_z2_3 AS AvgZ2_3, avg_z2_4 AS AvgZ2_4,
         avg_z3_1 AS AvgZ3_1, avg_z3_2 AS AvgZ3_2, avg_z3_3 AS AvgZ3_3, avg_z3_4 AS AvgZ3_4,
         avg_z4_1 AS AvgZ4_1, avg_z4_2 AS AvgZ4_2, avg_z4_3 AS AvgZ4_3, avg_z4_4 AS AvgZ4_4,
-        had_alarm AS HadAlarm, created_at AS CreatedAt
+        had_alarm AS HadAlarm, created_at AS CreatedAt,
+        tot_heat_time AS TotHeatTime, load_speed AS LoadSpeed, unload_speed AS UnloadSpeed, tmp_set AS TmpSet
     FROM plc.heating_sessions
     WHERE (@From      IS NULL OR entered_at  >= @From)
       AND (@To        IS NULL OR entered_at  <= @To)
@@ -363,7 +372,8 @@ public const string SessionList = """
         avg_z2_1, avg_z2_2, avg_z2_3, avg_z2_4,
         avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
         avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
-        had_alarm, created_at
+        had_alarm, created_at,
+        tot_heat_time AS TotHeatTime, load_speed AS LoadSpeed, unload_speed AS UnloadSpeed, tmp_set AS TmpSet
     FROM plc.heating_sessions
     WHERE sheet   = @Sheet
       AND melt    = @Melt
@@ -386,7 +396,8 @@ SELECT
     avg_z3_1 AS AvgZ3_1, avg_z3_2 AS AvgZ3_2, avg_z3_3 AS AvgZ3_3, avg_z3_4 AS AvgZ3_4,
     avg_z4_1 AS AvgZ4_1, avg_z4_2 AS AvgZ4_2, avg_z4_3 AS AvgZ4_3, avg_z4_4 AS AvgZ4_4,
     had_alarm AS HadAlarm, created_at AS CreatedAt,
-    temps_z1 AS TempsZ1, temps_z2 AS TempsZ2, temps_z3 AS TempsZ3, temps_z4 AS TempsZ4, temps_time AS TempsTime
+    temps_z1 AS TempsZ1, temps_z2 AS TempsZ2, temps_z3 AS TempsZ3, temps_z4 AS TempsZ4, temps_time AS TempsTime,
+    tot_heat_time AS TotHeatTime, load_speed AS LoadSpeed, unload_speed AS UnloadSpeed, tmp_set AS TmpSet
 FROM plc.heating_sessions
 WHERE business_key = @Key
 """;
@@ -413,7 +424,8 @@ WHERE business_key = @Key
         avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
         avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
         temps_z1, temps_z2, temps_z3, temps_z4, temps_time,
-        had_alarm
+        had_alarm,
+        tot_heat_time, load_speed, unload_speed, tmp_set
     ) VALUES (
         @Sheet, @Slab, @Melt, @PartNo, @Pack, @ReheatNum,
         @AlloyCode, @AlloyCodeText,
@@ -425,7 +437,8 @@ WHERE business_key = @Key
         @AvgZ4_1, @AvgZ4_2, @AvgZ4_3, @AvgZ4_4,
         @TempsZ1::jsonb, @TempsZ2::jsonb, @TempsZ3::jsonb,
         @TempsZ4::jsonb, @TempsTime::jsonb,
-        @HadAlarm
+        @HadAlarm,
+        @TotHeatTime, @LoadSpeed, @UnloadSpeed, @TmpSet
     )
     ON CONFLICT (business_key) DO UPDATE SET
         exited_at  = EXCLUDED.exited_at,
@@ -442,7 +455,12 @@ WHERE business_key = @Key
         avg_z4_3 = EXCLUDED.avg_z4_3, avg_z4_4 = EXCLUDED.avg_z4_4,
         temps_z1 = EXCLUDED.temps_z1, temps_z2 = EXCLUDED.temps_z2,
         temps_z3 = EXCLUDED.temps_z3, temps_z4 = EXCLUDED.temps_z4,
-        temps_time = EXCLUDED.temps_time
+        temps_time = EXCLUDED.temps_time,
+        tot_heat_time = EXCLUDED.tot_heat_time,
+        load_speed = EXCLUDED.load_speed,
+        unload_speed = EXCLUDED.unload_speed,
+        tmp_set = EXCLUDED.tmp_set
+
     """;
 
 
@@ -494,7 +512,10 @@ WHERE business_key = @Key
             MAX(fzd.slab) AS slab,
             MAX(fzd.alloy_code) AS alloy_code,
             MAX(fzd.alloy_code_text) AS alloy_code_text,
-            MAX(fzd.thickness) AS thickness
+            MAX(fzd.thickness) AS thickness,
+            MAX(fzd.x1_cool_time) AS x1_cool_time,
+            MAX(fzd.x1_no_wat_time) AS x1_no_wat_time,
+            MAX(fzd.x1_unload_speed) AS x1_unload_speed
         FROM agg a
         JOIN plc.furnace_zone_data fzd
             ON fzd.sheet = a.sheet AND fzd.melt = a.melt AND fzd.part_no = a.part_no 
@@ -572,7 +593,10 @@ WHERE business_key = @Key
             MAX(fzd.slab) AS slab,
             MAX(fzd.alloy_code) AS alloy_code,
             MAX(fzd.alloy_code_text) AS alloy_code_text,
-            MAX(fzd.thickness) AS thickness
+            MAX(fzd.thickness) AS thickness,
+            MAX(fzd.x1_cool_time) AS x1_cool_time,
+            MAX(fzd.x1_no_wat_time) AS x1_no_wat_time,
+            MAX(fzd.x1_unload_speed) AS x1_unload_speed
         FROM agg a
         JOIN plc.furnace_zone_data fzd
             ON fzd.sheet = a.sheet AND fzd.melt = a.melt AND fzd.part_no = a.part_no 
@@ -688,7 +712,8 @@ INSERT INTO plc.quenching_sessions (
     valve_x1_up_pos_ref, valve_x1_up_pos_fbk, valve_x1_down_pos_ref, valve_x1_down_pos_fbk,
     valve_x2_1_up_pos_ref, valve_x2_1_up_pos_fbk, valve_x2_1_down_pos_ref, valve_x2_1_down_pos_fbk,
     valve_x2_2_up_pos_ref, valve_x2_2_up_pos_fbk, valve_x2_2_down_pos_ref, valve_x2_2_down_pos_fbk,
-    had_alarm
+    had_alarm,
+    x1_cool_time, x1_no_wat_time, x1_unload_speed
 ) VALUES (
     @Sheet, @Slab, @Melt, @PartNo, @Pack, @ReheatNum,
     @AlloyCode, @AlloyCodeText, @Thickness,
@@ -703,7 +728,8 @@ INSERT INTO plc.quenching_sessions (
     @ValveX1UpPosRef, @ValveX1UpPosFbk, @ValveX1DownPosRef, @ValveX1DownPosFbk,
     @ValveX2_1UpPosRef, @ValveX2_1UpPosFbk, @ValveX2_1DownPosRef, @ValveX2_1DownPosFbk,
     @ValveX2_2UpPosRef, @ValveX2_2UpPosFbk, @ValveX2_2DownPosRef, @ValveX2_2DownPosFbk,
-    @HadAlarm
+    @HadAlarm,
+    @X1CoolTime, @X1NoWatTime, @X1UnloadSpeed
 )
 ON CONFLICT (business_key) DO UPDATE SET
     exited_at          = EXCLUDED.exited_at,
@@ -735,7 +761,10 @@ ON CONFLICT (business_key) DO UPDATE SET
     valve_x2_2_up_pos_fbk = EXCLUDED.valve_x2_2_up_pos_fbk,
     valve_x2_2_down_pos_ref = EXCLUDED.valve_x2_2_down_pos_ref,
     valve_x2_2_down_pos_fbk = EXCLUDED.valve_x2_2_down_pos_fbk,
-    had_alarm          = EXCLUDED.had_alarm
+    had_alarm          = EXCLUDED.had_alarm,
+    x1_cool_time = EXCLUDED.x1_cool_time,
+    x1_no_wat_time = EXCLUDED.x1_no_wat_time,
+    x1_unload_speed = EXCLUDED.x1_unload_speed
 """;
 
 
@@ -774,7 +803,8 @@ SELECT
     valve_x2_1_down_pos_ref AS ValveX2_1DownPosRef, valve_x2_1_down_pos_fbk AS ValveX2_1DownPosFbk,
     valve_x2_2_up_pos_ref AS ValveX2_2UpPosRef, valve_x2_2_up_pos_fbk AS ValveX2_2UpPosFbk,
     valve_x2_2_down_pos_ref AS ValveX2_2DownPosRef, valve_x2_2_down_pos_fbk AS ValveX2_2DownPosFbk,
-    had_alarm AS HadAlarm, created_at AS CreatedAt
+    had_alarm AS HadAlarm, created_at AS CreatedAt,
+    x1_cool_time AS X1CoolTime, x1_no_wat_time AS X1NoWatTime, x1_unload_speed AS X1UnloadSpeed
 FROM plc.quenching_sessions
 WHERE (@From IS NULL OR entered_at >= @From)
   AND (@To IS NULL OR entered_at <= @To)
@@ -806,7 +836,8 @@ SELECT
     valve_x2_1_down_pos_ref AS ValveX2_1DownPosRef, valve_x2_1_down_pos_fbk AS ValveX2_1DownPosFbk,
     valve_x2_2_up_pos_ref AS ValveX2_2UpPosRef, valve_x2_2_up_pos_fbk AS ValveX2_2UpPosFbk,
     valve_x2_2_down_pos_ref AS ValveX2_2DownPosRef, valve_x2_2_down_pos_fbk AS ValveX2_2DownPosFbk,
-    had_alarm AS HadAlarm, created_at AS CreatedAt
+    had_alarm AS HadAlarm, created_at AS CreatedAt,
+    x1_cool_time AS X1CoolTime, x1_no_wat_time AS X1NoWatTime, x1_unload_speed AS X1UnloadSpeed
 FROM plc.quenching_sessions
 WHERE business_key = @Key
 """;
@@ -832,7 +863,8 @@ SELECT
     valve_x2_1_down_pos_ref AS ValveX2_1DownPosRef, valve_x2_1_down_pos_fbk AS ValveX2_1DownPosFbk,
     valve_x2_2_up_pos_ref AS ValveX2_2UpPosRef, valve_x2_2_up_pos_fbk AS ValveX2_2UpPosFbk,
     valve_x2_2_down_pos_ref AS ValveX2_2DownPosRef, valve_x2_2_down_pos_fbk AS ValveX2_2DownPosFbk,
-    had_alarm AS HadAlarm, created_at AS CreatedAt
+    had_alarm AS HadAlarm, created_at AS CreatedAt,
+    x1_cool_time AS X1CoolTime, x1_no_wat_time AS X1NoWatTime, x1_unload_speed AS X1UnloadSpeed
 FROM plc.quenching_sessions
 WHERE sheet = @Sheet
 ORDER BY entered_at DESC

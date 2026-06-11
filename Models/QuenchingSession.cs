@@ -53,6 +53,9 @@ public sealed class QuenchingSession
     public float? ValveX2_2DownPosRef { get; init; }
     public float? ValveX2_2DownPosFbk { get; init; }
 
+    public float? X1CoolTime { get; init; }
+    public float? X1NoWatTime { get; init; }
+    public float? X1UnloadSpeed { get; init; }
     public bool HadAlarm { get; init; }
     public DateTime CreatedAt { get; init; }
 }

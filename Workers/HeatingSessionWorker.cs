@@ -319,7 +319,11 @@ public sealed class HeatingSessionWorker : BackgroundService
             TempsZ2 = tempsZ2,
             TempsZ3 = tempsZ3,
             TempsZ4 = tempsZ4,
-            TempsTime = "[]" // или null – в данном варианте временные метки хранятся внутри каждого tempsZx, поэтому общее поле можно не заполнять
+            TempsTime = "[]", // или null – в данном варианте временные метки хранятся внутри каждого tempsZx, поэтому общее поле можно не заполнять
+            TotHeatTime = ConvertToNullableFloat(c.tot_heat_time),
+            LoadSpeed = ConvertToNullableFloat(c.load_speed),
+            UnloadSpeed = ConvertToNullableFloat(c.unload_speed),
+            TmpSet = ConvertToNullableFloat(c.tmp_set)
         };
         await repo.UpsertHeatingSessionAsync(parameters, ct);
 

@@ -80,7 +80,7 @@ const ValveDiagram = ({ mnAt1, mnAt2, unlock1, unlock2 }) => {
   const GAP     = 6;
   const LABEL_W = 72;
   const ROW_H   = CELL + 8;
-  const W       = LABEL_W + 10 * (CELL + GAP) - GAP + 4;
+  const W       = LABEL_W + 9 * (CELL + GAP) - GAP + 4;
   const H       = 2 * ROW_H + 16;
 
   const rows = [
@@ -104,7 +104,7 @@ const ValveDiagram = ({ mnAt1, mnAt2, unlock1, unlock2 }) => {
             >
               {label}
             </text>
-            {Array.from({ length: 10 }, (_, i) => {
+            {Array.from({ length: 9 }, (_, i) => {
               const idx  = i + 1;
               const isLocked = !unlocked[i];   // unlocked – массив boolean
               const stateVal = states[idx];
@@ -348,6 +348,33 @@ const QuenchingReport = () => {
             </Typography>
           </Grid>
         </Grid>
+
+        {/* === НОВЫЙ БЛОК: Параметры зоны закалки (X1) === */}
+     <Divider sx={{ my: 2 }} />
+     <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: 'text.secondary' }}>
+       Параметры зоны закалки (X1)
+     </Typography>
+     <Grid container spacing={1.5}>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Время охлаждения</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {s.x1CoolTime != null ? Number(s.x1CoolTime).toFixed(1) : '—'}
+         </Typography>
+       </Grid>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Время без воды</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {s.x1NoWatTime != null ? Number(s.x1NoWatTime).toFixed(1) : '—'}
+         </Typography>
+       </Grid>
+       <Grid item xs={6} sm={4} md={3}>
+         <Typography variant="caption" color="text.secondary">Скорость выгрузки (X1)</Typography>
+         <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+           {s.x1UnloadSpeed != null ? Number(s.x1UnloadSpeed).toFixed(2) : '—'}
+         </Typography>
+       </Grid>
+     </Grid>
+     {/* ========================================== */}
       </Paper>
 
       {/* Давления и температуры */}

@@ -91,4 +91,9 @@ public class QuenchingDataDto
     public string? ValveX2_2UpPosFbk { get; set; }
     public string? ValveX2_2DownPosRef { get; set; }
     public string? ValveX2_2DownPosFbk { get; set; }
+
+
+    public float? X1CoolTime { get; set; }
+    public float? X1NoWatTime { get; set; }
+    public float? X1UnloadSpeed { get; set; }
 }
