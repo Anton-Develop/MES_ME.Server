@@ -71,11 +71,11 @@ export const furnaceApi = {
 getTemperingSessionById: (id) =>
     api.get(`/tempering/sessions/${id}`).then(r => r.data),*/
 
-
+ 
 
 getTemperingSessions: (params) => 
     api.get('/tempering/sessions', { params }).then(r => r.data),
     
-  getTemperingSessionById: (id) => 
-    api.get(`/tempering/sessions/${id}`).then(r => r.data),
+  getTemperingSessionById: (id, coolingMinutes = 0) => 
+    api.get(`/tempering/sessions/${id}`, { params: { coolingMinutes }}),
 };

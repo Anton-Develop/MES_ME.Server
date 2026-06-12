@@ -1101,10 +1101,12 @@ SELECT
     t1 AS T1,
     t2 AS T2,
     act_time_total AS ActTimeTotal,
-    time_proc_set AS TimeProcSet
+    time_proc_set AS TimeProcSet,
+    time_to_proc_end as TimeProcEnd,
+    point_ref_1 as PointRef
 FROM plc.tempering_data
 WHERE furnace_no = @FurnaceNo
-  AND time BETWEEN @StartedAt AND @EndedAt
+  AND time BETWEEN @StartedAt AND @EndedAt + (@CoolingMinutes || ' minutes')::INTERVAL
 ORDER BY time
 """;
 

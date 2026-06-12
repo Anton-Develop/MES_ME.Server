@@ -40,3 +40,39 @@
 .read-the-docs {
   color: #888;
 }
+/* Принудительные стили ТОЛЬКО для диалога печати браузера */
+@media print {
+  /* Делаем фон страницы и графика белым, а текст чёрным */
+  body, 
+  .highcharts-container, 
+  .highcharts-root, 
+  .highcharts-background {
+    background-color: #ffffff !important;
+    fill: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Перекрашиваем подписи осей, легенду и заголовки в чёрный цвет */
+  .highcharts-axis-labels text, 
+  .highcharts-legend-item text, 
+  .highcharts-title,
+  .highcharts-data-label text {
+    fill: #000000 !important;
+    color: #000000 !important;
+  }
+
+  /* Опционально: скрываем весь интерфейс MUI (кнопки, меню) при печати, 
+     чтобы на листе остался только сам график */
+  body > *:not(.highcharts-container) {
+    display: none !important;
+  }
+  
+  /* Растягиваем график на всю ширину печатного листа */
+  .highcharts-container {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+}

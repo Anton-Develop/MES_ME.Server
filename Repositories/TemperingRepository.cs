@@ -8,7 +8,7 @@ public interface ITemperingRepository
 {
     Task<int> UpsertSessionsAsync(int lookbackDays, int gracePeriodMinutes, CancellationToken ct);
     Task<PagedResult<TemperingSessionDto>> GetSessionsAsync(int? furnaceNo, DateTime? from, DateTime? to, int page, int pageSize, CancellationToken ct);
-    Task<TemperingSessionDetailsDto?> GetSessionDetailsAsync(long id, CancellationToken ct);
+    Task<TemperingSessionDetailsDto?> GetSessionDetailsAsync(long id, int coolingMinutes, CancellationToken ct);
 }
 
 public class TemperingRepository : ITemperingRepository
@@ -51,7 +51,7 @@ public class TemperingRepository : ITemperingRepository
         return new PagedResult<TemperingSessionDto>(items, total, page, pageSize);
     }
 
-    public async Task<TemperingSessionDetailsDto?> GetSessionDetailsAsync(long id, CancellationToken ct)
+    public async Task<TemperingSessionDetailsDto?> GetSessionDetailsAsync(long id, int coolingMinutes, CancellationToken ct)
 {
     await using var connection = await _dataSource.OpenConnectionAsync(ct);
 
@@ -101,7 +101,12 @@ public class TemperingRepository : ITemperingRepository
     // Получаем временной ряд температур (Sql.GetTemperingSessionDetails уже с алиасами)
     var details = await connection.QueryAsync<TemperingDataPoint>(
         new CommandDefinition(Sql.GetTemperingSessionDetails,
-            new { FurnaceNo = session.FurnaceNo, StartedAt = session.StartedAt, EndedAt = session.EndedAt ?? DateTime.UtcNow },
+            new { 
+                FurnaceNo = session.FurnaceNo, 
+                StartedAt = session.StartedAt, 
+                EndedAt = session.EndedAt ?? DateTime.UtcNow,
+                CoolingMinutes = coolingMinutes
+                },
             cancellationToken: ct));
 
     return new TemperingSessionDetailsDto
@@ -156,6 +161,8 @@ public record TemperingDataPoint
     public double? T2 { get; init; }
     public double? ActTimeTotal { get; init; }
     public double? TimeProcSet { get; init; }
+    public double? PointRef { get; init; }
+    public double? TimeProcEnd { get; init; }
 }
 
 public record TemperingSessionDetailsDto

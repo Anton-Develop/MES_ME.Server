@@ -1,7 +1,7 @@
 // src/pages/TemperingHeatReport.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Box, Grid, Paper, Typography, Stack, Chip, Button,
+  Box, Grid, Typography, Stack, Chip, Button,
   CircularProgress, Divider, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, MenuItem,
   Alert, IconButton, Tooltip, LinearProgress,
@@ -13,12 +13,18 @@ import {
   GridOn as TableIcon,
   Warning as WarnIcon,
   LocalFireDepartment as FireIcon,
-  CheckCircle as OkIcon,
 } from '@mui/icons-material';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
+import 'highcharts/modules/exporting';
+import 'highcharts/modules/offline-exporting';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { furnaceApi } from '../api/furnaceApi';
-
+// ✅ Передаём jsPDF в Highcharts для офлайн-экспорта PDF
+if (typeof window !== 'undefined') {
+  window.jsPDF = jsPDF;
+}
 // ---------------------------------------------------------------------------
 // Константы и утилиты
 // ---------------------------------------------------------------------------
@@ -27,6 +33,7 @@ const SURFACE = '#161b22';
 const BORDER = '#21262d';
 const MUTED = '#8b949e';
 const PRIMARY = '#58a6ff';
+const TTTT = '#87eb16';
 const SUCCESS = '#3fb950';
 const WARNING = '#d29922';
 const DANGER = '#f85149';
@@ -48,12 +55,10 @@ const toIso = (s) => {
 
 // ---------------------------------------------------------------------------
 // ⭐ Расчёт средней температуры ЗА ПЕРИОД ВЫДЕРЖКИ
-//    Выдержка = точки, где tempRef ≈ targetTemp (в пределах допуска)
 // ---------------------------------------------------------------------------
 function calcHoldAvgTemp(details, targetTemp) {
   if (!details?.length) return null;
 
-  // 1. Определяем целевую температуру
   let target = targetTemp;
   if (target == null || target <= 0) {
     const refs = details.map(d => d.tempRef).filter(v => v != null && v > 0);
@@ -61,10 +66,8 @@ function calcHoldAvgTemp(details, targetTemp) {
     target = Math.max(...refs);
   }
 
-  // 2. Допуск: считаем выдержкой точки, где задание в пределах 2°C от цели
   const tolerance = 2;
 
-  // 3. Фильтруем точки выдержки
   const holdPoints = details.filter(d =>
     d.tempRef != null &&
     Math.abs(d.tempRef - target) <= tolerance &&
@@ -73,13 +76,10 @@ function calcHoldAvgTemp(details, targetTemp) {
 
   if (!holdPoints.length) return null;
 
-  // 4. Среднее арифметическое фактической температуры
   const sum = holdPoints.reduce((acc, d) => acc + d.tempAct, 0);
   return sum / holdPoints.length;
 }
 
-// ---------------------------------------------------------------------------
-// Маленький блок метрики
 // ---------------------------------------------------------------------------
 function Metric({ label, value, color, mono = true }) {
   return (
@@ -100,8 +100,6 @@ function Metric({ label, value, color, mono = true }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Строка сессии в списке
 // ---------------------------------------------------------------------------
 function SessionRow({ session, selected, onClick }) {
   const isDouble = session.cass1No > 0;
@@ -126,7 +124,6 @@ function SessionRow({ session, selected, onClick }) {
       }}
     >
       <Box sx={{ flex: 1, px: 1.5, py: 1 }}>
-        {/* Верхняя строка */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.3}>
           <Typography sx={{
             fontFamily: '"JetBrains Mono", monospace',
@@ -158,7 +155,6 @@ function SessionRow({ session, selected, onClick }) {
           </Stack>
         </Stack>
 
-        {/* Нижняя строка */}
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography sx={{ fontSize: '0.68rem', color: MUTED }}>
             {cassette || 'нет кассеты'}
@@ -169,7 +165,6 @@ function SessionRow({ session, selected, onClick }) {
           </Typography>
         </Stack>
 
-        {/* Прогресс-полоска */}
         {pct != null && (
           <LinearProgress
             variant="determinate"
@@ -189,16 +184,80 @@ function SessionRow({ session, selected, onClick }) {
 }
 
 // ---------------------------------------------------------------------------
-// Highcharts опции для графика деталей
-// ---------------------------------------------------------------------------
-function buildChartOptions(details, targetTemp) {
+function buildChartOptions(details, targetTemp, endedAt, session) {
   if (!details?.length) return null;
   
-  // Сдвигаем время на +5 часов
   const ts = details.map(d => new Date(d.time).getTime() + 5 * 60 * 60 * 1000);
-  
   const maxT = Math.max(...details.map(d => d.tempAct ?? 0));
   const yMax = Math.max(maxT * 1.05, (targetTemp ?? 0) * 1.05, 50);
+
+  // ✅ Вертикальная линия окончания цикла
+  const endLine = endedAt ? [{
+    value: new Date(endedAt).getTime() + 5 * 60 * 60 * 1000,
+    color: DANGER,
+    dashStyle: 'LongDashDot',
+    width: 1.5,
+    zIndex: 4,
+    label: {
+      text: 'Конец цикла',
+      style: { color: DANGER, fontSize: '9px', fontWeight: 'bold' },
+      align: 'left',
+      x: 4, y: 12,
+    },
+  }] : [];
+
+  // ✅ Светлая тема ТОЛЬКО для экспорта
+  const lightExportTheme = {
+    chart: {
+      backgroundColor: '#ffffff',
+      style: { fontFamily: 'Arial, sans-serif' },
+    },
+    title: {
+      text: `Печь №${session?.furnaceNo} · ${fmtDt(session?.startedAt)}`,
+      style: { color: '#000000', fontSize: '14px', fontWeight: 'bold' },
+      align: 'left',
+      x: 20,
+    },
+    xAxis: {
+      lineColor: '#333333',
+      tickColor: '#333333',
+      gridLineColor: 'rgba(0,0,0,0.08)',
+      labels: { style: { color: '#333333', fontSize: '11px' } },
+      plotLines: endLine.map(pl => ({
+        ...pl,
+        color: '#c0392b',
+        label: { ...pl.label, style: { color: '#c0392b', fontSize: '10px', fontWeight: 'bold' } },
+      })),
+    },
+    yAxis: [
+      {
+        gridLineColor: 'rgba(0,0,0,0.08)',
+        labels: { style: { color: '#333333', fontSize: '11px' } },
+        title: { style: { color: '#333333' } },
+      },
+      {
+        labels: { style: { color: '#333333', fontSize: '11px' } },
+        title: { style: { color: '#333333' } },
+      },
+    ],
+    legend: {
+      itemStyle: { color: '#333333', fontSize: '11px' },
+      itemHoverStyle: { color: '#000000' },
+    },
+    tooltip: {
+      backgroundColor: '#ffffff',
+      borderColor: '#cccccc',
+      style: { color: '#000000', fontSize: '11px' },
+    },
+    plotOptions: {
+      series: {
+        dataLabels: { style: { color: '#000000' } },
+      },
+    },
+    credits: {
+      style: { color: '#999999' },
+    },
+  };
 
   return {
     chart: {
@@ -216,6 +275,7 @@ function buildChartOptions(details, targetTemp) {
       gridLineColor: 'rgba(255,255,255,0.04)',
       lineColor: BORDER, tickColor: BORDER,
       crosshair: { color: 'rgba(88,166,255,0.3)', width: 1 },
+      plotLines: endLine,
     },
     yAxis: [
       {
@@ -223,15 +283,6 @@ function buildChartOptions(details, targetTemp) {
         gridLineColor: 'rgba(255,255,255,0.05)',
         labels: { style: { color: MUTED, fontSize: '10px' } },
         min: 0, max: yMax,
-        plotLines: targetTemp ? [{
-          value: targetTemp, color: PRIMARY,
-          dashStyle: 'ShortDash', width: 1, zIndex: 5,
-          label: {
-            text: `Цель ${fmtTemp(targetTemp)}`,
-            style: { color: PRIMARY, fontSize: '9px' },
-            align: 'right', x: -4,
-          },
-        }] : [],
       },
       {
         title: { text: '%', style: { color: MUTED }, rotation: 0, margin: 8 },
@@ -259,13 +310,160 @@ function buildChartOptions(details, targetTemp) {
       series: {
         boostThreshold: 200, turboThreshold: 0,
         animation: false, marker: { enabled: false },
-        connectNulls: false,
+        connectNulls: false, step: 'start',
       },
     },
     boost: { enabled: true, useGPUTranslations: true, seriesThreshold: 1 },
     exporting: {
       enabled: true,
-      buttons: { contextButton: { menuItems: ['downloadPNG', 'downloadCSV', 'separator', 'printChart'] } },
+      sourceWidth: 1400,
+      sourceHeight: 600,
+      scale: 2,
+      
+      fallbackToExportServer: false,
+      chartOptions: lightExportTheme,
+      buttons: {
+        contextButton: {
+          menuItems: [
+            {
+              textKey: 'downloadPNG', 
+              text: 'Скачать PNG',
+              onclick() { this.exportChart({ type: 'image/png' }); },
+            },
+          {
+  textKey: 'downloadPDF', 
+  text: 'Скачать PDF',
+  onclick() {
+    const chart = this;
+    const chartContainer = chart.container.parentElement;
+    
+    // Создаём временный контейнер с белым фоном
+    const tempContainer = document.createElement('div');
+    tempContainer.style.position = 'fixed';
+    tempContainer.style.left = '-9999px';
+    tempContainer.style.top = '0';
+    tempContainer.style.width = '1400px';
+    tempContainer.style.backgroundColor = '#ffffff';
+    tempContainer.style.padding = '20px';
+    document.body.appendChild(tempContainer);
+    
+    // ✅ Добавляем заголовок с номером печи и периодом
+    const header = document.createElement('div');
+    header.style.fontFamily = 'Arial, sans-serif';
+    header.style.marginBottom = '15px';
+    header.style.paddingBottom = '10px';
+    header.style.borderBottom = '2px solid #333333';
+    
+    const furnaceNo = session?.furnaceNo || '—';
+    const startedAt = session?.startedAt ? fmtDt(session.startedAt) : '—';
+    const endedAt = session?.endedAt ? fmtDt(session.endedAt) : '—';
+    //const targetTemp = actualTargetTemp ?? session?.targetTemp;
+    
+    header.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-size: 20px; font-weight: bold; color: #000000;">
+            Отчёт по отпуску · Печь №${furnaceNo}
+          </div>
+          <div style="font-size: 13px; color: #555555; margin-top: 4px;">
+            Цикл: ${startedAt}${endedAt !== '—' ? ` — ${endedAt}` : ''}
+          </div>
+        </div>
+        <div style="text-align: right; font-size: 13px; color: #555555;">
+          ${targetTemp ? `<div>Целевая T: ${fmtTemp(targetTemp)}</div>` : ''}
+          <div>Дата формирования: ${fmtDt(new Date().toISOString())}</div>
+        </div>
+      </div>
+    `;
+    tempContainer.appendChild(header);
+    
+    // Клонируем график во временный контейнер
+    const chartClone = chart.container.cloneNode(true);
+    tempContainer.appendChild(chartClone);
+    
+    // Применяем светлую тему к клону
+    const svgElement = chartClone.querySelector('svg');
+    if (svgElement) {
+      const bgRect = svgElement.querySelector('.highcharts-background');
+      if (bgRect) {
+        bgRect.setAttribute('fill', '#ffffff');
+      }
+      
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach(el => {
+        const currentFill = el.getAttribute('fill');
+        if (currentFill && (currentFill === '#8b949e' || currentFill === '#e6edf3')) {
+          el.setAttribute('fill', '#333333');
+        }
+      });
+    }
+    
+    // Конвертируем в canvas
+    html2canvas(tempContainer, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    }).then(canvas => {
+      // ✅ Добавляем нижний колонтитул с номером страницы
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#999999';
+      ctx.font = '16px Arial';
+      ctx.textAlign = 'right';
+      const footerText = `Сформировано: ${new Date().toLocaleString('ru-RU')}`;
+      ctx.fillText(footerText, canvas.width - 40, canvas.height - 20);
+      
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      
+      // Создаём PDF
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      
+      // ✅ Имя файла с номером печи и датой
+      const dateStr = session?.startedAt?.slice(0, 10) || 'report';
+      const filename = `Отпуск_Печь${furnaceNo}_${dateStr}.pdf`;
+      pdf.save(filename);
+      
+      document.body.removeChild(tempContainer);
+    }).catch(err => {
+      console.error('PDF export error:', err);
+      if (document.body.contains(tempContainer)) {
+        document.body.removeChild(tempContainer);
+      }
+      alert('Ошибка экспорта PDF: ' + err.message);
+    });
+  },
+},
+            'separator', 
+            {
+              textKey: 'printChart', 
+              text: 'Печать',
+              onclick() { this.print(); },
+            },
+            'separator',
+            { 
+              text: '[] Полный экран',
+              onclick() {
+                const container = this.container.closest('.highcharts-container')?.parentElement;
+                if (!container) return;
+                if (!document.fullscreenElement) {
+                  container.requestFullscreen?.();
+                } else {
+                  document.exitFullscreen?.();
+                }
+              }
+            },  
+          ],
+        },
+      },
     },
     series: [
       {
@@ -276,8 +474,15 @@ function buildChartOptions(details, targetTemp) {
       },
       {
         name: 'T задание', yAxis: 0,
-        color: PRIMARY, lineWidth: 1.5, dashStyle: 'ShortDash',
+        color: PRIMARY, lineWidth: 2, dashStyle: 'ShortDash',
         data: ts.map((t, i) => [t, details[i].tempRef ?? null]),
+        tooltip: { valueSuffix: ' °C', valueDecimals: 1 },
+      },
+      {
+        name: 'Цель ', yAxis: 0,
+        color: TTTT, lineWidth: 1.8, dashStyle: 'ShortDash',
+        step: 'start',
+        data: ts.map((t, i) => [t, details[i].pointRef ?? null]),
         tooltip: { valueSuffix: ' °C', valueDecimals: 1 },
       },
       {
@@ -307,20 +512,32 @@ function buildChartOptions(details, targetTemp) {
 }
 
 // ---------------------------------------------------------------------------
-// Панель деталей выбранной сессии
-// ---------------------------------------------------------------------------
-function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
-  const [view, setView] = useState('chart');
+function getActualTargetTemp(details) {
+  if (!details?.length) return null;
+  const refs = details
+    .filter(d => d.pointRef != null && d.pointRef > 0)
+    .map(d => d.pointRef);
+  return refs.length > 0 ? refs[refs.length - 1] : null;
+}
 
-  const chartOpts = useMemo(
-    () => buildChartOptions(details, session?.targetTemp),
-    [details, session?.targetTemp]
+// ---------------------------------------------------------------------------
+function SessionDetail({ session, details, loading, onClose, furnaceNo, onLoadDetails }) {
+  const [view, setView] = useState('chart');
+  const [coolingMin, setCoolingMin] = useState(0);
+
+  const actualTargetTemp = useMemo(
+    () => getActualTargetTemp(details),
+    [details]
   );
 
-  // ⭐ Средняя температура за период выдержки (считаем на фронте)
+  const chartOpts = useMemo(
+    () => buildChartOptions(details, actualTargetTemp, session?.endedAt, session),
+    [details, actualTargetTemp, session?.endedAt, session]
+  );
+
   const holdAvg = useMemo(
-    () => calcHoldAvgTemp(details, session?.targetTemp),
-    [details, session?.targetTemp]
+    () => calcHoldAvgTemp(details, actualTargetTemp),
+    [details, actualTargetTemp]
   );
 
   const exportCsv = () => {
@@ -334,9 +551,57 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
     a.click();
   };
 
+   
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      /* Полноэкранный режим */
+      :fullscreen { background: #161b22; }
+      :fullscreen .highcharts-react-container,
+      :fullscreen .highcharts-container { width: 100vw !important; height: 100vh !important; }
+      
+      /* ✅ Печать: белый фон, скрыть всё кроме графика */
+      @media print {
+        body * {
+          visibility: hidden !important;
+        }
+        .highcharts-container,
+        .highcharts-container * {
+          visibility: visible !important;
+        }
+        .highcharts-container {
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 100% !important;
+          background: #ffffff !important;
+        }
+        /* Принудительно белый фон SVG */
+        .highcharts-background {
+          fill: #ffffff !important;
+        }
+        /* Скрыть кнопку экспорта при печати */
+        .highcharts-button {
+          display: none !important;
+        }
+        /* Светлые цвета текста для печати */
+        .highcharts-title {
+          color: #000000 !important;
+          fill: #000000 !important;
+        }
+        .highcharts-axis-labels text,
+        .highcharts-legend-item text {
+          color: #333333 !important;
+          fill: #333333 !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Заголовок панели */}
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${BORDER}` }}>
         <Stack direction="row" spacing={1} alignItems="center">
           <FireIcon sx={{ fontSize: 16, color: ACCENT }} />
@@ -364,20 +629,18 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
         </Stack>
       </Stack>
 
-      {/* Метрики сессии */}
       <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${BORDER}` }}>
         <Grid container spacing={2}>
           {[
             { label: 'Начало', value: fmtDt(session?.startedAt) },
             { label: 'Конец', value: fmtDt(session?.endedAt) },
             { label: 'Длительность', value: fmtMin(session?.durationMin) },
-            { label: 'Целевая T', value: fmtTemp(session?.targetTemp), color: PRIMARY },
+            { label: 'Целевая T ', value: fmtTemp(actualTargetTemp ?? session?.targetTemp), color: PRIMARY },
             { label: 'Уст. время', value: fmtMin(session?.targetTime) },
-            // ⭐ T средняя — приоритет у вычисленной за выдержку, иначе значение с бэкенда
             { label: 'T средняя (выдержка)', value: fmtTemp(holdAvg ?? session?.tempAvg) },
             { label: 'T минимум', value: fmtTemp(session?.tempMin) },
             { label: 'T максимум', value: fmtTemp(session?.tempMax), color: ACCENT },
-            { label: 'Номер печи', value: (session?.furnaceNo), color: ACCENT },
+            { label: 'Номер печи', value: session?.furnaceNo, color: ACCENT },
           ].map(({ label, value, color }) => (
             <Grid item key={label}>
               <Metric label={label} value={value} color={color} />
@@ -386,8 +649,7 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
         </Grid>
       </Box>
 
-      {/* Переключатель вид */}
-      <Stack direction="row" spacing={0} sx={{ px: 2, pt: 1.5, pb: 1 }}>
+      <Stack direction="row" spacing={0} sx={{ px: 2, pt: 1.5, pb: 1 }} alignItems="center">
         {[
           { id: 'chart', icon: <ChartIcon sx={{ fontSize: 14 }} />, label: 'График' },
           { id: 'table', icon: <TableIcon sx={{ fontSize: 14 }} />, label: 'Таблица' },
@@ -412,9 +674,34 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
             {label}
           </Button>
         ))}
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 1, borderColor: BORDER }} />
+        <Typography sx={{ fontSize: '0.7rem', color: MUTED, mr: 0.5 }}>Остывание:</Typography>
+        {[0, 30, 60, 120].map(min => (
+          <Button
+            key={min}
+            size="small"
+            onClick={() => {
+              setCoolingMin(min);
+              onLoadDetails?.(session.id, min);
+            }}
+            sx={{
+              mr: 0.3,
+              fontSize: '0.68rem',
+              color: coolingMin === min ? SUCCESS : MUTED,
+              bgcolor: coolingMin === min ? 'rgba(63,185,80,0.12)' : 'transparent',
+              border: `1px solid ${coolingMin === min ? SUCCESS : BORDER}`,
+              borderRadius: '4px',
+              textTransform: 'none',
+              minWidth: 0, px: 0.8, py: 0.3,
+              '&:hover': { bgcolor: 'rgba(63,185,80,0.08)' },
+            }}
+          >
+            {min === 0 ? '—' : `+${min}м`}
+          </Button>
+        ))}
       </Stack>
 
-      {/* Контент */}
       <Box sx={{ flex: 1, overflow: 'auto', px: view === 'chart' ? 1 : 0, pb: 2 }}>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', pt: 6 }}>
@@ -429,7 +716,7 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
-                  {['Время', 'T факт', 'T зад', 'T1', 'T2', 'Прогресс'].map(h => (
+                  {['Время', 'T факт', 'T цель', 'T1', 'T2', 'До конца', 'Прогресс'].map(h => (
                     <TableCell key={h} sx={{ bgcolor: '#161b22', color: MUTED, fontSize: '0.68rem', py: 0.8, borderBottom: `1px solid ${BORDER}` }}>
                       {h}
                     </TableCell>
@@ -446,9 +733,13 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
                       <TableCell sx={{ color: MUTED, fontSize: '0.68rem', fontFamily: 'monospace', py: 0.5, borderBottom: `1px solid ${BORDER}` }}>
                         {new Date(new Date(row.time).getTime() + 5 * 60 * 60 * 1000).toLocaleTimeString('ru-RU')}
                       </TableCell>
+                      <TableCell align="right" sx={{ color: ACCENT, fontSize: '0.72rem', fontFamily: 'monospace', py: 0.5, borderBottom: `1px solid ${BORDER}` }}>
+                        {row.tempAct != null ? `${Number(row.tempAct).toFixed(1)} °C` : '—'}
+                      </TableCell>
+                      <TableCell align="right" sx={{ color: PRIMARY, fontSize: '0.72rem', fontFamily: 'monospace', py: 0.5, borderBottom: `1px solid ${BORDER}` }}>
+                        {row.pointRef != null ? `${Number(row.pointRef).toFixed(1)} °C` : '—'}
+                      </TableCell>
                       {[
-                        { v: row.tempAct, c: ACCENT },
-                        { v: row.tempRef, c: PRIMARY },
                         { v: row.t1, c: SUCCESS },
                         { v: row.t2, c: '#79c0ff' },
                       ].map(({ v, c }, i) => (
@@ -456,6 +747,9 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
                           {v != null ? `${Number(v).toFixed(1)} °C` : '—'}
                         </TableCell>
                       ))}
+                      <TableCell align="right" sx={{ color: WARNING, fontSize: '0.72rem', fontFamily: 'monospace', py: 0.5, borderBottom: `1px solid ${BORDER}` }}>
+                        {row.timeProcEnd != null ? `${Number(row.timeProcEnd).toFixed(0)} мин` : '—'}
+                      </TableCell>
                       <TableCell align="right" sx={{ color: MUTED, fontSize: '0.72rem', fontFamily: 'monospace', py: 0.5, borderBottom: `1px solid ${BORDER}` }}>
                         {pct === '—' ? pct : `${pct}%`}
                       </TableCell>
@@ -471,8 +765,6 @@ function SessionDetail({ session, details, loading, onClose, furnaceNo }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Главная страница
 // ---------------------------------------------------------------------------
 export default function TemperingHeatReport() {
   const [furnaceNo, setFurnaceNo] = useState(1);
@@ -491,7 +783,6 @@ export default function TemperingHeatReport() {
   const [detLoading, setDetLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // -----------------------------------------------------------------------
   const loadSessions = useCallback(async () => {
     setListLoading(true);
     setError(null);
@@ -529,7 +820,6 @@ export default function TemperingHeatReport() {
         cass2No: s.cass2No ?? s.Cass2No,
       }));
       setSessions(normalizedItems);
-      // Убран дублирующий setSessions(items), который перезаписывал нормализацию
       setTotal(total);
     } catch (e) {
       console.error('[Tempering] Load sessions error:', e);
@@ -539,21 +829,17 @@ export default function TemperingHeatReport() {
     }
   }, [furnaceNo, fromDate, toDate]);
 
-  const loadDetails = useCallback(async (id) => {
+  const loadDetails = useCallback(async (id, coolingMinutes = 0) => {
     setSelId(id);
     const s = sessions.find(x => x.id === id);
     setSelSession(s ?? null);
     setDetails([]);
     setDetLoading(true);
     try {
-      const res = await furnaceApi.getTemperingSessionById(id);
+      const res = await furnaceApi.getTemperingSessionById(id, coolingMinutes);
       const payload = res?.data ?? res;
-      const sessionData = payload?.session ?? payload?.Session ?? s;
-      const detailsData = payload?.details ?? payload?.Details ?? [];
-
-      console.log('[Tempering] Loaded details:', detailsData.length, 'points');
-      setSelSession(sessionData);
-      setDetails(detailsData);
+      setSelSession(payload?.session ?? payload?.Session ?? s);
+      setDetails(payload?.details ?? payload?.Details ?? []);
     } catch (e) {
       console.error('[Tempering] Load details error:', e);
     } finally {
@@ -574,11 +860,9 @@ export default function TemperingHeatReport() {
     a.click();
   };
 
-  // -----------------------------------------------------------------------
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: BG, overflow: 'hidden' }}>
 
-      {/* ── Шапка ──────────────────────────────────────────────── */}
       <Box sx={{
         px: 2.5, py: 1.5,
         borderBottom: `1px solid ${BORDER}`,
@@ -685,7 +969,6 @@ export default function TemperingHeatReport() {
         </Alert>
       )}
 
-      {/* ── Основной контент ────────────────────────────────────── */}
       <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         <Box
@@ -736,6 +1019,7 @@ export default function TemperingHeatReport() {
               loading={detLoading}
               onClose={() => { setSelId(null); setSelSession(null); setDetails([]); }}
               furnaceNo={furnaceNo}
+              onLoadDetails={loadDetails}
             />
           </Box>
         )}
