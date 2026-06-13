@@ -115,6 +115,7 @@ internal static class Sql
     WITH
     presence AS (
         SELECT sheet, melt, part_no, pack, zone, time, alarm_exist,
+            tot_heat_time, load_speed, unload_speed, tmp_set,
             time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap
         FROM plc.furnace_zone_data
         WHERE zone IN ('F1','F2','F3','F4')
@@ -208,6 +209,10 @@ internal static class Sql
         up.entered_at_f3, up.exited_at_f3, up.entered_at_f4, up.exited_at_f4,
         up.had_alarm, up.slab, up.alloy_code, up.alloy_code_text, up.thickness,
         up.zones_path,
+        up.tot_heat_time,      
+        up.load_speed,         
+        up.unload_speed,       
+        up.tmp_set,            
         COALESCE(em.max_reheat, -1) + up.rn AS reheat_num
     FROM unprocessed up
     LEFT JOIN existing_max em 
@@ -220,6 +225,7 @@ internal static class Sql
     WITH
     presence AS (
         SELECT sheet, melt, part_no, pack, zone, time, alarm_exist,
+            tot_heat_time, load_speed, unload_speed, tmp_set,
             time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap
         FROM plc.furnace_zone_data
         WHERE zone IN ('F1','F2','F3','F4')
@@ -313,6 +319,10 @@ internal static class Sql
         up.entered_at_f3, up.exited_at_f3, up.entered_at_f4, up.exited_at_f4,
         up.had_alarm, up.slab, up.alloy_code, up.alloy_code_text, up.thickness,
         up.zones_path,
+        up.tot_heat_time,      -- <-- добавить
+        up.load_speed,         -- <-- добавить
+        up.unload_speed,       -- <-- добавить
+        up.tmp_set,            -- <-- добавить
         COALESCE(em.max_reheat, -1) + up.rn AS reheat_num
     FROM unprocessed up
     LEFT JOIN existing_max em 
@@ -475,6 +485,7 @@ WHERE business_key = @Key
     WITH
     presence AS (
         SELECT sheet, melt, part_no, pack, time, alarm_exist,
+        		x1_cool_time,x1_no_wat_time,x1_unload_speed,
             time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap
         FROM plc.furnace_zone_data
         WHERE zone = 'X1'
@@ -532,7 +543,7 @@ WHERE business_key = @Key
            AND qs.pack = e.pack AND qs.entered_at between e.entered_at - INTERVAL '5 MINUTES' AND e.entered_at + INTERVAL '5 MINUTES'
         WHERE qs.id IS NULL
           AND e.exited_at IS NOT NULL
-          AND e.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
+          AND e.exited_at < NOW() - (2 || ' minutes')::INTERVAL
     ),
     existing_max AS (
         SELECT sheet, melt, part_no, pack, 
@@ -544,6 +555,7 @@ WHERE business_key = @Key
         up.sheet, up.melt, up.part_no, up.pack,
         up.entered_at, up.exited_at, up.total_sec, up.had_alarm,
         up.slab, up.alloy_code, up.alloy_code_text, up.thickness,
+        up.x1_cool_time, up.x1_no_wat_time, up.x1_unload_speed,
         COALESCE(em.max_reheat, -1) + up.rn AS reheat_num
     FROM unprocessed up
     LEFT JOIN existing_max em 
@@ -556,6 +568,7 @@ WHERE business_key = @Key
     WITH
     presence AS (
         SELECT sheet, melt, part_no, pack, time, alarm_exist,
+            x1_cool_time,x1_no_wat_time,x1_unload_speed,
             time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap
         FROM plc.furnace_zone_data
         WHERE zone = 'X1'
@@ -625,6 +638,7 @@ WHERE business_key = @Key
         up.sheet, up.melt, up.part_no, up.pack,
         up.entered_at, up.exited_at, up.total_sec, up.had_alarm,
         up.slab, up.alloy_code, up.alloy_code_text, up.thickness,
+    up.x1_cool_time, up.x1_no_wat_time, up.x1_unload_speed,
         COALESCE(em.max_reheat, -1) + up.rn AS reheat_num
     FROM unprocessed up
     LEFT JOIN existing_max em 
