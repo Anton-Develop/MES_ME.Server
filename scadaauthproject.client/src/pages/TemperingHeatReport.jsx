@@ -161,7 +161,7 @@ function SessionRow({ session, selected, onClick }) {
             {session.targetTemp ? ` · Цель: ${fmtTemp(session.targetTemp)}` : ''}
           </Typography>
           <Typography sx={{ fontSize: '0.68rem', color: MUTED, fontFamily: 'monospace' }}>
-            ∅ {fmtTemp(session.tempAvg)}
+         {/*    ∅ {fmtTemp(session.tempAvg)}*/}
           </Typography>
         </Stack>
 
@@ -288,7 +288,8 @@ function buildChartOptions(details, targetTemp, endedAt, session) {
         title: { text: '%', style: { color: MUTED }, rotation: 0, margin: 8 },
         labels: { format: '{value}%', style: { color: MUTED, fontSize: '10px' } },
         opposite: true,
-        min: 0, max: 110,
+        min: 0, max: 100,
+        endOnTick: false,
         gridLineWidth: 0,
       },
     ],
@@ -506,6 +507,7 @@ function buildChartOptions(details, targetTemp, endedAt, session) {
           return [t, Math.min((d.actTimeTotal / d.timeProcSet) * 100, 100)];
         }),
         tooltip: { valueSuffix: '%', valueDecimals: 0 },
+
       },
     ],
   };

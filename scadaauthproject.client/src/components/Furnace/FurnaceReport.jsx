@@ -47,8 +47,20 @@ const normalizeKeys = (obj) => {
 
 const getTimestamps = (tempsObj) => {
   if (!tempsObj?.times?.length) return [];
-  return tempsObj.times.map(t => new Date(t).getTime());
+  const targetOffsetHours = 10;  
+  return tempsObj.times.map(t => {
+    const date = new Date(t);
+    
+    // 1. Переводим локальное время в чистый UTC (смещение из минут переводим в мс)
+    const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000);
+    
+    // 2. Добавляем целевое смещение в часах (часы переводим в мс)
+    return utcTime + (targetOffsetHours * 3600000);
+  });
+
 };
+
+
 
 // Стандартный конфиг экспорта — используем во всех графиках
 const EXPORT_BUTTONS = {
@@ -519,7 +531,7 @@ const FurnaceReport = () => {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
-        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)}>Назад</Button>
+       <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)}>Назад</Button>
       </Box>
     );
   }
@@ -596,9 +608,9 @@ const FurnaceReport = () => {
     <PageContainer>
       {/* Кнопки */}
       <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
+        {/*<Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
           Назад
-        </Button>
+        </Button>*/}
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="contained" startIcon={<Print />} onClick={() => window.print()}>
           Печать
