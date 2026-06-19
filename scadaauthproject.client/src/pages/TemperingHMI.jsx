@@ -18,11 +18,13 @@ import {
   SignalCellularAlt as SignalIcon
 } from '@mui/icons-material';
 import api from '../api';
+import { useAuth } from  '../context/AuthContext';
 import { useOpcUa } from '../hooks/useOpcUa';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 const FURNACES = [1, 2, 3, 4];
 const DUAL_SLOT_FURNACES = [3, 4];
+
 
 // ─── Алиасы OPC UA для всех печей ─────────────────────────────────────────────
 const OPC_ALIASES = [
@@ -722,7 +724,7 @@ export default function TemperingHMI() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-
+  const { user } = useAuth(); 
   const plcDataList = useMemo(() => {
     return FURNACES.map(no => transformOpcToPlcData(values, no));
   }, [values]);
@@ -801,7 +803,9 @@ export default function TemperingHMI() {
 
   const handleLoadCassette = async (furnaceNo, cassetteNumber, slot) => {
     try {
-      await api.post('/tempering/load', { furnaceNo, cassetteNumber, slot });
+      const operatorName = user.username;
+
+      await api.post('/tempering/load', { furnaceNo, cassetteNumber, slot,operatorName });
       const slotStr = slot != null ? ` (слот ${slot})` : '';
       showMessage(`Кассета №${cassetteNumber} → Печь №${furnaceNo}${slotStr}`, 'success');
       await loadAllData();

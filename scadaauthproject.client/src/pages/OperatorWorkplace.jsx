@@ -13,9 +13,9 @@ const C = {
 
 const emptyGrid = () => Array.from({ length: 8 }, () => null);
 const bdrColor = v => {
-  if (v == null) return C.panelBd;
-  const a = Math.abs(v);
-  return a > 1.0 ? C.red : a > 0.5 ? C.yellow : C.green;
+    if (v == null) return C.panelBd;
+    const a = Math.abs(v);
+    return a >= 22 ? C.red : a >= 15 ? C.yellow : C.green;
 };
 const fmtWait = m => m == null ? '—' : m < 1 ? '<1м' : m < 60 ? `${Math.round(m)}м` : `${Math.floor(m/60)}ч`;
 

@@ -36,7 +36,9 @@ public class TemperingController : ControllerBase
         _opcService = opcService;
     }
 
-    private string GetUserName() => User.Identity?.Name ?? "UNKNOWN";
+    private string GetUserName(string? requestOperator = null)
+    => string.IsNullOrWhiteSpace(requestOperator) ? (User.Identity?.Name ?? "UNKNOWN") : requestOperator;
+
 
     private static bool IsDualSlotFurnace(int furnaceNo) => furnaceNo == 3 || furnaceNo == 4;
 
@@ -171,13 +173,14 @@ public class TemperingController : ControllerBase
         if (request.FurnaceNo < 1 || request.FurnaceNo > 4)
             return BadRequest("Некорректный номер печи (1-4)");
 
-        var userName = GetUserName();
+        var userName = GetUserName(request.OperatorName);
         await using var con = await _dataSource.OpenConnectionAsync();
         var dualSlot = IsDualSlotFurnace(request.FurnaceNo);
 
         // 1. Проверка занятости
         if (!dualSlot)
         {
+            request.Slot = 1;
             var activeCount = await con.QueryFirstOrDefaultAsync<int>(
                 "SELECT COUNT(*) FROM mes.tempering_sessions_new WHERE furnace_number = @F AND unloaded_at IS NULL",
                 new { F = request.FurnaceNo });
@@ -276,7 +279,7 @@ public class TemperingController : ControllerBase
         if (request.FurnaceNo < 1 || request.FurnaceNo > 4)
             return BadRequest("Некорректный номер печи");
 
-        var userName = GetUserName();
+        var userName = GetUserName(request.OperatorName);
         await using var con = await _dataSource.OpenConnectionAsync();
 
         IEnumerable<dynamic> sessions;
@@ -301,7 +304,7 @@ public class TemperingController : ControllerBase
                 @"SELECT id, business_key, cassette_number, slot_number
                   FROM mes.tempering_sessions_new 
                   WHERE furnace_number = @F AND unloaded_at IS NULL
-                  ORDER BY slot_number NULLS FIRST",
+                  ORDER BY slot_number",
                 new { F = request.FurnaceNo })).ToList();
 
             if (!sessions.Any())
@@ -378,7 +381,7 @@ public class TemperingController : ControllerBase
         if (dualSlot && !request.Slot.HasValue)
             return BadRequest("Для печей №3 и №4 необходимо указать слот (1 или 2).");
 
-        var userName = GetUserName();
+        var userName = GetUserName(request.OperatorName);
         await using var con = await _dataSource.OpenConnectionAsync();
         await using var tx = await con.BeginTransactionAsync();
 
@@ -660,15 +663,18 @@ public class LoadCassetteRequest
     public int FurnaceNo { get; set; }
     public int CassetteNumber { get; set; }
     public int? Slot { get; set; }
+    public string? OperatorName { get; set; }
 }
 
 public class UnloadCassetteRequest
 {
     public int FurnaceNo { get; set; }
     public int? Slot { get; set; }
+    public string? OperatorName { get; set; }
 }
 public class CancelLoadRequest
 {
     public int FurnaceNo { get; set; }
     public int? Slot { get; set; }
+    public string? OperatorName { get; set; }
 }
