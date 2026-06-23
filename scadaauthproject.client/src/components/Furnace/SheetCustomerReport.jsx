@@ -5,13 +5,14 @@ import {
   Box, Paper, Grid, Typography, Chip, Divider, Button,
   CircularProgress, Alert, Stack,
 } from '@mui/material';
-import { Print, GetApp, ArrowBack } from '@mui/icons-material';
+import { Print, ArrowBack } from '@mui/icons-material';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 import Exporting  from 'highcharts/modules/exporting';
 import ExportData from 'highcharts/modules/export-data';
 import { furnaceApi }   from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
+import api from '../../api';
 
 if (typeof Exporting  === 'function') Exporting(Highcharts);
 if (typeof ExportData === 'function') ExportData(Highcharts);
@@ -274,6 +275,65 @@ const ValueRow = ({ label, value, color }) => (
   </Box>
 );
 
+
+// ---------------------------------------------------------------------------
+// График отпуска
+// ---------------------------------------------------------------------------
+const TemperingChart = ({ tempData }) => {
+  const options = useMemo(() => {
+    if (!tempData || tempData.length === 0) return null;
+
+    const toChartData = (key) =>
+      tempData.map(d => {
+        const val = d[key];
+        return [new Date(d.time).getTime(), val != null ? Number(val) : null];
+      });
+
+    return {
+      chart: { type: 'spline', height: 320, zoomType: 'xy', animation: false, backgroundColor: '#fff' },
+      title: { text: null },
+      credits: { enabled: false },
+      xAxis: {
+        type: 'datetime', crosshair: true,
+        dateTimeLabelFormats: {
+          second: '%H:%M:%S', minute: '%H:%M', hour: '%H:%M',
+          day: '%d.%m', week: '%d.%m', month: '%m.%Y', year: '%Y'
+        },
+        labels: { format: '{value:%H:%M}', style: { fontSize: '11px' } }
+      },
+      yAxis: {
+        title: { text: '°C', style: { color: '#555' } }, min: 0,
+        gridLineColor: '#e0e0e0', labels: { style: { fontSize: '11px' } }
+      },
+      tooltip: {
+        shared: true, crosshairs: true, xDateFormat: '%d.%m.%Y %H:%M:%S',
+        valueSuffix: ' °C', style: { fontSize: '12px' }
+      },
+      legend: { enabled: true, itemStyle: { fontSize: '12px', color: '#333' } },
+      plotOptions: {
+        series: { boostThreshold: 300, marker: { enabled: false }, animation: false, connectNulls: false }
+      },
+      boost: { enabled: true, useGPUTranslations: true },
+      exporting: { enabled: true, buttons: EXPORT_BUTTONS }, // Кнопки экспорта как у нагрева
+      series: [
+        { name: 'Заданная', data: toChartData('tempRef'), color: '#1976d2', dashStyle: 'Dash', lineWidth: 2 },
+        { name: 'Фактическая', data: toChartData('tempAct'), color: '#d29922', lineWidth: 2 },
+        { name: 'T1', data: toChartData('t1'), color: '#2e7d32', visible: false },
+        { name: 'T2', data: toChartData('t2'), color: '#c62828', visible: false }
+      ]
+    };
+  }, [tempData]);
+
+  if (!options) return <Alert severity="info" sx={{ m: 1 }}>Температурные данные отпуска отсутствуют</Alert>;
+
+  return (
+    <HighchartsReact
+      highcharts={Highcharts}
+      options={options}
+      containerProps={{ style: { height: '320px' } }}
+    />
+  );
+};
 // ---------------------------------------------------------------------------
 // Основной компонент
 // ---------------------------------------------------------------------------
@@ -290,6 +350,8 @@ const SheetCustomerReport = () => {
   // ── useState ──────────────────────────────────────────────
   const [furnaceSession,   setFurnaceSession]   = useState(null);
   const [quenchingSession, setQuenchingSession] = useState(null);
+  const [temperingData, setTemperingData]       = useState(null);   
+  const [loadingTempering, setLoadingTempering] = useState(false);
   const [loading,          setLoading]          = useState(true);
   const [error,            setError]            = useState(null);
 
@@ -323,7 +385,7 @@ const SheetCustomerReport = () => {
     }
   }, [isPrint, loading, furnaceSession, quenchingSession]);
 
-  
+
 
   const f = furnaceSession;
 const q = quenchingSession;
@@ -344,6 +406,45 @@ const hasTemps = zones.some(({ tempsObj }) => {
   const n = normalizeKeys(tempsObj);
   return n?.times?.length > 0;
 });
+
+
+  // ── Загрузка данных отпуска ───────────────────────────────
+useEffect(() => {
+  const sheet = f?.sheet ?? q?.sheet;
+  const melt = f?.melt ?? q?.melt;
+  const partNo = f?.partNo ?? q?.partNo;
+  const pack = f?.pack ?? q?.pack;
+
+  if (!sheet || !melt || !partNo || !pack) {
+    setTemperingData(null);
+    return;
+  }
+
+  let isMounted = true;
+  const loadTempering = async () => {
+    setLoadingTempering(true);
+    try {
+      // 1. Ищем ключ кассеты по параметрам листа
+      const keyRes = await api.get(`/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(sheet)}&melt=${encodeURIComponent(melt)}&partNo=${encodeURIComponent(partNo)}&pack=${encodeURIComponent(pack)}`);
+      
+      if (isMounted && keyRes.data.cassetteBusinessKey) {
+        // 2. Загружаем саму сессию отпуска
+        const sessionRes = await api.get(`/tempering/session-by-key?key=${encodeURIComponent(keyRes.data.cassetteBusinessKey)}&coolingMinutes=60`);
+        setTemperingData(sessionRes.data);
+      } else if (isMounted) {
+        setTemperingData(null);
+      }
+    } catch (err) {
+      console.error("Ошибка поиска данных по отпуску:", err);
+      if (isMounted) setTemperingData(null);
+    } finally {
+      if (isMounted) setLoadingTempering(false);
+    }
+  };
+
+  loadTempering();
+  return () => { isMounted = false; };
+}, [f, q]); // Зависит от сессий нагрева и закалки
 
     const meta = {
         sheet: f?.sheet ?? q?.sheet ?? furnaceKey,
@@ -386,41 +487,27 @@ const hasTemps = zones.some(({ tempsObj }) => {
         },
       }}
     >
-      {/* ── Кнопки ── */}
-      <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
-          Назад
-        </Button>
-        <Box sx={{ flexGrow: 1 }} />
-        <Button variant="contained" startIcon={<Print />} onClick={() => window.print()}>
-          Печать
-        </Button>
-        <Button
-          variant="outlined" startIcon={<GetApp />}
-          
-        >
-          PDF (новая вкладка)
-        </Button>
-      </Box>
+     {/* ── Кнопки ── */}
+  <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+    <Box sx={{ flexGrow: 1 }} />
+    <Button variant="contained" startIcon={<Print />} onClick={() => {
+                                                                      setTimeout(() => window.print(), 300);
+                                                                     }}>
+      Печать / Сохранить в PDF
+    </Button>
+  </Box>
 
       {/* ── Шапка ── */}
-      <Paper sx={{ p: 2.5, mb: 2 }}>
+      <Paper sx={{ p: 2.5, mb: 2,
+        '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid', boxShadow: 'none' }
+       }}>
               <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
                   <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       Отчёт о листе №{meta.sheet}
-                      <Chip
-                          label={meta.reheatNum > 0 ? `Повтор ${meta.reheatNum}` : 'Первый нагрев'}
-                          size="small"
-                          color={meta.reheatNum > 0 ? "warning" : "success"}
-                          variant="outlined"
-                          sx={{ fontWeight: 600 }}
-                      />
+                      
                   </Typography>
 
-                  {f?.zonesPath && (
-                      <Chip label={f.zonesPath} color="primary" size="small" variant="outlined"
-                          sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
-                  )}
+                  
                   {f?.hadAlarm && <Chip label="АВАРИЯ (нагрев)" color="error" size="small" />}
                   {q?.hadAlarm && <Chip label="АВАРИЯ (закалка)" color="error" size="small" />}
               </Stack>
@@ -430,7 +517,7 @@ const hasTemps = zones.some(({ tempsObj }) => {
           {[
             { label: 'Лист',        value: meta.sheet },
                       { label: 'Сляб', value: meta.slab ?? '—' },
-                      { label: '№ нагрева', value: meta.reheatNum > 0 ? `Повтор ${meta.reheatNum}` : 'Первый' },
+                 
             { label: 'Плавка',      value: meta.melt          ?? '—' },
             { label: 'Партия',      value: meta.partNo        ?? '—' },
             { label: 'Пачка',       value: meta.pack          ?? '—' },
@@ -476,7 +563,9 @@ const hasTemps = zones.some(({ tempsObj }) => {
       </Paper>
 
       {/* ── Сводный график нагрева ── */}
-      <Paper sx={{ mb: 2, p: 0, overflow: 'hidden', borderRadius: 2 }}>
+      <Paper sx={{ mb: 2, p: 0, overflow: 'hidden', borderRadius: 2,
+        '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid', boxShadow: 'none' }
+       }}>
         <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Typography variant="subtitle2" fontWeight={600}>
             Нагрев — сводный график по зонам
@@ -518,6 +607,7 @@ const hasTemps = zones.some(({ tempsObj }) => {
             <Paper variant="outlined" sx={{
               flex: '1 1 0', minWidth: 0, p: 2,
               borderTop: '3px solid #1565c0', borderRadius: 2,
+              '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
             }}>
               <Typography variant="subtitle2" fontWeight={700} color="#1565c0" gutterBottom>
                 Давление — закалка
@@ -535,6 +625,7 @@ const hasTemps = zones.some(({ tempsObj }) => {
             <Paper variant="outlined" sx={{
               flex: '1 1 0', minWidth: 0, p: 2,
               borderTop: '3px solid #00695c', borderRadius: 2,
+              '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
             }}>
               <Typography variant="subtitle2" fontWeight={700} color="#00695c" gutterBottom>
                 Давление — ламинарное охлаждение
@@ -552,6 +643,7 @@ const hasTemps = zones.some(({ tempsObj }) => {
             <Paper variant="outlined" sx={{
               flex: '1 1 0', minWidth: 0, p: 2,
               borderTop: '3px solid #bf360c', borderRadius: 2,
+              '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
             }}>
               <Typography variant="subtitle2" fontWeight={700} color="#bf360c" gutterBottom>
                 Температуры воды
@@ -571,6 +663,57 @@ const hasTemps = zones.some(({ tempsObj }) => {
         <Alert severity="info">Сессия закалки для листа №{meta.sheet} не найдена</Alert>
       )}
 
+        {/* ── Отпуск ── */}
+  <Paper sx={{ mt: 2, mb: 2, p: 0, overflow: 'hidden', borderRadius: 2,
+    '@media print': {
+      pageBreakBefore: 'always', // ⬅️ Принудительный разрыв страницы
+      breakBefore: 'page',
+      mt: 0,                     // Убираем лишний отступ сверху на бумаге
+      boxShadow: 'none',         // Убираем тени MUI при печати
+    }
+   }}>
+    <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Typography variant="subtitle2" fontWeight={600}>
+        Отпуск
+      </Typography>
+    </Box>
+    <Box sx={{ p: 2 }}>
+      {loadingTempering ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <CircularProgress size={24} />
+        </Box>
+      ) : temperingData?.session ? (
+        <>
+          <Grid container spacing={1.5} sx={{ mb: 2 }}>
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography variant="caption" color="text.secondary">Печь</Typography>
+              <Typography variant="body2" fontWeight={600}>№{temperingData.session.furnaceNumber ?? '—'}</Typography>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography variant="caption" color="text.secondary">Загрузка</Typography>
+              <Typography variant="body2" fontWeight={600}>{fmtDate(temperingData.session.loadedAt)}</Typography>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography variant="caption" color="text.secondary">Выгрузка</Typography>
+              <Typography variant="body2" fontWeight={600}>{fmtDate(temperingData.session.unloadedAt)}</Typography>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography variant="caption" color="text.secondary">Время в печи</Typography>
+              <Typography variant="body2" fontWeight={700} color="warning.dark">{fmtMin(temperingData.session.totalTimeMin)}</Typography>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography variant="caption" color="text.secondary">Температура</Typography>
+              <Typography variant="body2" fontWeight={700} color="primary">{fmtTemp(temperingData.session.tempRef)}</Typography>
+            </Grid>
+          </Grid>
+          
+          <TemperingChart tempData={temperingData.tempData} />
+        </>
+      ) : (
+        <Alert severity="info">Сессия отпуска для листа №{meta.sheet} не найдена</Alert>
+      )}
+    </Box>
+  </Paper>
       <Typography variant="caption" color="text.disabled" display="block" textAlign="right" mt={3}>
         Отчёт сформирован: {fmtDate(new Date())} | Лист: {meta.sheet}
       </Typography>

@@ -42,7 +42,7 @@ const TemperingReport = () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await api.get(`/tempering/session-by-key?key=${encodeURIComponent(businessKey)}`);
+        const res = await api.get(`/tempering/session-by-key?key=${encodeURIComponent(businessKey)}&coolingMinutes=60`);
         setData(res.data);
       } catch (err) {
         setError(err.response?.data?.error || 'Ошибка загрузки данных отпуска');
@@ -67,6 +67,16 @@ const TemperingReport = () => {
       return null;
     }
 
+    // Функция для преобразования данных в формат [timestamp, value]
+    // Это позволяет оси X корректно масштабироваться и показывать даты
+    const toChartData = (key) =>
+      data.tempData.map(d => {
+        const val = d[key];
+        // Если значение отсутствует, возвращаем null, Highcharts корректно обработает разрывы
+        return [new Date(d.time).getTime(), val != null ? Number(val) : null];
+      });
+
+
     const categories = data.tempData.map(d => {
       const date = new Date(d.time);
       return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -76,15 +86,25 @@ const TemperingReport = () => {
       chart: {
         type: 'spline',
         height: 400,
-        zoomType: 'x'
+        zoomType: 'xy'
       },
       title: {
         text: 'Температурный профиль отпуска'
       },
       xAxis: {
-        categories: categories,
+        type: 'datetime', // ⬅️ Ключевое изменение: используем datetime вместо категорий
         title: { text: 'Время' },
-        labels: { rotation: -45 }
+        crosshair: true,
+        // Автоматический подбор формата меток оси X в зависимости от масштаба
+        dateTimeLabelFormats: {
+          second: '%H:%M:%S',
+          minute: '%H:%M',
+          hour: '%H:%M',
+          day: '%d.%m',
+          week: '%d.%m',
+          month: '%m.%Y',
+          year: '%Y'
+        }
       },
       yAxis: {
         title: { text: 'Температура, °C' },
@@ -92,6 +112,10 @@ const TemperingReport = () => {
       },
       tooltip: {
         shared: true,
+        crosshairs: true,
+        useHTML: true,
+        // ⬅️ Добавляем полную дату и время в заголовок тултипа
+        headerFormat: '<span style="font-size: 13px; font-weight: bold;">{point.key:%d.%m.%Y %H:%M:%S}</span><br/>',
         valueSuffix: ' °C'
       },
       legend: {
@@ -106,24 +130,24 @@ const TemperingReport = () => {
       series: [
         {
           name: 'Заданная температура',
-          data: data.tempData.map(d => d.tempRef),
+          data: toChartData('tempRef'),
           color: '#1976d2',
           dashStyle: 'Dash'
         },
         {
           name: 'Фактическая температура',
-          data: data.tempData.map(d => d.tempAct),
+          data: toChartData('tempAct'),
           color: '#d29922'
         },
         {
           name: 'T1',
-          data: data.tempData.map(d => d.t1),
+          data: toChartData('t1'),
           color: '#2e7d32',
           visible: false
         },
         {
           name: 'T2',
-          data: data.tempData.map(d => d.t2),
+          data: toChartData('t2'),
           color: '#c62828',
           visible: false
         }
@@ -171,9 +195,9 @@ const TemperingReport = () => {
     <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh', '@media print': { p: 1, bgcolor: '#fff', '& .no-print': { display: 'none !important' } } }}>
       {/* Кнопки управления */}
       <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
+        {/*<Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
           Назад
-        </Button>
+        </Button>*/}
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="contained" startIcon={<Print />} onClick={() => window.print()}>
           Печать

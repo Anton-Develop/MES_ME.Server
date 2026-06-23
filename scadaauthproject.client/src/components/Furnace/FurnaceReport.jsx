@@ -596,9 +596,9 @@ const FurnaceReport = () => {
     <PageContainer>
       {/* Кнопки */}
       <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
+       {/*  <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} variant="outlined">
           Назад
-        </Button>
+        </Button>*/}
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="contained" startIcon={<Print />} onClick={() => window.print()}>
           Печать

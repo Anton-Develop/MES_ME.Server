@@ -114,25 +114,19 @@ internal static class Sql
     public const string FindCompletedSheets = """
     WITH
     presence AS (
-        SELECT sheet, melt, part_no, pack, zone, time, alarm_exist, zone_occup,
+        SELECT sheet, melt, part_no, pack, zone, time, alarm_exist,
             tot_heat_time, load_speed, unload_speed, tmp_set,
-            time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap,
-            LAG(zone_occup) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS prev_occup
+            time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap
         FROM plc.furnace_zone_data
         WHERE zone IN ('F1','F2','F3','F4')
+          AND zone_occup = TRUE
           AND sheet > 0 AND part_no > 0 AND pack > 0
           AND time > NOW() - INTERVAL '3 days' 
     ),
     with_flag AS (
         SELECT *,
-            CASE 
-                WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1
-                -- Явный выход: предыдущая запись zone_occup=FALSE, текущая TRUE — реальный повторный вход
-                WHEN prev_occup = FALSE AND zone_occup = TRUE THEN 1
-                ELSE 0 
-            END AS is_new_session
+            CASE WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1 ELSE 0 END AS is_new_session
         FROM presence
-        WHERE zone_occup = TRUE  -- для агрегации используем только записи присутствия
     ),
     with_session AS (
         SELECT *,
@@ -200,20 +194,6 @@ internal static class Sql
           AND agg.exited_at IS NOT NULL
           AND agg.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
           AND agg.total_minutes <= 50
-          -- Исключить сессии, полностью вложенные во временной диапазон другой сессии того же листа.
-          -- Когда PLC логирует лист параллельно в F3 и F4, возникают короткие pass_id-артефакты
-          -- с тем же (sheet, melt, part_no, pack). Оставляем только наиболее длинную охватывающую сессию.
-          AND NOT EXISTS (
-              SELECT 1 FROM agg agg2
-              WHERE agg2.sheet    = agg.sheet
-                AND agg2.melt     = agg.melt
-                AND agg2.part_no  = agg.part_no
-                AND agg2.pack     = agg.pack
-                AND agg2.pass_id <> agg.pass_id
-                AND agg2.entered_at <= agg.entered_at
-                AND agg2.exited_at  >= agg.exited_at
-                AND agg2.total_minutes > agg.total_minutes
-          )
     ),
     existing_max AS (
         SELECT sheet, melt, part_no, pack, 
@@ -244,25 +224,19 @@ internal static class Sql
     public const string FindMissedSheets = """
     WITH
     presence AS (
-        SELECT sheet, melt, part_no, pack, zone, time, alarm_exist, zone_occup,
+        SELECT sheet, melt, part_no, pack, zone, time, alarm_exist,
             tot_heat_time, load_speed, unload_speed, tmp_set,
-            time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap,
-            LAG(zone_occup) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS prev_occup
+            time - LAG(time) OVER (PARTITION BY sheet, melt, part_no, pack ORDER BY time) AS gap
         FROM plc.furnace_zone_data
         WHERE zone IN ('F1','F2','F3','F4')
+          AND zone_occup = TRUE
           AND sheet > 0 AND part_no > 0 AND pack > 0
           AND time > NOW() - (@DaysBack || ' days')::INTERVAL
     ),
     with_flag AS (
         SELECT *,
-            CASE 
-                WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1
-                -- Явный выход: предыдущая запись zone_occup=FALSE, текущая TRUE — реальный повторный вход
-                WHEN prev_occup = FALSE AND zone_occup = TRUE THEN 1
-                ELSE 0 
-            END AS is_new_session
+            CASE WHEN gap IS NULL OR gap > INTERVAL '30 minutes' THEN 1 ELSE 0 END AS is_new_session
         FROM presence
-        WHERE zone_occup = TRUE  -- для агрегации используем только записи присутствия
     ),
     with_session AS (
         SELECT *,
@@ -330,20 +304,6 @@ internal static class Sql
           AND agg.exited_at IS NOT NULL
           AND agg.total_minutes <= 50
           AND agg.exited_at < NOW() - INTERVAL '5 minutes'
-          -- Исключить сессии, полностью вложенные во временной диапазон другой сессии того же листа.
-          -- Когда PLC логирует лист параллельно в F3 и F4, возникают короткие pass_id-артефакты
-          -- с тем же (sheet, melt, part_no, pack). Оставляем только наиболее длинную охватывающую сессию.
-          AND NOT EXISTS (
-              SELECT 1 FROM agg agg2
-              WHERE agg2.sheet    = agg.sheet
-                AND agg2.melt     = agg.melt
-                AND agg2.part_no  = agg.part_no
-                AND agg2.pack     = agg.pack
-                AND agg2.pass_id <> agg.pass_id
-                AND agg2.entered_at <= agg.entered_at
-                AND agg2.exited_at  >= agg.exited_at
-                AND agg2.total_minutes > agg.total_minutes
-          )
     ),
     existing_max AS (
         SELECT sheet, melt, part_no, pack, 
@@ -370,6 +330,8 @@ internal static class Sql
      AND em.part_no = up.part_no AND em.pack = up.pack
     ORDER BY up.entered_at
     """;
+
+
 
 
 
