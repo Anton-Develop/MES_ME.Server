@@ -171,6 +171,9 @@ const ZoneChart = ({ title, tempsObj, seriesDef, refKey, height = 260 }) => {
     if (!series.length) return null;
 
     return {
+      time: {
+      timezone: 'Asia/Yekaterinburg'
+    },
       chart: {
         type:            'line',
         height,
@@ -342,6 +345,9 @@ if (refMap.size) {
 
 
     return {
+      time: {
+      timezone: 'Asia/Yekaterinburg'
+    },
       chart:    { type: 'line', height: 320, zoomType: 'x', animation: false,
                   backgroundColor: '#fff', style: { fontFamily: '"Roboto","Helvetica","Arial",sans-serif' } },
       title:    { text: null },

@@ -63,18 +63,17 @@ const TemperingReport = () => {
 
   // ✅ Подготовка данных для графика Highcharts
   const chartOptions = useMemo(() => {
-    if (!data?.tempData || data.tempData.length === 0) {
-      return null;
-    }
+  if (!data?.tempData || data.tempData.length === 0) {
+    return null;
+  }
 
-    // Функция для преобразования данных в формат [timestamp, value]
-    // Это позволяет оси X корректно масштабироваться и показывать даты
-    const toChartData = (key) =>
-      data.tempData.map(d => {
-        const val = d[key];
-        // Если значение отсутствует, возвращаем null, Highcharts корректно обработает разрывы
-        return [new Date(d.time).getTime(), val != null ? Number(val) : null];
-      });
+  // ✅ Упрощаем: просто передаём UTC timestamp
+  const toChartData = (key) =>
+    data.tempData.map(d => {
+      const val = d[key];
+      const date = new Date(d.time);
+      return [date.getTime(), val != null ? Number(val) : null];
+    });
 
 
     const categories = data.tempData.map(d => {
@@ -83,6 +82,9 @@ const TemperingReport = () => {
     });
 
     return {
+       time: {
+      timezone: 'Asia/Yekaterinburg'
+    },
       chart: {
         type: 'spline',
         height: 400,
@@ -104,7 +106,8 @@ const TemperingReport = () => {
           week: '%d.%m',
           month: '%m.%Y',
           year: '%Y'
-        }
+        },
+        
       },
       yAxis: {
         title: { text: 'Температура, °C' },
