@@ -1,5 +1,5 @@
 // src/components/Reports/SheetCustomerReport.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Grid, Typography, Chip, Divider, Button,
@@ -10,6 +10,9 @@ import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 import Exporting  from 'highcharts/modules/exporting';
 import ExportData from 'highcharts/modules/export-data';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
 import { furnaceApi }   from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
 import api from '../../api';
@@ -216,6 +219,9 @@ const HeatingCombinedChart = ({ zones }) => {
     }
 
     return {
+      time: {
+      timezone: 'Asia/Yekaterinburg'
+    },
       chart: {
         type: 'line', height: 320, zoomType: 'x', animation: false,
         backgroundColor: '#fff',
@@ -290,6 +296,9 @@ const TemperingChart = ({ tempData }) => {
       });
 
     return {
+      time: { 
+      timezone: 'Asia/Yekaterinburg'
+    },
       chart: { type: 'spline', height: 320, zoomType: 'xy', animation: false, backgroundColor: '#fff' },
       title: { text: null },
       credits: { enabled: false },
@@ -340,6 +349,7 @@ const TemperingChart = ({ tempData }) => {
 const SheetCustomerReport = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const reportRef = useRef(null);
 
   const searchParams   = new URLSearchParams(location.search);
   const furnaceKey     = searchParams.get('furnaceKey');
@@ -385,7 +395,64 @@ const SheetCustomerReport = () => {
     }
   }, [isPrint, loading, furnaceSession, quenchingSession]);
 
+// Обработчик: сохраняем PDF + открываем диалог печати
+  const handlePrintAndSave = async () => {
+    if (!reportRef.current) return;
 
+    const element = reportRef.current;
+    const fileName = `Отчет_лист_${meta.sheet}_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+    try {
+      // 1. Генерируем PDF
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        letterRendering: true,
+        backgroundColor: '#ffffff',
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Первая страница
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      // Добавляем остальные страницы, если контент длинный
+      while (heightLeft > 0) {
+        position = -pdfHeight + (imgHeight - heightLeft);
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      // 2. Скачиваем PDF
+      pdf.save(fileName);
+
+      // 3. Открываем диалог печати (с задержкой)
+      setTimeout(() => {
+        window.print();
+      }, 500);
+
+    } catch (err) {
+      console.error('Ошибка генерации PDF:', err);
+      // Если PDF не сгенерировался — хотя бы откроем печать
+      window.print();
+    }
+  };
 
   const f = furnaceSession;
 const q = quenchingSession;
@@ -479,6 +546,7 @@ useEffect(() => {
   }
   return (
     <Box
+      ref={reportRef}
       sx={{
         p: 3,
         '@media print': {
@@ -489,13 +557,15 @@ useEffect(() => {
     >
      {/* ── Кнопки ── */}
   <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-    <Box sx={{ flexGrow: 1 }} />
-    <Button variant="contained" startIcon={<Print />} onClick={() => {
-                                                                      setTimeout(() => window.print(), 300);
-                                                                     }}>
-      Печать / Сохранить в PDF
-    </Button>
-  </Box>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button 
+          variant="contained" 
+          startIcon={<Print />} 
+          onClick={handlePrintAndSave}
+        >
+          Печать / Сохранить в PDF
+        </Button>
+      </Box>
 
       {/* ── Шапка ── */}
       <Paper sx={{ p: 2.5, mb: 2,
@@ -587,6 +657,7 @@ useEffect(() => {
       </Paper>
 
       {/* ── Закалка ── */}
+      {/* 
       {q ? (
         <>
           <Box sx={{ mb: 1, display: 'flex', alignItems: 'baseline', gap: 1 }}>
@@ -602,9 +673,10 @@ useEffect(() => {
             alignItems: 'stretch',
             flexWrap: { xs: 'wrap', md: 'nowrap' },
           }}>
-
+*/}
             {/* Давления — закалка */}
-            <Paper variant="outlined" sx={{
+        {/*       
+             <Paper variant="outlined" sx={{
               flex: '1 1 0', minWidth: 0, p: 2,
               borderTop: '3px solid #1565c0', borderRadius: 2,
               '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
@@ -615,13 +687,15 @@ useEffect(() => {
               <ValueRow label="Верх (закалка)" value={fmtVal(q.pressTopZak, 2, 'МПа')} color="#1565c0" />
               <ValueRow label="Низ (закалка)"  value={fmtVal(q.pressBotZak, 2, 'МПа')} color="#1565c0" />
               <Divider sx={{ my: 1 }} />
-             {/*  <ValueRow label="Секция 9"  value={fmtVal(q.press9,  2, 'МПа')} />
+              
+               <ValueRow label="Секция 9"  value={fmtVal(q.press9,  2, 'МПа')} />
               <ValueRow label="Секция 10" value={fmtVal(q.press10, 2, 'МПа')} />
               <ValueRow label="Секция 11" value={fmtVal(q.press11, 2, 'МПа')} />
-              <ValueRow label="Секция 12" value={fmtVal(q.press12, 2, 'МПа')} />*/}
+              <ValueRow label="Секция 12" value={fmtVal(q.press12, 2, 'МПа')} />
             </Paper>
+            
 
-            {/* Давления — ламинарное */}
+           
             <Paper variant="outlined" sx={{
               flex: '1 1 0', minWidth: 0, p: 2,
               borderTop: '3px solid #00695c', borderRadius: 2,
@@ -639,7 +713,7 @@ useEffect(() => {
               <ValueRow label="Воздух (гидроакк.)" value={fmtVal(q.airPrs, 2, 'МПа')} />
             </Paper>
 
-            {/* Температуры воды */}
+            
             <Paper variant="outlined" sx={{
               flex: '1 1 0', minWidth: 0, p: 2,
               borderTop: '3px solid #bf360c', borderRadius: 2,
@@ -662,7 +736,7 @@ useEffect(() => {
       ) : (
         <Alert severity="info">Сессия закалки для листа №{meta.sheet} не найдена</Alert>
       )}
-
+            */}
         {/* ── Отпуск ── */}
   <Paper sx={{ mt: 2, mb: 2, p: 0, overflow: 'hidden', borderRadius: 2,
     '@media print': {

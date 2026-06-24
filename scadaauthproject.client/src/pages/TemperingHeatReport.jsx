@@ -288,7 +288,7 @@ function buildChartOptions(details, targetTemp, endedAt, session) {
         title: { text: '%', style: { color: MUTED }, rotation: 0, margin: 8 },
         labels: { format: '{value}%', style: { color: MUTED, fontSize: '10px' } },
         opposite: true,
-        min: 0, max: 110,
+        min: 0, max: 100,
         gridLineWidth: 0,
       },
     ],
