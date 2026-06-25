@@ -16,6 +16,7 @@ import html2canvas from 'html2canvas';
 import { furnaceApi }   from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
 import api from '../../api';
+import { generateSheetPdf } from '../../pdf/SheetPdfGenerator';
 
 if (typeof Exporting  === 'function') Exporting(Highcharts);
 if (typeof ExportData === 'function') ExportData(Highcharts);
@@ -172,7 +173,7 @@ const buildContinuousSeries = (zonesDef) => {
 // ---------------------------------------------------------------------------
 // Сводный график нагрева — аналог CombinedChart из FurnaceReport
 // ---------------------------------------------------------------------------
-const HeatingCombinedChart = ({ zones }) => {
+const HeatingCombinedChart = ({ zones, chartRef  }) => {
   const options = useMemo(() => {
     const profile = buildContinuousSeries(zones);
     if (!profile) return null;
@@ -259,6 +260,7 @@ const HeatingCombinedChart = ({ zones }) => {
 
   return (
     <HighchartsReact
+      ref={chartRef}
       highcharts={Highcharts}
       options={options}
       containerProps={{ style: { height: '320px' } }}
@@ -285,7 +287,7 @@ const ValueRow = ({ label, value, color }) => (
 // ---------------------------------------------------------------------------
 // График отпуска
 // ---------------------------------------------------------------------------
-const TemperingChart = ({ tempData }) => {
+const TemperingChart = ({ tempData, chartRef  }) => {
   const options = useMemo(() => {
     if (!tempData || tempData.length === 0) return null;
 
@@ -337,6 +339,7 @@ const TemperingChart = ({ tempData }) => {
 
   return (
     <HighchartsReact
+      ref={chartRef}
       highcharts={Highcharts}
       options={options}
       containerProps={{ style: { height: '320px' } }}
@@ -350,6 +353,9 @@ const SheetCustomerReport = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const reportRef = useRef(null);
+
+  const heatingChartRef = useRef(null);
+  const temperingChartRef = useRef(null);
 
   const searchParams   = new URLSearchParams(location.search);
   const furnaceKey     = searchParams.get('furnaceKey');
@@ -396,7 +402,7 @@ const SheetCustomerReport = () => {
   }, [isPrint, loading, furnaceSession, quenchingSession]);
 
 // Обработчик: сохраняем PDF + открываем диалог печати
-  const handlePrintAndSave = async () => {
+  /*const handlePrintAndSave = async () => {
     if (!reportRef.current) return;
 
     const element = reportRef.current;
@@ -452,7 +458,7 @@ const SheetCustomerReport = () => {
       // Если PDF не сгенерировался — хотя бы откроем печать
       window.print();
     }
-  };
+  };*/
 
   const f = furnaceSession;
 const q = quenchingSession;
@@ -556,16 +562,35 @@ useEffect(() => {
       }}
     >
      {/* ── Кнопки ── */}
-  <Box className="no-print" sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Box sx={{ flexGrow: 1 }} />
-        <Button 
-          variant="contained" 
-          startIcon={<Print />} 
-          onClick={handlePrintAndSave}
-        >
-          Печать / Сохранить в PDF
-        </Button>
-      </Box>
+  <Button
+    variant="contained"
+    onClick={async () => {
+
+        await generateSheetPdf({
+
+            meta,
+
+            furnaceSession: f,
+
+            temperingData,
+
+            heatingChartRef,
+
+            temperingChartRef
+
+        });
+
+    }}
+>
+    PDF
+</Button>
+<Button
+    variant="outlined"
+    startIcon={<Print />}
+    onClick={() => window.print()}
+>
+    Печать
+</Button>
 
       {/* ── Шапка ── */}
       <Paper sx={{ p: 2.5, mb: 2,
@@ -646,7 +671,7 @@ useEffect(() => {
         </Box>
         <Box sx={{ p: 1 }}>
           {hasTemps ? (
-            <HeatingCombinedChart zones={zones} />
+            <HeatingCombinedChart zones={zones}     chartRef={heatingChartRef} />
           ) : (
             <Alert severity="info" sx={{ m: 1 }}>
               Температурные данные нагрева отсутствуют
@@ -781,7 +806,10 @@ useEffect(() => {
             </Grid>
           </Grid>
           
-          <TemperingChart tempData={temperingData.tempData} />
+          <TemperingChart
+          tempData={temperingData.tempData}
+          chartRef={temperingChartRef}
+           />
         </>
       ) : (
         <Alert severity="info">Сессия отпуска для листа №{meta.sheet} не найдена</Alert>
