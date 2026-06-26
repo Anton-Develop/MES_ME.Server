@@ -41,38 +41,73 @@
   color: #888;
 }
 /* Принудительные стили ТОЛЬКО для диалога печати браузера */
+/* === Настройки страницы при печати === */
+@page {
+    size: A4 landscape;
+    margin: 8mm;
+}
+
+/* При печати убираем всё лишнее */
 @media print {
-  /* Делаем фон страницы и графика белым, а текст чёрным */
-  body, 
-  .highcharts-container, 
-  .highcharts-root, 
-  .highcharts-background {
-    background-color: #ffffff !important;
-    fill: #ffffff !important;
-    color: #000000 !important;
-  }
+    html, body {
+        width: 297mm;
+        height: 210mm;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
 
-  /* Перекрашиваем подписи осей, легенду и заголовки в чёрный цвет */
-  .highcharts-axis-labels text, 
-  .highcharts-legend-item text, 
-  .highcharts-title,
-  .highcharts-data-label text {
-    fill: #000000 !important;
-    color: #000000 !important;
-  }
+    /* Скрываем кнопки, алерты, футер */
+    .no-print,
+    button,
+    .MuiAlert-root,
+    .MuiCircularProgress-root {
+        display: none !important;
+    }
 
-  /* Опционально: скрываем весь интерфейс MUI (кнопки, меню) при печати, 
-     чтобы на листе остался только сам график */
-  body > *:not(.highcharts-container) {
-    display: none !important;
-  }
-  
-  /* Растягиваем график на всю ширину печатного листа */
-  .highcharts-container {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-  }
+    /* Контейнер отчёта — без отступов */
+    .report-container {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100%;
+    }
+
+    /* Блок шапки + нагрева — не разрывать */
+    .page-heating {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        height: 194mm; /* почти вся страница A4 landscape */
+        overflow: hidden;
+    }
+
+    /* Отпуск — всегда с новой страницы */
+    .page-tempering {
+        page-break-before: always;
+        break-before: page;
+        height: 194mm;
+        overflow: hidden;
+    }
+
+    /* Фиксируем высоту графиков при печати */
+    .chart-container {
+        height: 100mm !important;
+        max-height: 100mm !important;
+        width: 100% !important;
+    }
+
+    .chart-container svg {
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    /* Paper без теней и скруглений */
+    .MuiPaper-root {
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+
 }
