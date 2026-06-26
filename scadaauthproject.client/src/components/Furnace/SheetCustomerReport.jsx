@@ -12,7 +12,7 @@ import Exporting  from 'highcharts/modules/exporting';
 import ExportData from 'highcharts/modules/export-data';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-
+import PrintStyles from '../PrintStyles';
 import { furnaceApi }   from '../../api/furnaceApi';
 import { quenchingApi } from '../../api/quenchingApi';
 import api from '../../api';
@@ -551,276 +551,186 @@ useEffect(() => {
     return <Alert severity="warning" sx={{ m: 3 }}>Данные для листа №{furnaceKey } не найдены</Alert>;
   }
   return (
+     
+            <>
+            <PrintStyles /> 
     <Box
-      ref={reportRef}
-      sx={{
-        p: 3,
-        '@media print': {
-          p: 1,
-          '& .no-print': { display: 'none !important' },
-        },
-      }}
+        ref={reportRef}
+        className="report-container"
+        sx={{
+            p: 3,
+        }}
     >
-     {/* ── Кнопки ── */}
-  <Button
-    variant="contained"
-    onClick={async () => {
+        {/* ── Кнопки (скрываются при печати) ── */}
+        <Stack direction="row" spacing={2} mb={2} className="no-print">
+            <Button
+                variant="contained"
+                onClick={async () => {
+                    await generateSheetPdf({
+                        meta,
+                        furnaceSession: f,
+                        temperingData,
+                        heatingChartRef,
+                        temperingChartRef,
+                    });
+                }}
+            >
+                PDF
+            </Button>
+            <Button
+                variant="outlined"
+                startIcon={<Print />}
+                onClick={() => window.print()}
+            >
+                Печать
+            </Button>
+        </Stack>
 
-        await generateSheetPdf({
+        {/* ══════════════════════════════════════════════
+            СТРАНИЦА 1: Шапка + Нагрев
+        ══════════════════════════════════════════════ */}
+        <Box className="page-heating">
+            {/* Шапка */}
+            <Paper sx={{ p: 2.5, mb: 2 }}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
+                    <Typography variant="h5" fontWeight={700}>
+                        Отчёт о листе №{meta.sheet}
+                    </Typography>
+                    {f?.hadAlarm && <Chip label="АВАРИЯ (нагрев)" color="error" size="small" />}
+                    {q?.hadAlarm && <Chip label="АВАРИЯ (закалка)" color="error" size="small" />}
+                </Stack>
 
-            meta,
+                <Grid container spacing={1.5} sx={{ mb: 2 }}>
+                    {[
+                        { label: 'Лист', value: meta.sheet },
+                        { label: 'Сляб', value: meta.slab ?? '—' },
+                        { label: 'Плавка', value: meta.melt ?? '—' },
+                        { label: 'Партия', value: meta.partNo ?? '—' },
+                        { label: 'Пачка', value: meta.pack ?? '—' },
+                        { label: 'Марка стали', value: meta.alloyCodeText ?? '—' },
+                        { label: 'Толщина', value: meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—' },
+                    ].map(({ label, value }) => (
+                        <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
+                            <Box>
+                                <Typography variant="caption" color="text.secondary">{label}</Typography>
+                                <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+                                    {value}
+                                </Typography>
+                            </Box>
+                        </Grid>
+                    ))}
+                </Grid>
 
-            furnaceSession: f,
+                <Divider sx={{ my: 1.5 }} />
 
-            temperingData,
-
-            heatingChartRef,
-
-            temperingChartRef
-
-        });
-
-    }}
->
-    PDF
-</Button>
-<Button
-    variant="outlined"
-    startIcon={<Print />}
-    onClick={() => window.print()}
->
-    Печать
-</Button>
-
-      {/* ── Шапка ── */}
-      <Paper sx={{ p: 2.5, mb: 2,
-        '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid', boxShadow: 'none' }
-       }}>
-              <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
-                  <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      Отчёт о листе №{meta.sheet}
-                      
-                  </Typography>
-
-                  
-                  {f?.hadAlarm && <Chip label="АВАРИЯ (нагрев)" color="error" size="small" />}
-                  {q?.hadAlarm && <Chip label="АВАРИЯ (закалка)" color="error" size="small" />}
-              </Stack>
-
-        {/* Метаданные */}
-        <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          {[
-            { label: 'Лист',        value: meta.sheet },
-                      { label: 'Сляб', value: meta.slab ?? '—' },
-                 
-            { label: 'Плавка',      value: meta.melt          ?? '—' },
-            { label: 'Партия',      value: meta.partNo        ?? '—' },
-            { label: 'Пачка',       value: meta.pack          ?? '—' },
-            { label: 'Марка стали', value: meta.alloyCodeText ?? '—' },
-            { label: 'Толщина',     value: meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—' },
-          ].map(({ label, value }) => (
-            <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">{label}</Typography>
-                <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
-                  {value}
-                </Typography>
-              </Box>
-            </Grid>
-          ))}
-        </Grid>
-
-        <Divider sx={{ my: 1.5 }} />
-
-        {/* Время нагрева и закалки */}
-        <Grid container spacing={1.5}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Typography variant="caption" color="text.secondary">Вход в печь</Typography>
-            <Typography variant="body2" fontWeight={600}>{fmtDate(f?.enteredAt)}</Typography>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Typography variant="caption" color="text.secondary">Выход из печи</Typography>
-            <Typography variant="body2" fontWeight={600}>{fmtDate(f?.exitedAt)}</Typography>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Typography variant="caption" color="text.secondary">Время нагрева</Typography>
-            <Typography variant="body2" fontWeight={700} color="warning.dark">
-              {fmtMin(f?.totalMin)}
-            </Typography>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Typography variant="caption" color="text.secondary">Время закалки</Typography>
-            <Typography variant="body2" fontWeight={700} color="info.dark">
-              {fmtSec(q?.totalSec)}
-            </Typography>
-          </Grid>
-        </Grid>
-      </Paper>
-
-      {/* ── Сводный график нагрева ── */}
-      <Paper sx={{ mb: 2, p: 0, overflow: 'hidden', borderRadius: 2,
-        '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid', boxShadow: 'none' }
-       }}>
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="subtitle2" fontWeight={600}>
-            Нагрев — сводный график по зонам
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Каждая линия — среднее из 4 термопар зоны. Пунктир — задание.
-          </Typography>
-        </Box>
-        <Box sx={{ p: 1 }}>
-          {hasTemps ? (
-            <HeatingCombinedChart zones={zones}     chartRef={heatingChartRef} />
-          ) : (
-            <Alert severity="info" sx={{ m: 1 }}>
-              Температурные данные нагрева отсутствуют
-              {f && ` (период ${fmtDate(f.enteredAt)} — ${fmtDate(f.exitedAt)})`}
-            </Alert>
-          )}
-        </Box>
-      </Paper>
-
-      {/* ── Закалка ── */}
-      {/* 
-      {q ? (
-        <>
-          <Box sx={{ mb: 1, display: 'flex', alignItems: 'baseline', gap: 1 }}>
-            <Typography variant="subtitle1" fontWeight={600}>Закалка</Typography>
-            <Typography variant="caption" color="text.secondary">
-              {fmtDate(q.enteredAt)} — {fmtDate(q.exitedAt)}
-            </Typography>
-          </Box>
-
-          <Box sx={{
-            display: 'flex',
-            gap: 1.5,
-            alignItems: 'stretch',
-            flexWrap: { xs: 'wrap', md: 'nowrap' },
-          }}>
-*/}
-            {/* Давления — закалка */}
-        {/*       
-             <Paper variant="outlined" sx={{
-              flex: '1 1 0', minWidth: 0, p: 2,
-              borderTop: '3px solid #1565c0', borderRadius: 2,
-              '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
-            }}>
-              <Typography variant="subtitle2" fontWeight={700} color="#1565c0" gutterBottom>
-                Давление — закалка
-              </Typography>
-              <ValueRow label="Верх (закалка)" value={fmtVal(q.pressTopZak, 2, 'МПа')} color="#1565c0" />
-              <ValueRow label="Низ (закалка)"  value={fmtVal(q.pressBotZak, 2, 'МПа')} color="#1565c0" />
-              <Divider sx={{ my: 1 }} />
-              
-               <ValueRow label="Секция 9"  value={fmtVal(q.press9,  2, 'МПа')} />
-              <ValueRow label="Секция 10" value={fmtVal(q.press10, 2, 'МПа')} />
-              <ValueRow label="Секция 11" value={fmtVal(q.press11, 2, 'МПа')} />
-              <ValueRow label="Секция 12" value={fmtVal(q.press12, 2, 'МПа')} />
-            </Paper>
-            
-
-           
-            <Paper variant="outlined" sx={{
-              flex: '1 1 0', minWidth: 0, p: 2,
-              borderTop: '3px solid #00695c', borderRadius: 2,
-              '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
-            }}>
-              <Typography variant="subtitle2" fontWeight={700} color="#00695c" gutterBottom>
-                Давление — ламинарное охлаждение
-              </Typography>
-              <ValueRow label="Ламинарка 1 — верх" value={fmtVal(q.pressTopLamin1, 2, 'МПа')} color="#00695c" />
-              <ValueRow label="Ламинарка 1 — низ"  value={fmtVal(q.pressBotLamin1, 2, 'МПа')} color="#00695c" />
-              <Divider sx={{ my: 1 }} />
-              <ValueRow label="Ламинарка 2 — верх" value={fmtVal(q.pressTopLamin2, 2, 'МПа')} color="#00695c" />
-              <ValueRow label="Ламинарка 2 — низ"  value={fmtVal(q.pressBotLamin2, 2, 'МПа')} color="#00695c" />
-              <Divider sx={{ my: 1 }} />
-              <ValueRow label="Воздух (гидроакк.)" value={fmtVal(q.airPrs, 2, 'МПа')} />
+                <Grid container spacing={1.5}>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Вход в печь</Typography>
+                        <Typography variant="body2" fontWeight={600}>{fmtDate(f?.enteredAt)}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Выход из печи</Typography>
+                        <Typography variant="body2" fontWeight={600}>{fmtDate(f?.exitedAt)}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Время нагрева</Typography>
+                        <Typography variant="body2" fontWeight={700} color="warning.dark">
+                            {fmtMin(f?.totalMin)}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Время закалки</Typography>
+                        <Typography variant="body2" fontWeight={700} color="info.dark">
+                            {fmtSec(q?.totalSec)}
+                        </Typography>
+                    </Grid>
+                </Grid>
             </Paper>
 
-            
-            <Paper variant="outlined" sx={{
-              flex: '1 1 0', minWidth: 0, p: 2,
-              borderTop: '3px solid #bf360c', borderRadius: 2,
-              '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' }
-            }}>
-              <Typography variant="subtitle2" fontWeight={700} color="#bf360c" gutterBottom>
-                Температуры воды
-              </Typography>
-              <ValueRow label="Ламинарка 1 — верх" value={fmtTemp(q.tempTopLam1)} color="#1565c0" />
-              <ValueRow label="Ламинарка 1 — низ"  value={fmtTemp(q.tempBotLam1)} color="#1565c0" />
-              <ValueRow label="Ламинарка 2 — верх" value={fmtTemp(q.tempTopLam2)} color="#00695c" />
-              <ValueRow label="Ламинарка 2 — низ"  value={fmtTemp(q.tempBotLam2)} color="#00695c" />
-              <Divider sx={{ my: 1 }} />
-              <ValueRow label="Градирня"           value={fmtTemp(q.tempGrad)}   />
-              <ValueRow label="Гидроаккумулятор"   value={fmtTemp(q.tempHaccum)} />
+            {/* График нагрева */}
+            <Paper sx={{ p: 0, overflow: 'hidden' }}>
+                <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="subtitle2" fontWeight={600}>
+                        Нагрев — сводный график по зонам
+                    </Typography>
+                </Box>
+                <Box sx={{ p: 1 }} className="chart-container">
+                    {hasTemps ? (
+                        <HeatingCombinedChart zones={zones} chartRef={heatingChartRef} />
+                    ) : (
+                        <Alert severity="info">Температурные данные нагрева отсутствуют</Alert>
+                    )}
+                </Box>
             </Paper>
-
-          </Box>
-        </>
-      ) : (
-        <Alert severity="info">Сессия закалки для листа №{meta.sheet} не найдена</Alert>
-      )}
-            */}
-        {/* ── Отпуск ── */}
-  <Paper sx={{ mt: 2, mb: 2, p: 0, overflow: 'hidden', borderRadius: 2,
-    '@media print': {
-      pageBreakBefore: 'always', // ⬅️ Принудительный разрыв страницы
-      breakBefore: 'page',
-      mt: 0,                     // Убираем лишний отступ сверху на бумаге
-      boxShadow: 'none',         // Убираем тени MUI при печати
-    }
-   }}>
-    <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-      <Typography variant="subtitle2" fontWeight={600}>
-        Отпуск
-      </Typography>
-    </Box>
-    <Box sx={{ p: 2 }}>
-      {loadingTempering ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-          <CircularProgress size={24} />
         </Box>
-      ) : temperingData?.session ? (
-        <>
-          <Grid container spacing={1.5} sx={{ mb: 2 }}>
-            <Grid item xs={6} sm={4} md={2}>
-              <Typography variant="caption" color="text.secondary">Печь</Typography>
-              <Typography variant="body2" fontWeight={600}>№{temperingData.session.furnaceNumber ?? '—'}</Typography>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Typography variant="caption" color="text.secondary">Загрузка</Typography>
-              <Typography variant="body2" fontWeight={600}>{fmtDate(temperingData.session.loadedAt)}</Typography>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Typography variant="caption" color="text.secondary">Выгрузка</Typography>
-              <Typography variant="body2" fontWeight={600}>{fmtDate(temperingData.session.unloadedAt)}</Typography>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Typography variant="caption" color="text.secondary">Время в печи</Typography>
-              <Typography variant="body2" fontWeight={700} color="warning.dark">{fmtMin(temperingData.session.totalTimeMin)}</Typography>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Typography variant="caption" color="text.secondary">Температура</Typography>
-              <Typography variant="body2" fontWeight={700} color="primary">{fmtTemp(temperingData.session.tempRef)}</Typography>
-            </Grid>
-          </Grid>
-          
-          <TemperingChart
-          tempData={temperingData.tempData}
-          chartRef={temperingChartRef}
-           />
-        </>
-      ) : (
-        <Alert severity="info">Сессия отпуска для листа №{meta.sheet} не найдена</Alert>
-      )}
+
+        {/* ══════════════════════════════════════════════
+            СТРАНИЦА 2: Отпуск
+        ══════════════════════════════════════════════ */}
+        {temperingData?.session && (
+            <Box className="page-tempering">
+                <Paper sx={{ p: 2.5, height: '100%' }}>
+                    <Typography variant="h5" fontWeight={700} mb={2}>
+                        Отпуск
+                    </Typography>
+
+                    <Grid container spacing={1.5} sx={{ mb: 2 }}>
+                        <Grid item xs={6} sm={4} md={2}>
+                            <Typography variant="caption" color="text.secondary">Печь</Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                №{temperingData.session.furnaceNumber ?? '—'}
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={4} md={2}>
+                            <Typography variant="caption" color="text.secondary">Загрузка</Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                {fmtDate(temperingData.session.loadedAt)}
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={4} md={2}>
+                            <Typography variant="caption" color="text.secondary">Выгрузка</Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                {fmtDate(temperingData.session.unloadedAt)}
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={4} md={2}>
+                            <Typography variant="caption" color="text.secondary">Время в печи</Typography>
+                            <Typography variant="body2" fontWeight={700} color="warning.dark">
+                                {fmtMin(temperingData.session.totalTimeMin)}
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={4} md={2}>
+                            <Typography variant="caption" color="text.secondary">Температура</Typography>
+                            <Typography variant="body2" fontWeight={700} color="primary">
+                                {fmtTemp(temperingData.session.tempRef)}
+                            </Typography>
+                        </Grid>
+                    </Grid>
+
+                    <Box className="chart-container">
+                        <TemperingChart
+                            tempData={temperingData.tempData}
+                            chartRef={temperingChartRef}
+                        />
+                    </Box>
+                </Paper>
+            </Box>
+        )}
+
+        {/* Футер (скрывается при печати — он уже в PDF) */}
+        <Typography
+            variant="caption"
+            color="text.disabled"
+            display="block"
+            textAlign="right"
+            mt={3}
+            className="no-print"
+        >
+            Отчёт сформирован: {fmtDate(new Date())} | Лист: {meta.sheet}
+        </Typography>
     </Box>
-  </Paper>
-      <Typography variant="caption" color="text.disabled" display="block" textAlign="right" mt={3}>
-        Отчёт сформирован: {fmtDate(new Date())} | Лист: {meta.sheet}
-      </Typography>
-    </Box>
-  );
+    </>
+);
 };
 
 export default SheetCustomerReport;

@@ -48,7 +48,7 @@ export function drawHeader(pdf, meta) {
             ['Лист', meta.sheet ?? '—', 'Сляб', meta.slab ?? '—'],
             ['Плавка', meta.melt ?? '—', 'Партия', meta.partNo ?? '—'],
             ['Пачка', meta.pack ?? '—', 'Марка стали', meta.alloyCodeText ?? '—'],
-            ['Толщина', meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—', 'Повторный нагрев', `№${meta.reheatNum ?? 0}`],
+            ['Толщина', meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—'],
         ],
     });
 }
