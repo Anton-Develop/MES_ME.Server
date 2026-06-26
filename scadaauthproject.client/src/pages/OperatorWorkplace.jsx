@@ -11,7 +11,8 @@ const C = {
   orange: '#ff9800',
 };
 
-const emptyGrid = () => Array.from({ length: 8 }, () => null);
+const emptyGrid = () => Array.from({ length: 8 }, () => 0);
+
 const bdrColor = v => {
     if (v == null) return C.panelBd;
     const a = Math.abs(v);
@@ -138,7 +139,122 @@ function NumericInput({ value, onChange, disabled, style, placeholder }) {
     </>
   );
 }
+// ════════════════════════════════════════════════════════════════════
+// ⌨ Текстовая клавиатура (для марки стали: латиница + цифры)
+// ════════════════════════════════════════════════════════════════════
+function TextKeypad({ anchorRect, initial, onCommit, onClose }) {
+    const [buf, setBuf] = useState(initial ?? '');
+    const kpRef = useRef(null);
 
+    const pos = (() => {
+        if (!anchorRect) return { top: 0, left: 0 };
+        const kpW = 340, kpH = 280;
+        let top = anchorRect.bottom + 6;
+        let left = anchorRect.left;
+        if (top + kpH > window.innerHeight) top = anchorRect.top - kpH - 6;
+        if (left + kpW > window.innerWidth - 10) left = anchorRect.right - kpW;
+        if (left < 10) left = 10;
+        return { top, left };
+    })();
+
+    useEffect(() => {
+        const h = e => { if (kpRef.current && !kpRef.current.contains(e.target)) onClose(); };
+        document.addEventListener('mousedown', h);
+        return () => document.removeEventListener('mousedown', h);
+    }, [onClose]);
+
+    const press = ch => {
+        if (ch === 'C') setBuf('');
+        else if (ch === '⌫') setBuf(b => b.slice(0, -1));
+        else if (buf.length < 12) setBuf(b => b + ch);
+    };
+
+    const ROWS = [
+        ['А', 'Б', 'В', '1', '2', '3', '4', '5', '6'],
+        ['Г', 'С', 'Д', 'Е', 'Х', 'Н', 'М', 'Р', 'П'],
+        ['У', 'Ш', 'Л', 'Ф', 'Z', '0', '7', '8', '9'],
+    ];
+
+    const btn = (label, onClick, bg = C.inputBg, color = C.text) => (
+        <button key={label} onClick={onClick} style={{
+            height: 44, minWidth: 36, fontSize: 15, fontWeight: 700, fontFamily: 'monospace',
+            background: bg, color, border: `1px solid ${C.panelBd}`,
+            borderRadius: 5, cursor: 'pointer', padding: '0 6px',
+        }}>{label}</button>
+    );
+
+    return (
+        <div ref={kpRef} onClick={e => e.stopPropagation()} style={{
+            position: 'fixed', top: pos.top, left: pos.left, width: 340,
+            background: C.panel, border: `2px solid ${C.accent}`,
+            borderRadius: 10, padding: 8, zIndex: 5000,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.7)',
+            display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+            <div style={{
+                padding: '5px 8px', background: C.inputBg, borderRadius: 4,
+                fontFamily: 'monospace', fontSize: 18, color: C.text,
+                border: `1px solid ${C.panelBd}`, textAlign: 'right', minHeight: 30,
+            }}>{buf || <span style={{ color: C.dim }}>—</span>}</div>
+            {ROWS.map((row, ri) => (
+                <div key={ri} style={{ display: 'flex', gap: 4 }}>
+                    {row.map(ch => btn(ch, () => press(ch)))}
+                </div>
+            ))}
+            <div style={{ display: 'flex', gap: 4 }}>
+                {btn('C', () => press('C'), '#5a1a1a', '#fff')}
+                {btn('⌫', () => press('⌫'), '#5a3a1a', '#fff')}
+                <div style={{ flex: 1 }} />
+                {btn('✕', onClose, C.panelBd, C.dim)}
+            </div>
+            <button onClick={() => { onCommit(buf || null); }} style={{
+                height: 44, fontSize: 16, fontWeight: 700, fontFamily: 'monospace',
+                background: C.green, color: '#000',
+                border: 'none', borderRadius: 6, cursor: 'pointer',
+            }}>✓ ГОТОВО</button>
+        </div>
+    );
+}
+
+function TextInput({ value, onChange, disabled, style, placeholder }) {
+    const [open, setOpen] = useState(false);
+    const [rect, setRect] = useState(null);
+    const ref = useRef(null);
+
+    const openKp = () => {
+        if (disabled) return;
+        if (ref.current) setRect(ref.current.getBoundingClientRect());
+        setOpen(true);
+    };
+
+    return (
+        <>
+            <div style={{ position: 'relative', display: 'inline-flex', gap: 0 }}>
+                <input
+                    ref={ref} type="text" inputMode="none" readOnly
+                    value={value ?? ''} placeholder={placeholder} disabled={disabled}
+                    onFocus={openKp} onClick={openKp} style={style}
+                />
+                {!disabled && (
+                    <button onClick={openKp} style={{
+                        width: 36, height: style?.height || 45,
+                        background: C.inputBg, border: `1px solid ${C.panelBd}`,
+                        borderLeft: 'none', borderRadius: '0 6px 6px 0',
+                        color: C.accent, cursor: 'pointer', fontSize: 16,
+                    }} title="Клавиатура">⌨</button>
+                )}
+            </div>
+            {open && (
+                <TextKeypad
+                    anchorRect={rect}
+                    initial={value ?? ''}
+                    onCommit={v => { onChange(v); setOpen(false); }}
+                    onClose={() => setOpen(false)}
+                />
+            )}
+        </>
+    );
+}
 // ── Ячейка замера ──
 function HCell({ label, value, onChange, disabled }) {
   return (
@@ -543,7 +659,7 @@ function AddSheetsModal({ open, onClose, onAdd, businessKey }) {
         </div>
 
         {/* Фильтры */}
-        <div style={{ 
+              {/* <div style={{ 
           display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 12,
           padding: 12, background: C.bg, borderRadius: 6, border: `1px solid ${C.panelBd}`
         }}>
@@ -568,7 +684,48 @@ function AddSheetsModal({ open, onClose, onAdd, businessKey }) {
               />
             </div>
           ))}
-        </div>
+        </div>*/}
+              {/* Фильтры */}
+              <div style={{
+                  display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 12,
+                  padding: 12, background: C.bg, borderRadius: 6, border: `1px solid ${C.panelBd}`
+              }}>
+                  {/* Числовые поля */}
+                  {[
+                      { key: 'melt', label: 'Плавка', placeholder: '123' },
+                      { key: 'batch', label: 'Партия', placeholder: '456' },
+                      { key: 'pack', label: 'Пачка', placeholder: '789' },
+                      { key: 'sheet', label: 'Лист', placeholder: '10' },
+                  ].map(f => (
+                      <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <label style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>{f.label}</label>
+                          <NumericInput
+                              value={filters[f.key] !== '' ? Number(filters[f.key]) || null : null}
+                              onChange={v => setFilters(prev => ({ ...prev, [f.key]: v != null ? String(v) : '' }))}
+                              placeholder={f.placeholder}
+                              style={{
+                                  padding: '6px 8px', fontSize: 12, background: C.inputBg, color: C.text,
+                                  border: `1px solid ${C.panelBd}`, borderRadius: '4px 0 0 4px',
+                                  fontFamily: 'monospace', width: '100%', height: 34,
+                              }}
+                          />
+                      </div>
+                  ))}
+                  {/* Текстовое поле — марка стали */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <label style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>Марка стали</label>
+                      <TextInput
+                          value={filters.steelGrade}
+                          onChange={v => setFilters(prev => ({ ...prev, steelGrade: v ?? '' }))}
+                          placeholder="AMg2"
+                          style={{
+                              padding: '6px 8px', fontSize: 12, background: C.inputBg, color: C.text,
+                              border: `1px solid ${C.panelBd}`, borderRadius: '4px 0 0 4px',
+                              fontFamily: 'monospace', width: '100%', height: 34,
+                          }}
+                      />
+                  </div>
+              </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button onClick={loadAvailable} disabled={loading}
@@ -937,7 +1094,26 @@ const handleAddSheetsSuccess = async (count) => {
       }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>
           🔧 РАБОЧЕЕ МЕСТО ОПЕРАТОРА
-        </div>
+              </div>
+              <button
+                  onClick={() => window.location.reload()}
+                  style={{
+                      background: C.inputBg,
+                      border: `1px solid ${C.panelBd}`,
+                      borderRadius: 4,
+                      color: C.dim,
+                      fontSize: 18,
+                      width: 38,
+                      height: 38,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                  }}
+                  title="Обновить страницу"
+              >
+                  🔄 
+              </button>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{
@@ -1130,7 +1306,7 @@ const handleAddSheetsSuccess = async (count) => {
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 280 }}>
                   {currentCassette.sheets.length === 0 ? (
                     <div style={{ padding: 10, textAlign: 'center', color: C.dim, fontSize: 10 }}>Пусто — добавьте лист</div>
-                  ) : currentCassette.sheets.map((cs, i) => (
+                    ) : [...currentCassette.sheets].reverse().map((cs, i) => (
                     <div key={cs.id} style={{
                       padding: '4px 8px', fontSize: 10,
                       background: i % 2 ? 'transparent' : '#ffffff06',
@@ -1138,9 +1314,10 @@ const handleAddSheetsSuccess = async (count) => {
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
                       <div>
-                        <span style={{ color: C.dim }}>{i+1}.</span>{' '}
+                                {/* <span style={{ color: C.dim }}>{i+1}.</span>{' '}*/}
+                        <span style={{ color: C.dim }}>{currentCassette.sheets.length - i}.</span>{' '}
                         <span style={{ color: C.accent, fontWeight: 700 }}>
-                          {cs.sheet?.meltNumber}/{cs.sheet?.sheetNumber}
+                                    {cs.sheet?.meltNumber}/{cs.sheet?.batchNumber}/{cs.sheet?.packNumber}/{cs.sheet?.sheetNumber}
                         </span>{' '}
                         <span style={{ color: C.yellow, fontSize: 9 }}>{cs.sheet?.steelGrade}</span>
                       </div>
