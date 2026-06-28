@@ -18,14 +18,16 @@ const devActions = [
   { text: 'Импорт данных',         icon: <UploadFileIcon />,    route: '/import' },
   { text: 'Входные данные',        icon: <TableChartIcon />,    route: '/input-data' },
   { text: 'План закалки',          icon: <AssignmentIcon />,    route: '/annealing-batch-plan' },
-  { text: 'План отпуска',          icon: <AssignmentIcon />,    route: '/AnnealingPlan-cassete' },
-  { text: 'Расписание закалки',    icon: <CalendarTodayIcon />, route: '/annealing-schedule' },
-  { text: 'Управление кассетами',  icon: <InventoryIcon />,     route: '/cassette-management' },
-  { text: 'Изменение статусов',    icon: <ManageSearchIcon />,  route: '/sheet-status-updater' },
+    
+    { text: 'Панель оператора', icon: <AssignmentIcon />, route: '/HMI' },
+    { text: 'Отпускные печи', icon: <AssignmentIcon />, route: '/tempering-hmi' },
+    { text: 'История прокатанных листов', icon: <AssignmentIcon />, route: '/furnace/sessions' },
+ 
+ 
   { text: 'Пользователи',          icon: <PeopleIcon />,        route: '/users' },
   { text: 'Роли',                  icon: <PeopleIcon />,        route: '/roles' },
   { text: 'Права доступа',         icon: <SecurityIcon />,      route: '/permissions' },
-  { text: 'Отчёты печи',           icon: <AssignmentIcon />,    route: '/furnace/sessions' }
+  
 ];
 
 const DeveloperDashboard = () => {
