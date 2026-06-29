@@ -329,8 +329,8 @@ const TemperingChart = ({ tempData, chartRef  }) => {
       series: [
         { name: 'Заданная', data: toChartData('tempRef'), color: '#1976d2', dashStyle: 'Dash', lineWidth: 2 },
         { name: 'Фактическая', data: toChartData('tempAct'), color: '#d29922', lineWidth: 2 },
-        { name: 'T1', data: toChartData('t1'), color: '#2e7d32', visible: false },
-        { name: 'T2', data: toChartData('t2'), color: '#c62828', visible: false }
+       {/*  { name: 'T1', data: toChartData('t1'), color: '#2e7d32', visible: false },
+        { name: 'T2', data: toChartData('t2'), color: '#c62828', visible: false }*/}
       ]
     };
   }, [tempData]);
