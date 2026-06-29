@@ -126,18 +126,21 @@ public class TemperingAutoCompletionService : BackgroundService
     private async Task ProcessCompletedFurnaceAsync(
      NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
     {
-        // 1. Сначала получаем статистику из PLC именно для этой сессии
-        var plcStats = await con.QueryFirstOrDefaultAsync(@"
-        SELECT 
-            MAX(temp_act) as max_temp,
-            EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60 as duration_min
-        FROM plc.tempering_data
-        WHERE furnace_no = @FurnaceNo 
-          AND time >= (SELECT loaded_at FROM mes.tempering_sessions_new WHERE id = @SessionId)
-    ", new { item.FurnaceNo, item.SessionId });
+        
+         // 1. Получаем статистику из PLC с использованием строго типизированного DTO
+        var plcStats = await con.QueryFirstOrDefaultAsync<PlcStatsDto>(@"
+            SELECT 
+                MAX(temp_act) as max_temp,
+                EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60 as duration_min
+            FROM plc.tempering_data
+            WHERE furnace_no = @FurnaceNo 
+            AND time >= (SELECT loaded_at FROM mes.tempering_sessions_new WHERE id = @SessionId)
+        ", new { item.FurnaceNo, item.SessionId });
 
-        int? durationMin = plcStats?.duration_min != null ? Convert.ToInt32(plcStats.duration_min) : null;
-        decimal? maxTemp = plcStats?.max_temp;
+    // Теперь преобразования безопасны и не вызывают ошибок dynamic binding
+    int? durationMin = plcStats?.duration_min != null ? Convert.ToInt32(plcStats.duration_min) : null;
+    decimal? maxTemp = plcStats?.max_temp;
+
 
         // 2. Обновляем сессию, сохраняя рассчитанные значения в новые колонки
         var updatedBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
@@ -237,6 +240,11 @@ public class TemperingAutoCompletionService : BackgroundService
     }
     */
     // DTO для результата запроса
+    private class PlcStatsDto
+{
+    public decimal? max_temp { get; set; }
+    public double? duration_min { get; set; }
+}
     private class FurnaceCompletionDto
     {
         public int FurnaceNo { get; set; }
