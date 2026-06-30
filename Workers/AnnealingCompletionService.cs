@@ -6,6 +6,8 @@ using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using Dapper;
 using System.Collections.Concurrent;
+using MES_ME.Server.Hubs;
+using Microsoft.AspNetCore.SignalR;
 
 namespace MES_ME.Server.Workers;
 
@@ -25,6 +27,7 @@ public class AnnealingCompletionService : BackgroundService
     private readonly ILogger<AnnealingCompletionService> _logger;
     private readonly NpgsqlDataSource _dataSource;
     private readonly IMemoryCache _completedCache;
+    private readonly IHubContext<MeasurementHub> _measurementHub;
 
     private readonly ConcurrentDictionary<string, bool> _lastZoneOccup = new();
     private readonly ConcurrentDictionary<string, string> _currentSheetInZone = new();
@@ -45,13 +48,14 @@ public class AnnealingCompletionService : BackgroundService
         IServiceProvider services,
         ILogger<AnnealingCompletionService> logger,
         NpgsqlDataSource dataSource,
-        IMemoryCache completedCache)
+        IMemoryCache completedCache,IHubContext<MeasurementHub> measurementHub)
     {
         _opcService = opcService;
         _services = services;
         _logger = logger;
         _dataSource = dataSource;
         _completedCache = completedCache;
+        _measurementHub = measurementHub;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -86,75 +90,76 @@ public class AnnealingCompletionService : BackgroundService
     }
 
     // ====================================================================
-    // Восстановление состояния при старте
-    // ====================================================================
-    private async Task RestoreStateFromOpcUaAsync()
+// Восстановление состояния при старте
+// ====================================================================
+private async Task RestoreStateFromOpcUaAsync()
+{
+    _logger.LogInformation("Восстановление состояния трекинга листов из OPC UA...");
+    using var scope = _services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    List<InputDatum> activeSheets;
+    try
     {
-        _logger.LogInformation("Восстановление состояния трекинга листов из OPC UA...");
+        activeSheets = await context.InputData
+            .Where(s => s.QuenchingStatus == "В процессе"
+                     || s.Status == "На входном рольганге"
+                     || s.Status == "В печи закалки"
+                     || s.Status == "В охлаждении"
+                     || s.Status == "Измерение планшетности")
+            .ToListAsync();
 
-        using var scope = _services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        _logger.LogInformation("Найдено {Count} активных листов в БД для привязки", activeSheets.Count);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Не удалось загрузить активные листы из БД");
+        activeSheets = new List<InputDatum>();
+    }
 
-        List<InputDatum> activeSheets;
+    foreach (var zone in _zonesInOrder)
+    {
         try
         {
-            activeSheets = await context.InputData
-                .Where(s => s.QuenchingStatus == "В процессе"
-                         || s.Status == "На входном рольганге"
-                         || s.Status == "В печи закалки"
-                         || s.Status == "В охлаждении")
-                .ToListAsync();
+            var occupValue = _opcService.GetValue(GetZoneAlias(zone, "ZoneOccup"))?.Value;
+            if (occupValue is not bool isOccupied || !isOccupied)
+            {
+                _lastZoneOccup[zone] = false;
+                continue;
+            }
 
-            _logger.LogInformation("Найдено {Count} активных листов в БД для привязки", activeSheets.Count);
+            _lastZoneOccup[zone] = true;
+
+            var matId = await FindOrCreateSheetByBusinessKeyAsync(context, zone);
+
+            if (string.IsNullOrEmpty(matId) && activeSheets.Count == 1)
+            {
+                matId = activeSheets[0].MatId;
+                _logger.LogWarning(
+                    "Бизнес-ключи недоступны, привязываем единственный активный лист {MatId} к зоне {Zone}",
+                    matId, zone);
+            }
+
+            if (!string.IsNullOrEmpty(matId))
+            {
+                _currentSheetInZone[zone] = matId;
+                _logger.LogInformation("✅ Восстановлен лист {MatId} в зоне {Zone}", matId, zone);
+
+                // ❌ Убираем создание записи измерения при восстановлении X2
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "⚠️ Зона {Zone} занята (ZoneOccup=true), но восстановить MatId не удалось.",
+                    zone);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Не удалось загрузить активные листы из БД");
-            activeSheets = new List<InputDatum>();
-        }
-
-        foreach (var zone in _zonesInOrder)
-        {
-            try
-            {
-                // 🆕 Используем GetZoneAlias для корректного имени
-                var occupValue = _opcService.GetValue(GetZoneAlias(zone, "ZoneOccup"))?.Value;
-                if (occupValue is not bool isOccupied || !isOccupied)
-                {
-                    _lastZoneOccup[zone] = false;
-                    continue;
-                }
-
-                _lastZoneOccup[zone] = true;
-
-                var matId = await FindOrCreateSheetByBusinessKeyAsync(context, zone);
-
-                if (string.IsNullOrEmpty(matId) && activeSheets.Count == 1)
-                {
-                    matId = activeSheets[0].MatId;
-                    _logger.LogWarning(
-                        "Бизнес-ключи недоступны, привязываем единственный активный лист {MatId} к зоне {Zone}",
-                        matId, zone);
-                }
-
-                if (!string.IsNullOrEmpty(matId))
-                {
-                    _currentSheetInZone[zone] = matId;
-                    _logger.LogInformation("✅ Восстановлен лист {MatId} в зоне {Zone}", matId, zone);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "⚠️ Зона {Zone} занята (ZoneOccup=true), но восстановить MatId не удалось.",
-                        zone);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Ошибка восстановления состояния для зоны {Zone}", zone);
-            }
+            _logger.LogWarning(ex, "Ошибка восстановления состояния для зоны {Zone}", zone);
         }
     }
+}
 
     // ====================================================================
     // 🆕 ГЛАВНЫЙ ОБРАБОТЧИК — с фильтрацией по контроллеру!
@@ -177,19 +182,29 @@ public class AnnealingCompletionService : BackgroundService
 
     private async Task ProcessZoneEventAsync(string alias, OpcUaValue value)
     {
-        // 🆕 Извлекаем имя зоны из алиаса с префиксом
-        // alias = "PLC210.F1_ZoneOccup"  →  zoneName = "F1"
         string? zoneName = TryExtractZoneName(alias);
         if (zoneName == null)
-            return; // Это не тег занятости зоны
+            return;
 
         bool currentOccup;
         try
         {
-            currentOccup = Convert.ToBoolean(value.Value);
+            if (zoneName == "X2")
+            {
+                // 🆕 Для X2: зона занята, если Sheet > 0
+                var sheetValue = Convert.ToInt32(value.Value);
+                currentOccup = sheetValue > 0;
+                _logger.LogDebug("X2_Sheet = {Sheet}, occupied = {Occup}", sheetValue, currentOccup);
+            }
+            else
+            {
+                // Для остальных зон: стандартный Boolean
+                currentOccup = Convert.ToBoolean(value.Value);
+            }
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Не удалось преобразовать значение {Value} для зоны {Zone}", value.Value, zoneName);
             return;
         }
 
@@ -199,6 +214,8 @@ public class AnnealingCompletionService : BackgroundService
         // ▶️ Лист ВОШЁЛ в зону
         if (!previousOccup && currentOccup)
         {
+            _logger.LogInformation("▶️ Лист ВОШЁЛ в зону {Zone}", zoneName);
+            
             // ⏱️ КРИТИЧЕСКИ ВАЖНО: ждём обновления бизнес-ключей в OPC UA
             await Task.Delay(1500);
 
@@ -209,6 +226,8 @@ public class AnnealingCompletionService : BackgroundService
         // ⏹️ Лист ПОКИНУЛ зону
         else if (previousOccup && !currentOccup)
         {
+            _logger.LogInformation("⏹️ Лист ПОКИНУЛ зону {Zone}", zoneName);
+            
             using var scope = _services.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await HandleSheetExitedAsync(context, zoneName);
@@ -223,13 +242,18 @@ public class AnnealingCompletionService : BackgroundService
         if (!alias.StartsWith(ControllerPrefix))
             return null;
 
-        var withoutPrefix = alias.Substring(ControllerPrefix.Length); // "F1_ZoneOccup"
+        var withoutPrefix = alias.Substring(ControllerPrefix.Length);
 
+        // Стандартные теги занятости
         if (withoutPrefix.EndsWith("_ZoneOccup"))
             return withoutPrefix.Replace("_ZoneOccup", "");
 
         if (withoutPrefix.EndsWith("_Ocp"))
             return withoutPrefix.Replace("_Ocp", "");
+
+        // 🆕 Для X2: определяем по тегу Sheet (так как ZoneOccup не меняется)
+        if (withoutPrefix == "X2_Sheet")
+            return "X2";
 
         return null;
     }
@@ -245,88 +269,167 @@ public class AnnealingCompletionService : BackgroundService
     // ВХОД ЛИСТА В ЗОНУ
     // ====================================================================
     private async Task HandleSheetEnteredAsync(AppDbContext context, string zoneName)
+{
+    _logger.LogInformation("▶️ Лист ВОШЁЛ в зону {Zone}", zoneName);
+    string? matId = null;
+
+    if (zoneName != "E1")
     {
-        _logger.LogInformation("▶️ Лист ВОШЁЛ в зону {Zone}", zoneName);
-        string? matId = null;
-
-        if (zoneName != "E1")
+        var previousZone = GetPreviousZone(zoneName);
+        if (!string.IsNullOrEmpty(previousZone) &&
+            _currentSheetInZone.TryRemove(previousZone, out var prevMatId))
         {
-            var previousZone = GetPreviousZone(zoneName);
-            if (!string.IsNullOrEmpty(previousZone) &&
-                _currentSheetInZone.TryRemove(previousZone, out var prevMatId))
-            {
-                matId = prevMatId;
-                _logger.LogDebug("Лист {MatId} перемещён из {PrevZone} в {Zone}",
-                    matId, previousZone, zoneName);
-            }
+            matId = prevMatId;
+            _logger.LogDebug("Лист {MatId} перемещён из {PrevZone} в {Zone}",
+                matId, previousZone, zoneName);
         }
+    }
 
-        if (string.IsNullOrEmpty(matId))
+    if (string.IsNullOrEmpty(matId))
+    {
+        _logger.LogInformation(
+            "MatId не найден в предыдущей зоне — читаем бизнес-ключи из зоны {Zone}",
+            zoneName);
+
+        matId = await FindOrCreateSheetByBusinessKeyAsync(context, zoneName);
+    }
+
+    if (string.IsNullOrEmpty(matId))
+    {
+        _logger.LogError("❌ Не удалось определить MatId для зоны {Zone}. Состояние зон: {State}",
+            zoneName,
+            string.Join(", ", _currentSheetInZone.Select(kv => $"{kv.Key}={kv.Value}")));
+        return;
+    }
+
+    _currentSheetInZone[zoneName] = matId;
+
+    var newStatus = zoneName switch
+    {
+        "E1" => "На входном рольганге",
+        "F1" or "F2" or "F3" or "F4" => "В печи закалки",
+        "X1" => "В охлаждении",
+        "X2" => "Измерение планшетности",
+        _ => null
+    };
+
+    if (newStatus != null)
+        await UpdateSheetStatusAsync(context, matId, newStatus);
+    
+    // ❌ Убираем создание записи измерения при входе в X2
+}
+
+    // ====================================================================
+// ВЫХОД ЛИСТА ИЗ ЗОНЫ
+// ====================================================================
+private async Task HandleSheetExitedAsync(AppDbContext context, string zoneName)
+{
+    _logger.LogInformation("⏹️ Лист ПОКИНУЛ зону {Zone}", zoneName);
+
+    if (zoneName == "X1" &&
+        _currentSheetInZone.TryGetValue(zoneName, out var matId) &&
+        !string.IsNullOrEmpty(matId))
+    {
+        var cacheKey = $"{CachePrefix}{matId}";
+        if (!_completedCache.TryGetValue(cacheKey, out _))
         {
-            _logger.LogInformation(
-                "MatId не найден в предыдущей зоне — читаем бизнес-ключи из зоны {Zone}",
-                zoneName);
-
-            matId = await FindOrCreateSheetByBusinessKeyAsync(context, zoneName);
+            _completedCache.Set(cacheKey, true, CompletionDeduplicationWindow);
+            _logger.LogInformation("🎯 Лист {MatId} покинул X1 — ЗАКАЛКА ЗАВЕРШЕНА", matId);
+            await CompleteQuenchingAsync(matId);
+            
+            // 🆕 Создаём запись измерения сразу после завершения закалки
+            _logger.LogInformation("📏 Создаём запись измерения планшетности для листа {MatId}", matId);
+            await CreateSheetMeasurementAsync(context, matId);
         }
-
-        if (string.IsNullOrEmpty(matId))
+        else
         {
-            _logger.LogError(
-                "❌ Не удалось определить MatId для зоны {Zone}. Состояние зон: {State}",
-                zoneName,
-                string.Join(", ", _currentSheetInZone.Select(kv => $"{kv.Key}={kv.Value}")));
+            _logger.LogDebug("Завершение листа {MatId} уже обработано (дедупликация)", matId);
+        }
+    }
+
+    if (zoneName == "X2" &&
+        _currentSheetInZone.TryRemove(zoneName, out var finalMatId) &&
+        !string.IsNullOrEmpty(finalMatId))
+    {
+        _logger.LogInformation("✅ Лист {MatId} покинул X2 — полностью обработан", finalMatId);
+        await UpdateSheetStatusAsync(context, finalMatId, "Закалка пройдена, измерен");
+    }
+}
+// ====================================================================
+// 🆕 СОЗДАНИЕ ЗАПИСИ ИЗМЕРЕНИЯ ПЛАНШЕТНОСТИ (после завершения закалки)
+// ====================================================================
+private async Task CreateSheetMeasurementAsync(AppDbContext context, string matId)
+{
+    try
+    {
+        // Проверяем, не создана ли уже запись
+        var exists = await context.Set<SheetMeasurement>()
+            .AnyAsync(sm => sm.MatId == matId);
+        
+        if (exists)
+        {
+            _logger.LogDebug("Запись измерения для листа {MatId} уже существует", matId);
             return;
         }
 
-        _currentSheetInZone[zoneName] = matId;
-
-        var newStatus = zoneName switch
+        // Получаем данные листа из БД
+        var sheet = await context.InputData
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.MatId == matId);
+        
+        if (sheet == null)
         {
-            "E1" => "На входном рольганге",
-            "F1" or "F2" or "F3" or "F4" => "В печи закалки",
-            "X1" => "В охлаждении",
-            "X2" => "Измерение планшетности",
-            _ => null
+            _logger.LogError("❌ Лист {MatId} не найден в БД для создания записи измерения", matId);
+            return;
+        }
+
+        _logger.LogInformation(
+            "📊 Данные листа {MatId}: Melt={Melt}, PartNo={PartNo}, Pack={Pack}, Sheet={Sheet}",
+            matId, sheet.MeltNumber, sheet.BatchNumber, sheet.PackNumber, sheet.SheetNumber);
+
+        // Создаём запись измерения
+        var measurement = new SheetMeasurement
+        {
+            MatId         = matId,
+            Melt          = int.TryParse(sheet.MeltNumber, out var m) ? m : null,
+            PartNo        = int.TryParse(sheet.BatchNumber, out var p) ? p : null,
+            Pack          = int.TryParse(sheet.PackNumber, out var pk) ? pk : null,
+            Sheet         = int.TryParse(sheet.SheetNumber, out var s) ? s : 0,
+            Slab          = int.TryParse(sheet.SlabNumber, out var sl) ? sl : 0,
+            Thickness     = float.TryParse(sheet.SheetDimensions, out var th) ? th : null,
+            AlloyCodeText = sheet.SteelGrade,
+            SheetInPack   = null, // Эти данные не хранятся в InputDatum
+            SheetsInPack  = sheet.SheetsCount,
+            EnteredX2At   = DateTime.UtcNow,
+            CreatedAt     = DateTime.UtcNow,
         };
 
-        if (newStatus != null)
-            await UpdateSheetStatusAsync(context, matId, newStatus);
-    }
+        context.Set<SheetMeasurement>().Add(measurement);
+        await context.SaveChangesAsync();
 
-    // ====================================================================
-    // ВЫХОД ЛИСТА ИЗ ЗОНЫ
-    // ====================================================================
-    private async Task HandleSheetExitedAsync(AppDbContext context, string zoneName)
+        _logger.LogInformation(
+            "✅ Создана запись измерения для листа {MatId} (Id={Id}, Melt={Melt}, Sheet={Sheet})",
+            matId, measurement.Id, measurement.Melt, measurement.Sheet);
+
+        // Уведомляем фронтенд через SignalR
+        await _measurementHub.Clients.Group("queue").SendAsync("NewMeasurement", new
+        {
+            id = measurement.Id,
+            matId = measurement.MatId,
+            melt = measurement.Melt,
+            sheet = measurement.Sheet,
+            partNo = measurement.PartNo,
+            pack = measurement.Pack,
+            enteredX2At = measurement.EnteredX2At
+        });
+        
+        _logger.LogInformation("📡 Уведомление SignalR отправлено для листа {MatId}", matId);
+    }
+    catch (Exception ex)
     {
-        _logger.LogInformation("⏹️ Лист ПОКИНУЛ зону {Zone}", zoneName);
-
-        if (zoneName == "X1" &&
-            _currentSheetInZone.TryGetValue(zoneName, out var matId) &&
-            !string.IsNullOrEmpty(matId))
-        {
-            var cacheKey = $"{CachePrefix}{matId}";
-            if (!_completedCache.TryGetValue(cacheKey, out _))
-            {
-                _completedCache.Set(cacheKey, true, CompletionDeduplicationWindow);
-                _logger.LogInformation("🎯 Лист {MatId} покинул X1 — ЗАКАЛКА ЗАВЕРШЕНА", matId);
-                await CompleteQuenchingAsync(matId);
-            }
-            else
-            {
-                _logger.LogDebug("Завершение листа {MatId} уже обработано (дедупликация)", matId);
-            }
-        }
-
-        if (zoneName == "X2" &&
-            _currentSheetInZone.TryRemove(zoneName, out var finalMatId) &&
-            !string.IsNullOrEmpty(finalMatId))
-        {
-            _logger.LogInformation("✅ Лист {MatId} покинул X2 — полностью обработан", finalMatId);
-            await UpdateSheetStatusAsync(context, finalMatId, "Закалка пройдена, измерен");
-        }
+        _logger.LogError(ex, "❌ Ошибка создания записи измерения для листа {MatId}", matId);
     }
-
+}
     // ====================================================================
     // 🎯 ЗАВЕРШЕНИЕ ЗАКАЛКИ
     // ====================================================================
@@ -607,5 +710,90 @@ public class AnnealingCompletionService : BackgroundService
         }
 
         _logger.LogInformation("=== Конец диагностики ===");
+    }
+
+   // ====================================================================
+// 🆕 СОЗДАНИЕ ЗАПИСИ ИЗМЕРЕНИЯ ПЛАНШЕТНОСТИ (при входе в X2)
+// ====================================================================
+    private async Task CreateSheetMeasurementAsync(AppDbContext context, string matId, string zoneName)
+    {
+        _logger.LogInformation("🔍 Начало CreateSheetMeasurementAsync для MatId={MatId}", matId);
+        
+        try
+        {
+            var exists = await context.Set<SheetMeasurement>()
+                .AnyAsync(sm => sm.MatId == matId);
+            
+            if (exists)
+            {
+                _logger.LogWarning("⚠️ Запись измерения для листа {MatId} уже существует (дедупликация)", matId);
+                return;
+            }
+
+            var melt        = GetValueFromZone(zoneName, "Melt");
+            var partNo      = GetValueFromZone(zoneName, "PartNo");
+            var pack        = GetValueFromZone(zoneName, "Pack");
+            var sheetNum    = GetValueFromZone(zoneName, "Sheet");
+            var slab        = GetValueFromZone(zoneName, "Slab");
+            var thickness   = GetValueFromZone(zoneName, "Thickness");
+            var alloyCode   = GetValueFromZone(zoneName, "AlloyCodeText");
+            var sheetInPack = GetValueFromZone(zoneName, "SheetInPack");
+            var sheetsInPack= GetValueFromZone(zoneName, "SheetsInPack");
+
+            _logger.LogInformation(
+                "📊 OPC UA данные для X2: Melt={Melt}, PartNo={PartNo}, Pack={Pack}, Sheet={Sheet}",
+                melt ?? "(null)", partNo ?? "(null)", pack ?? "(null)", sheetNum ?? "(null)");
+
+            if (string.IsNullOrEmpty(melt) || melt == "0" ||
+                string.IsNullOrEmpty(sheetNum) || sheetNum == "0" ||
+                string.IsNullOrEmpty(pack) || pack == "0" ||
+                string.IsNullOrEmpty(partNo) || partNo == "0")
+            {
+                _logger.LogError(
+                    "❌ Невалидные бизнес-ключи для X2: Melt={Melt}, PartNo={PartNo}, Pack={Pack}, Sheet={Sheet}. Запись не создана.",
+                    melt, partNo, pack, sheetNum);
+                return;
+            }
+
+            var measurement = new SheetMeasurement
+            {
+                MatId         = matId,
+                Melt          = int.TryParse(melt, out var m) ? m : null,
+                PartNo        = int.TryParse(partNo, out var p) ? p : null,
+                Pack          = int.TryParse(pack, out var pk) ? pk : null,
+                Sheet         = int.TryParse(sheetNum, out var s) ? s : 0,
+                Slab          = int.TryParse(slab, out var sl) ? sl : 0,
+                Thickness     = float.TryParse(thickness, out var th) ? th : null,
+                AlloyCodeText = alloyCode,
+                SheetInPack   = int.TryParse(sheetInPack, out var sip) ? sip : null,
+                SheetsInPack  = int.TryParse(sheetsInPack, out var sipp) ? sipp : null,
+                EnteredX2At   = DateTime.UtcNow,
+                CreatedAt     = DateTime.UtcNow,
+            };
+
+            context.Set<SheetMeasurement>().Add(measurement);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "✅ Создана запись измерения для листа {MatId} (Id={Id}, Melt={Melt}, Sheet={Sheet})",
+                matId, measurement.Id, measurement.Melt, measurement.Sheet);
+
+            await _measurementHub.Clients.Group("queue").SendAsync("NewMeasurement", new
+            {
+                id = measurement.Id,
+                matId = measurement.MatId,
+                melt = measurement.Melt,
+                sheet = measurement.Sheet,
+                partNo = measurement.PartNo,
+                pack = measurement.Pack,
+                enteredX2At = measurement.EnteredX2At
+            });
+            
+            _logger.LogInformation("📡 Уведомление SignalR отправлено для листа {MatId}", matId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Ошибка создания записи измерения для листа {MatId}", matId);
+        }
     }
 }

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';
-import { useOpcUa } from '../hooks/useOpcUa';
+
 import { useAuth } from '../context/AuthContext';
+import { useMeasurementHub } from '../hooks/useMeasurementHub';
 
 const C = {
   bg: '#0d1117', panel: '#161b22', panelBd: '#30363d',
@@ -832,19 +833,17 @@ function AddSheetsModal({ open, onClose, onAdd, businessKey }) {
 // ОСНОВНОЙ КОМПОНЕНТ
 // ════════════════════════════════════════════════════════════════════
 export default function OperatorWorkplace() {
-  const { values, connected } = useOpcUa([
-    'PLC210.X2_ZoneOccup', 'PLC210.X2_Melt', 'PLC210.X2_Slab', 'PLC210.X2_PartNo', 'PLC210.X2_Pack',
-    'PLC210.X2_Sheet', 'PLC210.X2_SubSheet', 'PLC210.X2_SheetInPack', 'PLC210.X2_SheetsInPack',
-    'PLC210.X2_Thikness', 'PLC210.X2_AlloyCodeText',
-  ]);
+ 
 
   const { user } = useAuth();
   const isMaster = ['master', 'superadmin', 'developer'].includes(user?.role || '');
 
-  const toNum = v => { if (v == null) return null; const n = Number(v); return isNaN(n) ? null : n; };
-  const toStr = v => (v == null ? null : String(v));
+  //const toNum = v => { if (v == null) return null; const n = Number(v); return isNaN(n) ? null : n; };
+  //const toStr = v => (v == null ? null : String(v));
 
-  const [lastCreatedKey, setLastCreatedKey] = useState(null);
+  const { connected: measurementHubConnected, subscribe } = useMeasurementHub();
+
+  //const [lastCreatedKey, setLastCreatedKey] = useState(null);
   const [queue, setQueue] = useState([]);
   const [currentRecord, setCurrentRecord] = useState(null);
   const [before, setBefore] = useState(emptyGrid());
@@ -917,11 +916,27 @@ const [addSheetsModal, setAddSheetsModal] = useState(false);
   }, [fetchQueue, fetchFurnacesStatus, refreshAllCassettes]);
 
   // ── Периодическое обновление ──
-  useEffect(() => {
-    if (!initialLoadDone) return;
-    const id = setInterval(() => { fetchQueue(); fetchFurnacesStatus(); refreshAllCassettes(); }, 5000);
-    return () => clearInterval(id);
-  }, [initialLoadDone, fetchQueue, fetchFurnacesStatus, refreshAllCassettes]);
+useEffect(() => {
+  if (!initialLoadDone) return;
+  const id = setInterval(() => { fetchFurnacesStatus(); refreshAllCassettes(); }, 5000);
+  return () => clearInterval(id);
+}, [initialLoadDone, fetchFurnacesStatus, refreshAllCassettes]);
+
+// Добавить подписку на SignalR:
+useEffect(() => {
+  if (!measurementHubConnected) return;
+
+  const unsubscribe = subscribe((data) => {
+    console.log('[Measurement Hub] Новая запись:', data);
+    fetchQueue();
+    setMessage({ 
+      type: 'success', 
+      text: `📥 Лист ${data.melt}/${data.sheet} в очереди` 
+    });
+  });
+
+  return () => unsubscribe();
+}, [measurementHubConnected, subscribe, fetchQueue]);
 
   // ── Автозагрузка первого листа ──
   useEffect(() => {
@@ -929,25 +944,7 @@ const [addSheetsModal, setAddSheetsModal] = useState(false);
     if (!currentRecordRef.current && queue.length > 0) loadRecord(queue[0].id);
   }, [queue, initialLoadDone]);
 
-  // ── Слежение за X2 ──
-  useEffect(() => {
-    const occ = toNum(values['PLC210.X2_ZoneOccup']?.value);
-    if (occ !== 1 && occ !== true) { setLastCreatedKey(null); return; }
-    const sheet = {
-      melt: toNum(values['PLC210.X2_Melt']?.value), slab: toNum(values['PLC210.X2_Slab']?.value),
-      partNo: toNum(values['PLC210.X2_PartNo']?.value), pack: toNum(values['PLC210.X2_Pack']?.value),
-      sheet: toNum(values['PLC210.X2_Sheet']?.value), sheetInPack: toNum(values['PLC210.X2_SheetInPack']?.value),
-      sheetsInPack: toNum(values['PLC210.X2_SheetsInPack']?.value),
-      thickness: toNum(values['PLC210.X2_Thikness']?.value),
-      alloyCodeText: toStr(values['PLC210.X2_AlloyCodeText']?.value),
-    };
-    const key = `${sheet.melt}/${sheet.partNo}/${sheet.pack}/${sheet.sheet}`;
-    if (!key || key === lastCreatedKey || !sheet.melt || !sheet.sheet) return;
-    setLastCreatedKey(key);
-    api.post('/measurement', { ...sheet, enteredX2At: new Date().toISOString() })
-      .then(() => { fetchQueue(); setMessage({ type: 'success', text: `📥 Лист ${sheet.melt}/${sheet.sheet} в очереди` }); })
-      .catch(err => { if (err.response?.status === 409) fetchQueue(); else console.error(err); });
-  }, [values, lastCreatedKey, fetchQueue]);
+  
 
   // ── Загрузка записи ──
   const loadRecord = async (id) => {
@@ -1118,10 +1115,10 @@ const handleAddSheetsSuccess = async (count) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{
               width: 12, height: 12, borderRadius: '50%',
-              background: connected ? C.green : C.red,
-              boxShadow: connected ? `0 0 6px ${C.green}` : 'none',
+              background: measurementHubConnected ? C.green : C.red,
+              boxShadow: measurementHubConnected ? `0 0 6px ${C.green}` : 'none',
             }} />
-            <span style={{ fontSize: 12, color: C.dim }}>{connected ? 'OPC UA' : 'Нет связи'}</span>
+            <span style={{ fontSize: 12, color: C.dim }}> {measurementHubConnected ? 'Real-time' : 'Нет связи'}</span>
           </div>
           <div style={{
             background: queue.length > 0 ? C.yellow : C.green,

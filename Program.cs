@@ -212,6 +212,7 @@ public class Program
         app.UseAuthorization();
 
         app.MapHub<OpcUaHub>("/hubs/opc");
+        app.MapHub<MeasurementHub>("/hubs/measurement");
         app.MapControllers();
 
         await app.RunAsync();
