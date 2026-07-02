@@ -173,7 +173,7 @@ public class TemperingAutoCompletionService : BackgroundService
         // 3. Обновляем статусы всех листов кассеты
         var updatedCount = await con.ExecuteAsync(
              new CommandDefinition(@"
-            UPDATE mes.input_data 
+            UPDATE mes.inputdata 
             SET status = 'Отпуск пройден',
                 quenching_status = 'Отпуск пройден'
             WHERE mat_id IN (
