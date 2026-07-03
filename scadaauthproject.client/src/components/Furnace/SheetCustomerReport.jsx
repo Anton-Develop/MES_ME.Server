@@ -328,9 +328,7 @@ const TemperingChart = ({ tempData, chartRef  }) => {
       exporting: { enabled: true, buttons: EXPORT_BUTTONS }, // Кнопки экспорта как у нагрева
       series: [
         { name: 'Заданная', data: toChartData('tempRef'), color: '#1976d2', dashStyle: 'Dash', lineWidth: 2 },
-        { name: 'Фактическая', data: toChartData('tempAct'), color: '#d29922', lineWidth: 2 },
-       {/*  { name: 'T1', data: toChartData('t1'), color: '#2e7d32', visible: false },
-        { name: 'T2', data: toChartData('t2'), color: '#c62828', visible: false }*/}
+        { name: 'Фактическая', data: toChartData('tempAct'), color: '#d29922', lineWidth: 2 }
       ]
     };
   }, [tempData]);
@@ -483,41 +481,71 @@ const hasTemps = zones.some(({ tempsObj }) => {
 
   // ── Загрузка данных отпуска ───────────────────────────────
 useEffect(() => {
-  const sheet = f?.sheet ?? q?.sheet;
-  const melt = f?.melt ?? q?.melt;
-  const partNo = f?.partNo ?? q?.partNo;
-  const pack = f?.pack ?? q?.pack;
+    const sheet = f?.sheet ?? q?.sheet;
+    const melt = f?.melt ?? q?.melt;
+    const partNo = f?.partNo ?? q?.partNo;
+    const pack = f?.pack ?? q?.pack;
 
-  if (!sheet || !melt || !partNo || !pack) {
-    setTemperingData(null);
-    return;
-  }
-
-  let isMounted = true;
-  const loadTempering = async () => {
-    setLoadingTempering(true);
-    try {
-      // 1. Ищем ключ кассеты по параметрам листа
-      const keyRes = await api.get(`/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(sheet)}&melt=${encodeURIComponent(melt)}&partNo=${encodeURIComponent(partNo)}&pack=${encodeURIComponent(pack)}`);
-      
-      if (isMounted && keyRes.data.cassetteBusinessKey) {
-        // 2. Загружаем саму сессию отпуска
-        const sessionRes = await api.get(`/tempering/session-by-key?key=${encodeURIComponent(keyRes.data.cassetteBusinessKey)}&coolingMinutes=60`);
-        setTemperingData(sessionRes.data);
-      } else if (isMounted) {
+    if (!sheet || !melt || !partNo || !pack) {
         setTemperingData(null);
-      }
-    } catch (err) {
-      console.error("Ошибка поиска данных по отпуску:", err);
-      if (isMounted) setTemperingData(null);
-    } finally {
-      if (isMounted) setLoadingTempering(false);
+        return;
     }
-  };
 
-  loadTempering();
-  return () => { isMounted = false; };
-}, [f, q]); // Зависит от сессий нагрева и закалки
+    const controller = new AbortController(); // ← отмена при unmount
+
+    const loadTempering = async () => {
+        setLoadingTempering(true);
+        try {
+            // 1. Ищем ключ кассеты
+            const keyRes = await api.get(
+                `/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(sheet)}&melt=${encodeURIComponent(melt)}&partNo=${encodeURIComponent(partNo)}&pack=${encodeURIComponent(pack)}`,
+                { signal: controller.signal }           // ← отмена
+            );
+
+            if (controller.signal.aborted) return;
+
+            if (keyRes.data.cassetteBusinessKey) {
+                // 2. Загружаем сессию отпуска (увеличенный таймаут 120с)
+                const sessionRes = await api.get(
+                    `/tempering/session-by-key?key=${encodeURIComponent(keyRes.data.cassetteBusinessKey)}&coolingMinutes=60`,
+                    {
+                        signal: controller.signal,      // ← отмена
+                        timeout: 120_000,               // ← 120 секунд
+                    }
+                );
+
+                if (!controller.signal.aborted) {
+                    setTemperingData(sessionRes.data);
+                }
+            } else {
+                setTemperingData(null);
+            }
+        } catch (err) {
+            if (controller.signal.aborted) return;      // ← не логируем отмену
+
+            console.error("Ошибка поиска данных по отпуску:", err);
+
+            if (err.code === 'ECONNABORTED') {
+                // Таймаут axios
+                setTemperingData({ error: 'Превышено время ожидания данных отпуска' });
+            } else if (err.response?.status === 408 || err.response?.status === 504) {
+                // Серверный таймаут
+                setTemperingData({ error: 'Сервер не успел подготовить данные отпуска' });
+            } else if (err.response?.status === 404) {
+                setTemperingData(null); // Лист не в отпуске — нормально
+            } else {
+                setTemperingData({ error: 'Не удалось загрузить данные отпуска' });
+            }
+        } finally {
+            if (!controller.signal.aborted) {
+                setLoadingTempering(false);
+            }
+        }
+    };
+
+    loadTempering();
+    return () => { controller.abort(); };              // ← отмена при unmount
+}, [f, q]);
 
     const meta = {
         sheet: f?.sheet ?? q?.sheet ?? furnaceKey,
@@ -669,52 +697,70 @@ useEffect(() => {
         ══════════════════════════════════════════════ */}
         {temperingData?.session && (
             <Box className="page-tempering">
-                <Paper sx={{ p: 2.5, height: '100%' }}>
-                    <Typography variant="h5" fontWeight={700} mb={2}>
-                        Отпуск
-                    </Typography>
+    <Paper sx={{ p: 2.5, minHeight: 200 }}>
+        <Typography variant="h5" fontWeight={700} mb={2}>
+            Отпуск
+        </Typography>
 
-                    <Grid container spacing={1.5} sx={{ mb: 2 }}>
-                        <Grid item xs={6} sm={4} md={2}>
-                            <Typography variant="caption" color="text.secondary">Печь</Typography>
-                            <Typography variant="body2" fontWeight={600}>
-                                №{temperingData.session.furnaceNumber ?? '—'}
-                            </Typography>
-                        </Grid>
-                        <Grid item xs={6} sm={4} md={2}>
-                            <Typography variant="caption" color="text.secondary">Загрузка</Typography>
-                            <Typography variant="body2" fontWeight={600}>
-                                {fmtDate(temperingData.session.loadedAt)}
-                            </Typography>
-                        </Grid>
-                        <Grid item xs={6} sm={4} md={2}>
-                            <Typography variant="caption" color="text.secondary">Выгрузка</Typography>
-                            <Typography variant="body2" fontWeight={600}>
-                                {fmtDate(temperingData.session.unloadedAt)}
-                            </Typography>
-                        </Grid>
-                        <Grid item xs={6} sm={4} md={2}>
-                            <Typography variant="caption" color="text.secondary">Время в печи</Typography>
-                            <Typography variant="body2" fontWeight={700} color="warning.dark">
-                                {fmtMin(temperingData.session.totalTimeMin)}
-                            </Typography>
-                        </Grid>
-                        <Grid item xs={6} sm={4} md={2}>
-                            <Typography variant="caption" color="text.secondary">Температура</Typography>
-                            <Typography variant="body2" fontWeight={700} color="primary">
-                                {fmtTemp(temperingData.session.tempRef)}
-                            </Typography>
-                        </Grid>
-                    </Grid>
-
-                    <Box className="chart-container">
-                        <TemperingChart
-                            tempData={temperingData.tempData}
-                            chartRef={temperingChartRef}
-                        />
-                    </Box>
-                </Paper>
+        {loadingTempering ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 4, justifyContent: 'center' }}>
+                <CircularProgress size={24} />
+                <Typography variant="body2" color="text.secondary">
+                    Загрузка данных отпуска...
+                </Typography>
             </Box>
+        ) : temperingData?.error ? (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+                {temperingData.error}
+            </Alert>
+        ) : temperingData?.session ? (
+            <>
+                <Grid container spacing={1.5} sx={{ mb: 2 }}>
+                    <Grid item xs={6} sm={4} md={2}>
+                        <Typography variant="caption" color="text.secondary">Печь</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                            №{temperingData.session.furnaceNumber ?? '—'}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={4} md={2}>
+                        <Typography variant="caption" color="text.secondary">Загрузка</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                            {fmtDate(temperingData.session.loadedAt)}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={4} md={2}>
+                        <Typography variant="caption" color="text.secondary">Выгрузка</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                            {fmtDate(temperingData.session.unloadedAt)}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={4} md={2}>
+                        <Typography variant="caption" color="text.secondary">Время в печи</Typography>
+                        <Typography variant="body2" fontWeight={700} color="warning.dark">
+                            {fmtMin(temperingData.session.act_time_total)}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={4} md={2}>
+                        <Typography variant="caption" color="text.secondary">Температура</Typography>
+                        <Typography variant="body2" fontWeight={700} color="primary">
+                            {fmtTemp(temperingData.session.tempRef)}
+                        </Typography>
+                    </Grid>
+                </Grid>
+                <Box className="chart-container">
+                    <TemperingChart
+                        tempData={temperingData.tempData}
+                        chartRef={temperingChartRef}
+                    />
+                </Box>
+            </>
+        ) : !loading && (f || q) ? (
+            <Alert severity="info">
+                Данные отпуска для этого листа не найдены (лист ещё не прошёл отпуск или не найден в кассете)
+            </Alert>
+        ) : null}
+    </Paper>
+</Box>
         )}
 
         {/* Футер (скрывается при печати — он уже в PDF) */}

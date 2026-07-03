@@ -545,7 +545,13 @@ public class TemperingController : ControllerBase
                  WHERE furnace_no = ts.furnace_number 
                     AND time >= ts.loaded_at 
                     AND (ts.unloaded_at IS NULL OR time <= ts.unloaded_at)
-                ) AS ""tempRef""
+                ) AS ""tempRef"",
+                (SELECT MAX(act_time_total) FROM plc.tempering_data 
+                 WHERE furnace_no = ts.furnace_number 
+                    AND time >= ts.loaded_at 
+                    AND (ts.unloaded_at IS NULL OR time <= ts.unloaded_at)
+                    and proc_end = false
+                ) AS ""act_time_total""
             FROM mes.tempering_sessions_new ts
             WHERE business_key = @Key
             ORDER BY loaded_at DESC LIMIT 1",
@@ -555,25 +561,22 @@ public class TemperingController : ControllerBase
                 return NotFound(new { error = "Сессия отпуска не найдена" });
 
             // 2. Данные о листах (без изменений)
-            var sheets = await _context.Set<CassetteSheet>()
-                .Where(cs => cs.CassetteBusinessKey == key)
-                .Join(_context.InputData,
-                      cs => cs.MatId,
-                      sheet => sheet.MatId,
-                      (cs, sheet) => new
-                      {
-                          MatId = sheet.MatId,
-                          Sheet = sheet.SheetNumber,
-                          Slab = sheet.SlabNumber,
-                          Melt = sheet.MeltNumber,
-                          PartNo = sheet.BatchNumber,
-                          Pack = sheet.PackNumber,
-                          AlloyCodeText = sheet.SteelGrade,
-                          Thickness = sheet.SheetDimensions,
-                          Status = sheet.Status
-                      })
-                .OrderBy(s => s.MatId)
-                .ToListAsync(ct);
+            var sheets = await con.QueryAsync(@"
+                SELECT 
+                    id.matid AS ""MatId"",
+                    id.sheet_number AS ""Sheet"",
+                    id.slab_number AS ""Slab"",
+                    id.melt_number AS ""Melt"",
+                    id.batch_number AS ""PartNo"",
+                    id.pack_number AS ""Pack"",
+                    id.steel_grade AS ""AlloyCodeText"",
+                    id.sheet_dimensions AS ""Thickness"",
+                    id.status AS ""Status""
+                FROM mes.cassette_sheets cs
+                INNER JOIN mes.inputdata id ON cs.mat_id = id.matid
+                WHERE cs.cassette_business_key = @Key
+                ORDER BY id.matid", 
+                new { Key = key });
 
             // 3. ✅ Получаем данные температур из PLC с учётом времени остывания
             var tempData = await con.QueryAsync(@"
@@ -605,6 +608,12 @@ public class TemperingController : ControllerBase
                     tAverage = d.t_average_furn
                 })
             });
+        }
+        catch (OperationCanceledException)
+        {
+            // Это не ошибка сервера, а таймаут клиента или разрыв соединения
+            _logger.LogWarning("⏱️ Запрос отменен (таймаут или разрыв соединения) для key={Key}", key);
+            return StatusCode(408, new { error = "Превышено время ожидания ответа от сервера" });
         }
         catch (Exception ex)
         {

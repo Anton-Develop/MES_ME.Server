@@ -194,6 +194,24 @@ const TemperingReport = () => {
     return <Chip label="ЗАВЕРШЕН ШТАТНО" color="success" size="small" />;
   };
 
+
+  // Форматирование толщины: "6,2х1220х3000" → "6,2 мм" (или как есть, если не число)
+const formatThickness = (v) => {
+  if (v == null || v === '') return '—';
+  const str = String(v);
+  // Если строка содержит "х" или "x" — берём только первую часть (толщину)
+  if (/[хxХX]/.test(str)) {
+    const thicknessPart = str.split(/[хxХX]/)[0].trim().replace(',', '.');
+    const num = Number(thicknessPart);
+    return !isNaN(num) ? `${num.toFixed(1)} мм` : str;
+  }
+  // Если это просто число
+  const num = Number(String(str).replace(',', '.'));
+  return !isNaN(num) ? `${num.toFixed(1)} мм` : str;
+};
+
+
+
   return (
     <Box sx={{ p: 3, bgcolor: '#f5f5f5', minHeight: '100vh', '@media print': { p: 1, bgcolor: '#fff', '& .no-print': { display: 'none !important' } } }}>
       {/* Кнопки управления */}
@@ -211,7 +229,7 @@ const TemperingReport = () => {
       <Paper sx={{ p: 2.5, mb: 2, borderRadius: 2 }}>
         <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
           <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          Отчёт по отпуску листа №{firstSheet.sheet || '—'}
+          Отчёт по отпуску листа №{firstSheet.Sheet || '—'}
         </Typography>
          {/*  {getStatusChip()}*/}
         </Stack>
@@ -219,17 +237,17 @@ const TemperingReport = () => {
         {/* Метаданные */}
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
           {[
-          { label: 'Лист', value: firstSheet.sheet },
-          { label: 'Сляб', value: firstSheet.slab ?? '—' },
-          { label: 'Плавка', value: firstSheet.melt ?? '—' }, 
-          { label: 'Партия', value: firstSheet.partNo ?? '—' },
-          { label: 'Пачка', value: firstSheet.pack ?? '—' },
-          { label: 'Марка стали', value: firstSheet.alloyCodeText  ?? '—' },
-          { label: 'Толщина', value: firstSheet.thickness != null ? `${Number(firstSheet.thickness).toFixed(1)} мм` : '—' },
-          { label: 'Кассета', value: session.cassetteNumber ? `№${session.cassetteNumber}` : '—' },
-          { label: 'Печь', value: session.furnaceNumber ? `№${session.furnaceNumber}` : '—' },
-          { label: 'Слот', value: session.slotNumber != null ? `№${session.slotNumber}` : '—' },
-        ].map(({ label, value }) => (
+            { label: 'Лист',      value: firstSheet.Sheet },
+            { label: 'Сляб',      value: firstSheet.Slab ?? '—' },
+            { label: 'Плавка',    value: firstSheet.Melt ?? '—' },
+            { label: 'Партия',    value: firstSheet.PartNo ?? '—' },
+            { label: 'Пачка',     value: firstSheet.Pack ?? '—' },
+            { label: 'Марка стали', value: firstSheet.AlloyCodeText ?? '—' },
+            { label: 'Толщина',   value: formatThickness(firstSheet.Thickness) },
+            { label: 'Кассета',   value: session.cassetteNumber ? `№${session.cassetteNumber}` : '—' },
+            { label: 'Печь',      value: session.furnaceNumber ? `№${session.furnaceNumber}` : '—' },
+            { label: 'Слот',      value: session.slotNumber != null ? `№${session.slotNumber}` : '—' },
+          ].map(({ label, value }) => (
             <Grid item xs={6} sm={4} md={3} lg={2} key={label}>
               <Box>
                 <Typography variant="caption" color="text.secondary">{label}</Typography>
@@ -271,7 +289,7 @@ const TemperingReport = () => {
           <Grid item xs={6} sm={4} md={2}>
             <Typography variant="caption" color="text.secondary">Общее время</Typography>
             <Typography variant="h6" fontWeight={600}>
-              {fmtMin(session.totalTimeMin)}
+              {fmtMin(session.act_time_total)}
             </Typography>
           </Grid>
         </Grid>
@@ -291,42 +309,42 @@ const TemperingReport = () => {
         </Paper>
       )}
 
-      {/* Список листов в кассете */}
-      <Paper sx={{ p: 2.5, borderRadius: 2 }}>
-        <Typography variant="h6" fontWeight={600} mb={2}>
-          Листы в кассете №{session.cassetteNumber} ({sheets.length} шт.)
-        </Typography>
-        <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Лист</TableCell>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Сляб</TableCell>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Плавка</TableCell>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Партия</TableCell>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Марка стали</TableCell>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Толщина</TableCell>
-                <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Статус</TableCell>
+     {/* Список листов в кассете */}
+    <Paper sx={{ p: 2.5, borderRadius: 2 }}>
+      <Typography variant="h6" fontWeight={600} mb={2}>
+        Листы в кассете №{session.cassetteNumber} ({sheets.length} шт.)
+      </Typography>
+      <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Лист</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Сляб</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Плавка</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Партия</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Марка стали</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Толщина</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Статус</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {sheets.map((s, idx) => (
+              <TableRow key={s.MatId || idx} hover>
+                <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.Sheet}</TableCell>
+                <TableCell>{s.Slab ?? '—'}</TableCell>
+                <TableCell>{s.Melt ?? '—'}</TableCell>
+                <TableCell>{s.PartNo ?? '—'}</TableCell>
+                <TableCell>{s.AlloyCodeText ?? '—'}</TableCell>
+                <TableCell>{formatThickness(s.Thickness)}</TableCell>
+                <TableCell>
+                  <Chip label={s.Status || 'Отпуск пройден'} size="small" color="success" variant="outlined" />
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {sheets.map((s, idx) => (
-                <TableRow key={s.matId || idx} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.sheet}</TableCell>
-                  <TableCell>{s.slab ?? '—'}</TableCell>
-                  <TableCell>{s.melt ?? '—'}</TableCell>
-                  <TableCell>{s.partNo ?? '—'}</TableCell>
-                  <TableCell>{s.alloyCodeText || s.alloyCode || '—'}</TableCell>
-                  <TableCell>{s.thickness != null ? `${Number(s.thickness).toFixed(1)}` : '—'}</TableCell>
-                  <TableCell>
-                    <Chip label={s.status || 'Отпуск пройден'} size="small" color="success" variant="outlined" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Paper>
 
       <Typography variant="caption" color="text.disabled" display="block" textAlign="right" mt={3}>
         Отчёт сформирован: {fmtDate(new Date())} | Ключ кассеты: {session.businessKey}
