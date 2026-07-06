@@ -1175,7 +1175,7 @@ ORDER BY time
     """;
 
     public const string UpdateSheetsStatusToTemperingCompleted = """
-    UPDATE mes.input_data 
+    UPDATE mes.inputdata 
     SET status = 'Отпуск пройден'
     WHERE mat_id IN (
         SELECT scl.mat_id 

@@ -337,7 +337,7 @@ function EditMeasurementModal({ sheet, onSave, onClose }) {
         payload[`h${i}After`] = values.after[i-1];
       }
       await api.put(
-        `/cassettenew/${encodeURIComponent(sheet.cassetteBusinessKey)}/edit-measurement/${sheet.matId}`,
+        `/cassettenew/${encodeURIComponent(sheet.cassetteBusinessKey)}/edit-measurement/${sheet.matId}/${sheet.reheatNum}`,
         payload
       );
       onSave(); onClose();
@@ -802,6 +802,19 @@ function AddSheetsModal({ open, onClose, onAdd, businessKey }) {
                       <td style={{ padding: '6px 8px', fontFamily: 'monospace', color: C.accent, fontWeight: 700 }}>{s.sheetNumber}</td>
                       <td style={{ padding: '6px 8px', color: C.yellow }}>{s.steelGrade || '—'}</td>
                       <td style={{ padding: '6px 8px', color: C.dim, fontSize: 10 }}>{s.sheetDimensions || '—'}</td>
+                      {/* 🆕 Колонка повторного отпуска */}
+                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                        {s.reheatNum > 0 ? (
+                          <span style={{
+                            padding: '2px 6px', fontSize: 9, fontWeight: 700,
+                            background: '#ff9800', color: '#000', borderRadius: 3,
+                          }}>
+                            #{s.reheatNum}
+                          </span>
+                        ) : (
+                          <span style={{ color: C.dim, fontSize: 9 }}>1-й</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -1037,7 +1050,7 @@ const handleAddSheetsSuccess = async (count) => {
     if (!removeModal || !currentCassette || !removeModal.reason.trim()) return;
     try {
       await api.delete(
-        `/cassettenew/${encodeURIComponent(currentCassette.businessKey)}/remove-sheet/${removeModal.matId}`,
+        `/cassettenew/${encodeURIComponent(currentCassette.businessKey)}/remove-sheet/${removeModal.matId}/${removeModal.reheatNum}`,
         { data: { reason: removeModal.reason } }
       );
       const res = await api.get(`/cassettenew/${encodeURIComponent(currentCassette.businessKey)}/sheets`);
@@ -1196,6 +1209,12 @@ const handleAddSheetsSuccess = async (count) => {
                     </div>
                     <div style={{ fontSize: 10, color: C.dim }}>Пачка {item.pack} · {item.alloyCodeText || '—'}</div>
                     {item.measuredAt && <div style={{ fontSize: 9, color: C.green, marginTop: 2 }}>✓ Измерен</div>}
+                    {/* 🆕 Бейдж повторного отпуска */}
+                    {item.reheatNum > 0 && (
+                      <div style={{ fontSize: 9, color: C.orange, marginTop: 2, fontWeight: 700 }}>
+                        🔄 Повторный отпуск #{item.reheatNum}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1317,6 +1336,15 @@ const handleAddSheetsSuccess = async (count) => {
                                     {cs.sheet?.meltNumber}/{cs.sheet?.batchNumber}/{cs.sheet?.packNumber}/{cs.sheet?.sheetNumber}
                         </span>{' '}
                         <span style={{ color: C.yellow, fontSize: 9 }}>{cs.sheet?.steelGrade}</span>
+                        {/* 🆕 Бейдж повторного отпуска */}
+                        {cs.reheatNum > 0 && (
+                          <span style={{
+                            marginLeft: 6, padding: '1px 5px', fontSize: 8, fontWeight: 700,
+                            background: '#ff9800', color: '#000', borderRadius: 3,
+                          }}>
+                            ПОВТОР#{cs.reheatNum}
+                          </span>
+                        )}
                       </div>
                       {isMaster && !cassetteStatus?.is_closed && (
                         <div style={{ display: 'flex', gap: 2 }}>
@@ -1324,7 +1352,7 @@ const handleAddSheetsSuccess = async (count) => {
                             <button onClick={() => setEditModal({ ...cs, cassetteBusinessKey: currentCassette.businessKey })}
                               style={{ background: 'transparent', color: C.yellow, border: `1px solid ${C.yellow}`, borderRadius: 2, padding: '0 4px', cursor: 'pointer', fontSize: 9 }}>✏</button>
                           )}
-                          <button onClick={() => setRemoveModal({ matId: cs.matId, reason: '' })}
+                          <button onClick={() => setRemoveModal({ matId: cs.matId, reheatNum: cs.reheatNum, reason: '' })}
                             style={{ background: 'transparent', color: C.red, border: `1px solid ${C.red}`, borderRadius: 2, padding: '0 4px', cursor: 'pointer', fontSize: 9 }}>✕</button>
                         </div>
                       )}

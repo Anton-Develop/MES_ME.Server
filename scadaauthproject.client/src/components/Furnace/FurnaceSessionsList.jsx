@@ -466,7 +466,9 @@ const FurnaceSessionsList = () => {
                       <Tooltip title="Отчёт по отпуску">
                         <IconButton size="small" color="warning" onClick={async () => {
                           try {
-                            const response = await api.get(`/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(s.sheet)}&melt=${encodeURIComponent(s.melt)}&partNo=${encodeURIComponent(s.partNo)}&pack=${encodeURIComponent(s.pack)}`);
+                            const response = await api.get(
+                              `/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(s.sheet)}&melt=${encodeURIComponent(s.melt)}&partNo=${encodeURIComponent(s.partNo)}&pack=${encodeURIComponent(s.pack)}&reheatNum=${s.reheatNum ?? 0}`
+                            );
                             if (response.data.cassetteBusinessKey) {
                               window.open(`/tempering/report?key=${encodeURIComponent(response.data.cassetteBusinessKey)}`, '_blank');
                             } else {

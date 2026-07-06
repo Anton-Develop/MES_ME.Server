@@ -114,6 +114,7 @@ namespace MES_ME.Server.Controllers
                 {
                     cs.Id,
                     cs.MatId,
+                    cs.ReheatNum,
                     cs.AddedAt,
                     cs.AddedBy,
                     cs.SortOrder,
@@ -130,11 +131,12 @@ namespace MES_ME.Server.Controllers
                     },
                     // ✅ Используем отдельный запрос к SheetMeasurement вместо navigation property
                     Measurement = _context.Set<SheetMeasurement>()
-                        .Where(m => m.MatId == cs.MatId && m.MeasuredAt != null)
+                        .Where(m => m.MatId == cs.MatId && m.ReheatNum == cs.ReheatNum && m.MeasuredAt != null)
                         .OrderByDescending(m => m.MeasuredAt)
                         .Select(m => new
                         {
                             m.Id,
+                            m.ReheatNum, 
                             m.H1Before,
                             m.H2Before,
                             m.H3Before,
@@ -166,103 +168,115 @@ namespace MES_ME.Server.Controllers
         /// Добавить лист в кассету. Только листы со статусом "Закалка пройдена".
         /// </summary>
         [HttpPost("{businessKey}/add-sheet")]
-        public async Task<IActionResult> AddSheetToCassette(
-            string businessKey, [FromBody] AddSheetRequest request)
+public async Task<IActionResult> AddSheetToCassette(
+    string businessKey, [FromBody] AddSheetRequest request)
+{
+    var userName = GetUserName();
+    businessKey = Uri.UnescapeDataString(businessKey);
+
+    var sheet = await _context.InputData.FirstOrDefaultAsync(s => s.MatId == request.MatId);
+    if (sheet == null)
+        return NotFound(new { message = $"Лист {request.MatId} не найден" });
+
+    if (sheet.Status != "Закалка пройдена" && sheet.Status != "Закалка пройдена, измерен" && sheet.Status != "Прошел закалку")
+        return BadRequest(new
         {
-            var userName = GetUserName();
+            message = $"Лист {request.MatId} имеет статус '{sheet.Status}'."
+        });
 
-            businessKey = Uri.UnescapeDataString(businessKey);
-            // Проверяем, что лист существует и прошёл закалку
-            var sheet = await _context.InputData
-                .FirstOrDefaultAsync(s => s.MatId == request.MatId);
+    // 🔎 Текущий reheat_num листа
+    await using var con = await _dataSource.OpenConnectionAsync();
+    int melt = int.TryParse(sheet.MeltNumber, out var m) ? m : 0;
+    int partNo = int.TryParse(sheet.BatchNumber, out var p) ? p : 0;
+    int pack = int.TryParse(sheet.PackNumber, out var pk) ? pk : 0;
+    int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
 
-            if (sheet == null)
-                return NotFound(new { message = $"Лист {request.MatId} не найден" });
+    int reheatNum = await con.QueryFirstOrDefaultAsync<int>(
+        @"SELECT COALESCE(MAX(reheat_num), 0)
+            FROM plc.heating_sessions
+           WHERE melt    = @Melt AND part_no = @Part
+             AND pack    = @Pack AND sheet   = @Sheet",
+        new { Melt = melt, Part = partNo, Pack = pack, Sheet = sheetNum });
 
-            if (sheet.Status != "Закалка пройдена" && sheet.Status != "Закалка пройдена, измерен")
-            {
-                return BadRequest(new
-                {
-                    message = $"Лист {request.MatId} имеет статус '{sheet.Status}'. " +
-                              "В кассету можно добавить только листы, прошедшие закалку."
-                });
-            }
+    // 🔒 Дубликат — с учётом reheat_num
+    var alreadyAdded = await _context.Set<CassetteSheet>()
+        .AnyAsync(cs => cs.CassetteBusinessKey == businessKey
+                    && cs.MatId == request.MatId
+                    && cs.ReheatNum == reheatNum);
+    if (alreadyAdded)
+        return Conflict(new { message = "Лист с текущим номером нагрева уже в этой кассете" });
 
-            // Проверяем, не добавлен ли уже этот лист в эту кассету
-            var alreadyAdded = await _context.Set<CassetteSheet>()
-                .AnyAsync(cs => cs.CassetteBusinessKey == businessKey && cs.MatId == request.MatId);
+    var maxOrder = await _context.Set<CassetteSheet>()
+        .Where(cs => cs.CassetteBusinessKey == businessKey)
+        .MaxAsync(cs => (int?)cs.SortOrder) ?? 0;
 
-            if (alreadyAdded)
-                return Conflict(new { message = "Лист уже добавлен в эту кассету" });
+    var cassetteSheet = new CassetteSheet
+    {
+        CassetteBusinessKey = businessKey,
+        MatId               = request.MatId,
+        ReheatNum           = reheatNum,
+        AddedBy             = userName,
+        SortOrder           = maxOrder + 1
+    };
+    _context.Set<CassetteSheet>().Add(cassetteSheet);
 
-            // Определяем порядок
-            var maxOrder = await _context.Set<CassetteSheet>()
-                .Where(cs => cs.CassetteBusinessKey == businessKey)
-                .MaxAsync(cs => (int?)cs.SortOrder) ?? 0;
+    var cassetteNumber = businessKey.Split('/')[0];
+    sheet.Status          = $"В кассете №{cassetteNumber}";
+    sheet.QuenchingStatus = "В кассете";
+    await _context.SaveChangesAsync();
 
-            var cassetteSheet = new CassetteSheet
-            {
-                CassetteBusinessKey = businessKey,
-                MatId = request.MatId,
-                AddedBy = userName,
-                SortOrder = maxOrder + 1
-            };
+    await LogAuditAsync(con, businessKey, "add_sheet", request.MatId, userName,
+        new { melt = sheet.MeltNumber, sheet = sheet.SheetNumber, reheatNum });
 
-            _context.Set<CassetteSheet>().Add(cassetteSheet);
-
-            var cassetteNumber = businessKey.Split('/')[0];
-            sheet.Status = $"В кассете №{cassetteNumber}";
-            sheet.QuenchingStatus = "В кассете";
-            await _context.SaveChangesAsync();
-
-            // Лог
-            await using var con = await _dataSource.OpenConnectionAsync();
-            await LogAuditAsync(con, businessKey, "add_sheet", request.MatId, userName,
-                new { melt = sheet.MeltNumber, sheet = sheet.SheetNumber });
-
-            _logger.LogInformation("Лист {MatId} добавлен в кассету {Key} оператором {User}",
-                request.MatId, businessKey, userName);
-
-            return Ok(new { message = "Лист добавлен в кассету", sortOrder = cassetteSheet.SortOrder });
-        }
+    return Ok(new
+    {
+        message = "Лист добавлен в кассету",
+        sortOrder = cassetteSheet.SortOrder,
+        reheatNum
+    });
+}
 
         /// <summary>
         /// DELETE /api/cassette/{businessKey}/remove-sheet/{matId}
         /// Удалить лист из кассеты. ТОЛЬКО master/superadmin/developer.
         /// </summary>
-        [HttpDelete("{businessKey}/remove-sheet/{matId}")]
+        [HttpDelete("{businessKey}/remove-sheet/{matId}/{reheatNum:int}")]
         public async Task<IActionResult> RemoveSheetFromCassette(
-            string businessKey, string matId, [FromBody] EditReasonRequest? request)
+            string businessKey, string matId, int reheatNum,
+            [FromBody] EditReasonRequest? request)
         {
             businessKey = Uri.UnescapeDataString(businessKey);
-           // if (!IsMasterOrAbove())
-           //     return Forbid("Удаление листов из кассеты доступно только мастеру или администратору");
-
             var userName = GetUserName();
 
             var cassetteSheet = await _context.Set<CassetteSheet>()
-                .FirstOrDefaultAsync(cs => cs.CassetteBusinessKey == businessKey && cs.MatId == matId);
-
+                .FirstOrDefaultAsync(cs => cs.CassetteBusinessKey == businessKey
+                                        && cs.MatId == matId
+                                        && cs.ReheatNum == reheatNum);
             if (cassetteSheet == null)
-                return NotFound(new { message = "Лист не найден в кассете" });
+                return NotFound(new { message = "Лист с указанным номером нагрева не найден в кассете" });
 
             _context.Set<CassetteSheet>().Remove(cassetteSheet);
-            // 🆕 Возвращаем статус
-            var sheet = await _context.InputData.FindAsync(matId);
-            if (sheet != null)
+
+            // Статус возвращаем только если это был последний (самый свежий) reheat
+            var maxReheatInDb = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.MatId == matId)
+                .MaxAsync(cs => (int?)cs.ReheatNum) ?? -1;
+
+            if (reheatNum >= maxReheatInDb)
             {
-                sheet.Status = "Закалка пройдена, измерен";
-                sheet.QuenchingStatus = "Завершена";
+                var sheet = await _context.InputData.FindAsync(matId);
+                if (sheet != null)
+                {
+                    sheet.Status = "Закалка пройдена, измерен";
+                    sheet.QuenchingStatus = "Завершена";
+                }
             }
+
             await _context.SaveChangesAsync();
 
-            // Лог
             await using var con = await _dataSource.OpenConnectionAsync();
             await LogAuditAsync(con, businessKey, "remove_sheet", matId, userName,
-                new { reason = request?.Reason ?? "Не указана" });
-
-            _logger.LogWarning("🔧 Лист {MatId} УДАЛЁН из кассеты {Key} мастером {User}. Причина: {Reason}",
-                matId, businessKey, userName, request?.Reason);
+                new { reason = request?.Reason ?? "Не указана", reheatNum });
 
             return Ok(new { message = "Лист удалён из кассеты" });
         }
@@ -273,7 +287,7 @@ namespace MES_ME.Server.Controllers
         /// </summary>
         [HttpPut("{businessKey}/edit-measurement/{matId}")]
         public async Task<IActionResult> EditMeasurement(
-            string businessKey, string matId, [FromBody] EditMeasurementRequest request)
+            string businessKey, string matId, int reheatNum,[FromBody] EditMeasurementRequest request)
         {
             businessKey = Uri.UnescapeDataString(businessKey);
            // if (!IsMasterOrAbove())
@@ -283,14 +297,14 @@ namespace MES_ME.Server.Controllers
 
             // Проверяем, что лист в кассете
             var inCassette = await _context.Set<CassetteSheet>()
-                .AnyAsync(cs => cs.CassetteBusinessKey == businessKey && cs.MatId == matId);
+                .AnyAsync(cs => cs.CassetteBusinessKey == businessKey && cs.MatId == matId && cs.ReheatNum == reheatNum);
 
             if (!inCassette)
                 return BadRequest(new { message = "Лист не найден в кассете" });
 
             // Находим последнюю запись измерений
             var measurement = await _context.Set<SheetMeasurement>()
-                .Where(m => m.MatId == matId && m.MeasuredAt != null)
+                .Where(m => m.MatId == matId && m.ReheatNum == reheatNum && m.MeasuredAt != null)
                 .OrderByDescending(m => m.MeasuredAt)
                 .FirstOrDefaultAsync();
 
@@ -619,6 +633,7 @@ public async Task<IActionResult> GetActiveCassette()
         {
             cs.Id,
             cs.MatId,
+            cs.ReheatNum,
             cs.AddedAt,
             cs.AddedBy,
             cs.SortOrder,
@@ -633,11 +648,11 @@ public async Task<IActionResult> GetActiveCassette()
                 cs.Sheet.Status,
             },
             Measurement = _context.Set<SheetMeasurement>()
-                .Where(m => m.MatId == cs.MatId && m.MeasuredAt != null)
+                .Where(m => m.MatId == cs.MatId  && m.ReheatNum == cs.ReheatNum && m.MeasuredAt != null)
                 .OrderByDescending(m => m.MeasuredAt)
                 .Select(m => new
                 {
-                    m.Id,
+                    m.Id, m.ReheatNum,
                     m.H1Before, m.H2Before, m.H3Before, m.H4Before,
                     m.H5Before, m.H6Before, m.H7Before, m.H8Before,
                     m.H1After, m.H2After, m.H3After, m.H4After,
@@ -690,24 +705,24 @@ public async Task<IActionResult> GetActiveCassette()
         /// GET /api/cassettenew/available-sheets?melt=123&batch=456&pack=789&sheet=10&steelGrade=AMg2
         /// Получить список листов, прошедших закалку и не добавленных в активные кассеты
         /// </summary>
+        
         [HttpGet("available-sheets")]
         public async Task<IActionResult> GetAvailableSheets(
-            [FromQuery] string? melt = null,
-            [FromQuery] string? batch = null,
-            [FromQuery] string? pack = null,
-            [FromQuery] string? sheet = null,
-            [FromQuery] string? steelGrade = null,
-            [FromQuery] int limit = 100)
+            [FromQuery] string? melt = null, [FromQuery] string? batch = null,
+            [FromQuery] string? pack = null, [FromQuery] string? sheet = null,
+            [FromQuery] string? steelGrade = null, [FromQuery] int limit = 100)
         {
-            // Находим все MatId, которые уже добавлены в активные кассеты
-            var activeMatIds = await _context.Set<CassetteSheet>()
-                .Select(cs => cs.MatId)
+            // Берём пары (mat_id, reheat_num), которые сейчас в активных кассетах
+            var activePairs = await _context.Set<CassetteSheet>()
+                .Select(cs => new { cs.MatId, cs.ReheatNum })
                 .ToListAsync();
+            var activeSet = new HashSet<(string MatId, int Reheat)>(
+                activePairs.Select(p => (p.MatId, (int)p.ReheatNum)));
 
-            // Берем только те, что прошли закалку и не в кассете
             var query = _context.InputData
-                .Where(s => (s.Status == "Закалка пройдена" || s.Status == "Закалка пройдена, измерен")
-                            && !activeMatIds.Contains(s.MatId));
+                .Where(s => s.Status == "Закалка пройдена"
+                        || s.Status == "Закалка пройдена, измерен"
+                        || s.Status == "Прошел закалку");
 
             // Фильтрация по плавке
             if (!string.IsNullOrWhiteSpace(melt))
@@ -749,18 +764,80 @@ public async Task<IActionResult> GetActiveCassette()
                 .Take(limit)
                 .Select(s => new
                 {
-                    s.MatId,
-                    s.MeltNumber,
-                    s.BatchNumber,
-                    s.PackNumber,
-                    s.SheetNumber,
-                    s.SteelGrade,
-                    s.SheetDimensions,
-                    s.Status
+                    s.MatId, s.MeltNumber, s.BatchNumber, s.PackNumber,
+                    s.SheetNumber, s.SteelGrade, s.SheetDimensions, s.Status
                 })
                 .ToListAsync();
 
-            return Ok(sheets);
+            // 🔎 Для каждого листа узнаём текущий reheat_num одним запросом
+            var keys = sheets.Select(s => new {
+                Melt = int.TryParse(s.MeltNumber, out var m) ? m : (int?)null,
+                Part = int.TryParse(s.BatchNumber, out var p) ? p : (int?)null,
+                Pack = int.TryParse(s.PackNumber, out var pk) ? pk : (int?)null,
+                Sheet = int.TryParse(s.SheetNumber, out var sh) ? sh : (int?)null,
+                s.MatId
+            }).Where(x => x.Melt.HasValue && x.Part.HasValue && x.Pack.HasValue && x.Sheet.HasValue)
+            .ToList();
+
+            if (keys.Count == 0)
+            {
+                return Ok(sheets.Select(s => new
+                {
+                    s.MatId, s.MeltNumber, s.BatchNumber, s.PackNumber,
+                    s.SheetNumber, s.SteelGrade, s.SheetDimensions, s.Status,
+                    ReheatNum = 0
+                }));
+            }
+
+            await using var con = await _dataSource.OpenConnectionAsync();
+            
+            // ✅ ИСПРАВЛЕНО: используем DynamicParameters вместо SelectMany
+            var parameters = new Dapper.DynamicParameters();
+            var valuesList = new List<string>();
+            
+            for (int i = 0; i < keys.Count; i++)
+            {
+                var k = keys[i];
+                valuesList.Add($"(@MatId{i}::varchar, @Melt{i}::int, @Part{i}::int, @Pack{i}::int, @Sheet{i}::int)");
+                parameters.Add($"MatId{i}", k.MatId);
+                parameters.Add($"Melt{i}", k.Melt ?? (object)DBNull.Value);
+                parameters.Add($"Part{i}", k.Part ?? (object)DBNull.Value);
+                parameters.Add($"Pack{i}", k.Pack ?? (object)DBNull.Value);
+                parameters.Add($"Sheet{i}", k.Sheet ?? (object)DBNull.Value);
+            }
+
+            var sql = @"
+                SELECT x.mat_id, COALESCE(MAX(hs.reheat_num), 0) AS reheat
+                FROM (VALUES " + string.Join(",", valuesList) + @") AS x(mat_id, melt, part_no, pack, sheet)
+                LEFT JOIN plc.heating_sessions hs
+                    ON hs.melt    = x.melt
+                    AND hs.part_no = x.part_no
+                    AND hs.pack    = x.pack
+                    AND hs.sheet   = x.sheet
+                GROUP BY x.mat_id";
+
+            var reheatByMat = (await con.QueryAsync(sql, parameters))
+                .Select(row => (MatId: (string)row.mat_id, Reheat: (int)row.reheat))
+                .ToList();
+
+            var reheatMap = reheatByMat.ToDictionary(x => x.MatId, x => x.Reheat);
+
+            // 🔒 Фильтруем: лист доступен, если его (mat_id, текущий reheat) НЕ в активных кассетах
+            var available = sheets
+                .Where(s =>
+                {
+                    if (!reheatMap.TryGetValue(s.MatId, out var rn)) return true;
+                    return !activeSet.Contains((s.MatId, rn));
+                })
+                .Select(s => new
+                {
+                    s.MatId, s.MeltNumber, s.BatchNumber, s.PackNumber,
+                    s.SheetNumber, s.SteelGrade, s.SheetDimensions, s.Status,
+                    ReheatNum = reheatMap.GetValueOrDefault(s.MatId, 0)
+                })
+                .ToList();
+
+            return Ok(available);
         }
 
         /// <summary>

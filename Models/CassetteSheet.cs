@@ -41,6 +41,9 @@ public class CassetteSheet
     [Column("edit_reason")]
     public string? EditReason { get; set; }
 
+    [Column("reheat_num")]
+    public int ReheatNum { get; set; }
+
     // Navigation
     [ForeignKey(nameof(MatId))]
     public InputDatum? Sheet { get; set; }

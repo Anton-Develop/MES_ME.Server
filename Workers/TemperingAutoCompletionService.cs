@@ -5,9 +5,16 @@ using Microsoft.Extensions.Logging;
 namespace MES_ME.Server.Workers;
 
 /// <summary>
-/// Автоматически отслеживает завершение цикла отпуска в печах через PLC (proc_end = TRUE)
+/// Автоматически отслеживает завершение цикла отпуска в печах через PLC
 /// и выгружает кассету, обновляя статусы всех её листов.
-/// Работает с новой изолированной таблицей mes.tempering_sessions_new.
+/// Работает с таблицей mes.tempering_sessions_new.
+/// 
+/// Условие завершения синхронизировано с TemperingSessionWorker (Sql.UpsertTemperingSessions):
+///   - proc_end = TRUE
+///   - ИЛИ proc_run = FALSE И time_proc_set = 0 И act_time_total = 0
+/// 
+/// Время loaded_at перезаписывается на реальный старт цикла из PLC,
+/// а не на момент виртуальной загрузки оператором.
 /// </summary>
 public class TemperingAutoCompletionService : BackgroundService
 {
@@ -29,10 +36,9 @@ public class TemperingAutoCompletionService : BackgroundService
             "TemperingAutoCompletionService запущен. Интервал опроса: {Interval}с",
             POLL_INTERVAL_SEC);
 
-        // ✅ Используем PeriodicTimer вместо Timer — корректно работает с CancellationToken
+        // ✅ PeriodicTimer корректно работает с CancellationToken
         // и не запускает следующую итерацию, пока не завершена предыдущая
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(POLL_INTERVAL_SEC));
-
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -69,29 +75,33 @@ public class TemperingAutoCompletionService : BackgroundService
     {
         using var scope = _services.CreateScope();
         var dataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
-
         await using var con = await dataSource.OpenConnectionAsync(ct);
 
-        // Находим все печи, где PLC выставил proc_end = TRUE и есть активная сессия
+        // ✅ Условие завершения синхронизировано с Sql.UpsertTemperingSessions:
+        //    proc_end = TRUE ИЛИ (proc_run = FALSE И time_proc_set = 0 И act_time_total = 0)
+        // ✅ Также забираем ts.loaded_at — нужно для поиска реального старта цикла
         var completedFurnaces = (await con.QueryAsync<FurnaceCompletionDto>(
             new CommandDefinition(@"
                 WITH latest_data AS (
                     SELECT DISTINCT ON (furnace_no)
-                        furnace_no, proc_end, time
+                        furnace_no, proc_end, proc_run, time_proc_set, act_time_total, time
                     FROM plc.tempering_data
                     ORDER BY furnace_no, time DESC
                 )
                 SELECT 
-                    ld.furnace_no   AS FurnaceNo,
-                    ld.proc_end     AS ProcEnd,
-                    ts.id           AS SessionId,
-                    ts.business_key AS BusinessKey,
-                    ts.cassette_number AS CassetteNumber
+                    ld.furnace_no      AS FurnaceNo,
+                    ts.id              AS SessionId,
+                    ts.business_key    AS BusinessKey,
+                    ts.cassette_number AS CassetteNumber,
+                    ts.loaded_at       AS LoadedAt
                 FROM latest_data ld
                 INNER JOIN mes.tempering_sessions_new ts
                     ON ts.furnace_number = ld.furnace_no 
                     AND ts.unloaded_at IS NULL
-                WHERE ld.proc_end = TRUE",
+                WHERE ld.proc_end = TRUE 
+                   OR (ld.proc_run = FALSE 
+                       AND COALESCE(ld.time_proc_set, 0) = 0 
+                       AND COALESCE(ld.act_time_total, 0) = 0)",
                 cancellationToken: ct)
         )).ToList();
 
@@ -106,7 +116,6 @@ public class TemperingAutoCompletionService : BackgroundService
         foreach (var item in completedFurnaces)
         {
             ct.ThrowIfCancellationRequested();
-
             try
             {
                 await ProcessCompletedFurnaceAsync(con, item, ct);
@@ -123,90 +132,86 @@ public class TemperingAutoCompletionService : BackgroundService
         if (processed > 0)
             _logger.LogInformation("✅ Автозавершение: обработано {Count} печей", processed);
     }
+
     private async Task ProcessCompletedFurnaceAsync(
-     NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
+        NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
     {
-        
-         // 1. Получаем статистику из PLC с использованием строго типизированного DTO
-        var plcStats = await con.QueryFirstOrDefaultAsync<PlcStatsDto>(@"
-            SELECT 
-                MAX(temp_act) as max_temp,
-                EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60 as duration_min
-            FROM plc.tempering_data
-            WHERE furnace_no = @FurnaceNo 
-            AND time >= (SELECT loaded_at FROM mes.tempering_sessions_new WHERE id = @SessionId)
-        ", new { item.FurnaceNo, item.SessionId });
-
-    // Теперь преобразования безопасны и не вызывают ошибок dynamic binding
-    int? durationMin = plcStats?.duration_min != null ? Convert.ToInt32(plcStats.duration_min) : null;
-    decimal? maxTemp = plcStats?.max_temp;
-
-
-        // 2. Обновляем сессию, сохраняя рассчитанные значения в новые колонки
-        var updatedBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
+        // 1. ✅ Находим РЕАЛЬНОЕ время старта цикла из PLC
+        //    (когда PLC официально начал нагрев: proc_run = TRUE и задано время)
+        //    Если PLC не прислал такие данные — fallback на виртуальное время оператора
+        var realStartTime = await con.QueryFirstOrDefaultAsync<DateTime?>(
             new CommandDefinition(@"
-            UPDATE mes.tempering_sessions_new 
-            SET unloaded_at = @UnloadedAt, 
-                completed_by_plc = TRUE, 
-                unloaded_by = 'PLC_AUTO',
-                status = 'Отпуск завершён',
-                total_time_min = COALESCE(@DurationMin, total_time_min), -- Сохраняем время
-                max_temp = COALESCE(@MaxTemp, max_temp)                  -- Сохраняем температуру
-            WHERE id = @SessionId
-              AND unloaded_at IS NULL
-            RETURNING business_key",
-            new
-            {
-                UnloadedAt = DateTime.UtcNow,
-                SessionId = item.SessionId,
-                DurationMin = durationMin,
-                MaxTemp = maxTemp
-            },
-            cancellationToken: ct));
+                SELECT MIN(time) 
+                FROM plc.tempering_data 
+                WHERE furnace_no = @FurnaceNo 
+                  AND time >= @VirtualLoadedAt
+                  AND proc_run = TRUE 
+                  AND time_proc_set > 0",
+                new
+                {
+                    item.FurnaceNo,
+                    VirtualLoadedAt = item.LoadedAt
+                },
+                cancellationToken: ct));
 
-        if (string.IsNullOrEmpty(updatedBusinessKey))
+        // 2. Получаем статистику: максимальная температура и реальное время завершения
+        var plcStats = await con.QueryFirstOrDefaultAsync<PlcStatsDto>(
+            new CommandDefinition(@"
+                SELECT 
+                    MAX(temp_act) AS max_temp,
+                    MAX(CASE 
+                        WHEN proc_end = TRUE 
+                          OR (proc_run = FALSE 
+                              AND COALESCE(time_proc_set, 0) = 0 
+                              AND COALESCE(act_time_total, 0) = 0) 
+                        THEN time 
+                    END) AS end_time
+                FROM plc.tempering_data
+                WHERE furnace_no = @FurnaceNo 
+                  AND time >= @LoadedAt",
+                new
+                {
+                    item.FurnaceNo,
+                    LoadedAt = item.LoadedAt
+                },
+                cancellationToken: ct));
+
+        if (plcStats?.end_time == null)
         {
-            _logger.LogWarning("Сессия {SessionId} уже была выгружена (race condition)", item.SessionId);
+            _logger.LogWarning(
+                "Не удалось найти время завершения цикла для печи №{Furnace}",
+                item.FurnaceNo);
             return;
         }
 
-        // 3. Обновляем статусы всех листов кассеты
-        var updatedCount = await con.ExecuteAsync(
-             new CommandDefinition(@"
-            UPDATE mes.inputdata 
-            SET status = 'Отпуск пройден',
-                quenching_status = 'Отпуск пройден'
-            WHERE mat_id IN (
-                SELECT cs.mat_id 
-                FROM mes.cassette_sheets cs
-                WHERE cs.cassette_business_key = @BusinessKey
-            ) 
-            AND status IN ('В печи отпуска', 'Добавлен в кассету', 'В кассете')",
-                new { BusinessKey = updatedBusinessKey },
-                cancellationToken: ct));
+        // ✅ loaded_at = реальное время старта (если нашли), иначе виртуальное
+        // ✅ unloaded_at = реальное время завершения из PLC (а не DateTime.UtcNow)
+        DateTime loadedAt = realStartTime ?? item.LoadedAt;
+        DateTime unloadedAt = plcStats.end_time.Value;
+        double durationMin = (unloadedAt - loadedAt).TotalMinutes;
+        decimal? maxTemp = plcStats.max_temp;
 
-        _logger.LogInformation(
-             "📤 Печь №{Furnace}: кассета №{Cassette} (key={Key}) автовыгружена PLC. " +
-             "Время: {Duration} мин, Макс. t°: {Temp}. Обновлено {Count} листов.",
-            item.FurnaceNo, item.CassetteNumber, updatedBusinessKey, durationMin, maxTemp, updatedCount);
-    }
-    /*private async Task ProcessCompletedFurnaceAsync( NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
-    {
-        // 1. Обновляем сессию — помечаем как выгруженную PLC'ом
+        // 3. Обновляем сессию — ПЕРЕЗАПИСЫВАЕМ loaded_at на реальное время старта
         var updatedBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
             new CommandDefinition(@"
                 UPDATE mes.tempering_sessions_new 
-                SET unloaded_at = @UnloadedAt, 
+                SET loaded_at = @LoadedAt,
+                    unloaded_at = @UnloadedAt, 
                     completed_by_plc = TRUE, 
                     unloaded_by = 'PLC_AUTO',
-                    status = 'Отпуск завершён'
+                    status = 'Отпуск завершён',
+                    total_time_min = @DurationMin,
+                    max_temp = COALESCE(@MaxTemp, max_temp)
                 WHERE id = @SessionId
                   AND unloaded_at IS NULL
                 RETURNING business_key",
                 new
                 {
-                    UnloadedAt = DateTime.UtcNow,
-                    SessionId = item.SessionId
+                    LoadedAt = loadedAt,
+                    UnloadedAt = unloadedAt,
+                    SessionId = item.SessionId,
+                    DurationMin = durationMin,
+                    MaxTemp = maxTemp
                 },
                 cancellationToken: ct));
 
@@ -218,12 +223,13 @@ public class TemperingAutoCompletionService : BackgroundService
             return;
         }
 
-        // 2. Обновляем статусы всех листов кассеты через mes.cassette_sheets
+        // 4. ✅ Обновляем статусы всех листов кассеты
+        //    - mes.inputdata (без подчёркивания — правильное имя таблицы)
+        //    - НЕ трогаем quenching_status (это поле для закалки, не для отпуска)
         var updatedCount = await con.ExecuteAsync(
             new CommandDefinition(@"
-                UPDATE mes.input_data 
-                SET status = 'Отпуск пройден',
-                    quenching_status = 'Отпуск пройден'
+                UPDATE mes.inputdata 
+                SET status = 'Отпуск пройден'
                 WHERE mat_id IN (
                     SELECT cs.mat_id 
                     FROM mes.cassette_sheets cs
@@ -235,22 +241,28 @@ public class TemperingAutoCompletionService : BackgroundService
 
         _logger.LogInformation(
             "📤 Печь №{Furnace}: кассета №{Cassette} (key={Key}) автовыгружена PLC. " +
-            "Обновлено {Count} листов → 'Отпуск пройден'",
-            item.FurnaceNo, item.CassetteNumber, updatedBusinessKey, updatedCount);
+            "Реальный старт: {LoadedAt}, Завершение: {UnloadedAt}, " +
+            "Время: {Duration:F1} мин, Макс. t°: {Temp}. Обновлено {Count} листов.",
+            item.FurnaceNo, item.CassetteNumber, updatedBusinessKey,
+            loadedAt, unloadedAt, durationMin, maxTemp, updatedCount);
     }
-    */
-    // DTO для результата запроса
+
+    // -----------------------------------------------------------------------
+    // DTO
+    // -----------------------------------------------------------------------
+
     private class PlcStatsDto
-{
-    public decimal? max_temp { get; set; }
-    public double? duration_min { get; set; }
-}
+    {
+        public decimal? max_temp { get; set; }
+        public DateTime? end_time { get; set; }
+    }
+
     private class FurnaceCompletionDto
     {
         public int FurnaceNo { get; set; }
-        public bool ProcEnd { get; set; }
         public long SessionId { get; set; }
         public string BusinessKey { get; set; } = string.Empty;
         public int CassetteNumber { get; set; }
+        public DateTime LoadedAt { get; set; } // ✅ виртуальное время загрузки от оператора
     }
 }

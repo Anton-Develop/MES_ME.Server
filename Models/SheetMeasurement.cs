@@ -79,5 +79,8 @@ namespace MES_ME.Server.Models
         [Column("edited_by")]
         [MaxLength(100)]
         public string? EditedBy { get; set; }
+        
+        [Column("reheat_num")]
+        public int ReheatNum { get; set; }
     }
 }

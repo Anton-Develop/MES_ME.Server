@@ -148,20 +148,31 @@ public class TemperingController : ControllerBase
     }
 
     [HttpGet("active-sessions")]
-    public async Task<IActionResult> GetActiveSessions()
-    {
-        await using var con = await _dataSource.OpenConnectionAsync();
-        var result = await con.QueryAsync(@"
-            SELECT id, furnace_number AS ""furnaceNumber"", slot_number AS ""slotNumber"",
-                   business_key AS ""businessKey"", cassette_number AS ""cassetteNumber"",
-                   loaded_at AS ""loadedAt"", loaded_by AS ""loadedBy"", status AS ""status"",
-                   completed_by_plc AS ""completedByPlc""
-            FROM mes.tempering_sessions_new
-            WHERE unloaded_at IS NULL
-            ORDER BY furnace_number, slot_number NULLS FIRST
-        ");
-        return Ok(result);
-    }
+public async Task<IActionResult> GetActiveSessions()
+{
+    await using var con = await _dataSource.OpenConnectionAsync();
+    var result = await con.QueryAsync(@"
+        SELECT tsn.id, 
+               tsn.furnace_number AS ""furnaceNumber"", 
+               tsn.slot_number AS ""slotNumber"",
+               tsn.business_key AS ""businessKey"", 
+               tsn.cassette_number AS ""cassetteNumber"",
+               tsn.loaded_at AS ""loadedAt"", 
+               tsn.loaded_by AS ""loadedBy"", 
+               tsn.status AS ""status"",
+               tsn.completed_by_plc AS ""completedByPlc"",
+               COALESCE(max_reheat.max_reheat, 0) AS ""maxReheatNum""   
+        FROM mes.tempering_sessions_new tsn
+        LEFT JOIN LATERAL (
+            SELECT MAX(cs.reheat_num) AS max_reheat
+            FROM mes.cassette_sheets cs
+            WHERE cs.cassette_business_key = tsn.business_key
+        ) max_reheat ON TRUE
+        WHERE tsn.unloaded_at IS NULL
+        ORDER BY tsn.furnace_number, tsn.slot_number NULLS FIRST
+    ");
+    return Ok(result);
+}
 
     // ═══════════════════════════════════════════════════════════════════════════
     // POST /load — Загрузка кассеты
@@ -242,7 +253,22 @@ public class TemperingController : ControllerBase
         foreach (var cs in sheets)
         {
             var sheet = await _context.InputData.FindAsync(cs.MatId);
-            if (sheet != null)
+            if (sheet == null) continue;
+
+            // 🔎 Проверяем текущий reheat_num листа
+            int melt = int.TryParse(sheet.MeltNumber, out var m) ? m : 0;
+            int partNo = int.TryParse(sheet.BatchNumber, out var p) ? p : 0;
+            int pack = int.TryParse(sheet.PackNumber, out var pk) ? pk : 0;
+            int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
+
+            int currentReheat = await con.QueryFirstOrDefaultAsync<int>(
+                @"SELECT COALESCE(MAX(reheat_num), 0)
+                    FROM plc.heating_sessions
+                WHERE melt = @Melt AND part_no = @Part
+                    AND pack = @Pack AND sheet = @Sheet",
+                new { Melt = melt, Part = partNo, Pack = pack, Sheet = sheetNum });
+
+            if (cs.ReheatNum >= currentReheat)
             {
                 sheet.Status = "В печи отпуска";
                 sheet.QuenchingStatus = "В печи отпуска";
@@ -322,24 +348,49 @@ public class TemperingController : ControllerBase
 
             await con.ExecuteAsync(
                 @"UPDATE mes.tempering_sessions_new 
-                  SET unloaded_at = NOW(), unloaded_by = @User, completed_by_plc = FALSE, status = 'Выгружена вручную'
-                  WHERE id = @Id",
+                SET unloaded_at = NOW(), unloaded_by = @User, completed_by_plc = FALSE, status = 'Выгружена вручную'
+                WHERE id = @Id",
                 new { Id = session.id, User = userName });
 
-            var sheets = await _context.Set<CassetteSheet>().Where(cs => cs.CassetteBusinessKey == businessKey).ToListAsync();
+            var sheets = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.CassetteBusinessKey == businessKey)
+                .ToListAsync();
+
             foreach (var cs in sheets)
             {
                 var sheet = await _context.InputData.FindAsync(cs.MatId);
-                if (sheet != null)
+                if (sheet == null) continue;
+
+                // 🔎 Проверяем: есть ли у листа более свежий нагрев?
+                int melt = int.TryParse(sheet.MeltNumber, out var m) ? m : 0;
+                int partNo = int.TryParse(sheet.BatchNumber, out var p) ? p : 0;
+                int pack = int.TryParse(sheet.PackNumber, out var pk) ? pk : 0;
+                int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
+
+                int currentReheat = await con.QueryFirstOrDefaultAsync<int>(
+                    @"SELECT COALESCE(MAX(reheat_num), 0)
+                        FROM plc.heating_sessions
+                    WHERE melt = @Melt AND part_no = @Part
+                        AND pack = @Pack AND sheet = @Sheet",
+                    new { Melt = melt, Part = partNo, Pack = pack, Sheet = sheetNum });
+
+                // Обновляем статус ТОЛЬКО если это был последний актуальный reheat
+                if (cs.ReheatNum >= currentReheat)
                 {
                     sheet.Status = "Отпуск пройден";
                     sheet.QuenchingStatus = "Отпуск пройден";
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "🔁 Лист {MatId} имеет более свежий reheat_num={Current} (в кассете был {CassetteReheat}). Статус не меняем.",
+                        cs.MatId, currentReheat, cs.ReheatNum);
                 }
             }
 
             totalSheets += sheets.Count;
             unloadedKeys.Add(businessKey);
-            unloadedSlots.Add(slotNum); // ✅ Добавляем слот в список для очистки
+            unloadedSlots.Add(slotNum);
         }
 
         await _context.SaveChangesAsync();
@@ -560,7 +611,7 @@ public class TemperingController : ControllerBase
             if (session == null)
                 return NotFound(new { error = "Сессия отпуска не найдена" });
 
-            // 2. Данные о листах (без изменений)
+            // 2. Данные о листах — с reheatNum
             var sheets = await con.QueryAsync(@"
                 SELECT 
                     id.matid AS ""MatId"",
@@ -571,11 +622,12 @@ public class TemperingController : ControllerBase
                     id.pack_number AS ""Pack"",
                     id.steel_grade AS ""AlloyCodeText"",
                     id.sheet_dimensions AS ""Thickness"",
-                    id.status AS ""Status""
+                    id.status AS ""Status"",
+                    cs.reheat_num AS ""ReheatNum""  
                 FROM mes.cassette_sheets cs
                 INNER JOIN mes.inputdata id ON cs.mat_id = id.matid
                 WHERE cs.cassette_business_key = @Key
-                ORDER BY id.matid", 
+                ORDER BY cs.sort_order, id.matid",
                 new { Key = key });
 
             // 3. ✅ Получаем данные температур из PLC с учётом времени остывания
@@ -622,49 +674,90 @@ public class TemperingController : ControllerBase
         }
     }
     /// <summary>
-    /// GET /api/tempering/cassette-key-by-sheet
-    /// Находит бизнес-ключ кассеты по параметрам листа
-    /// </summary>
-    [HttpGet("cassette-key-by-sheet")]
-    public async Task<IActionResult> GetCassetteKeyBySheet(
-        [FromQuery] string sheet,
-        [FromQuery] string melt,
-        [FromQuery] string partNo,
-        [FromQuery] string pack,
-        CancellationToken ct = default)
-    {
-        try
+/// GET /api/tempering/cassette-key-by-sheet
+/// Находит бизнес-ключ кассеты по параметрам листа
+/// </summary>
+        [HttpGet("cassette-key-by-sheet")]
+        public async Task<IActionResult> GetCassetteKeyBySheet(
+            [FromQuery] string sheet,
+            [FromQuery] string melt,
+            [FromQuery] string partNo,
+            [FromQuery] string pack,
+            [FromQuery] int? reheatNum,   // ← НОВОЕ
+            CancellationToken ct = default)
+        {
+            try
+            {
+                await using var con = await _dataSource.OpenConnectionAsync();
+
+                // ✅ Если reheatNum передан — фильтруем строго по нему
+                //    Иначе — берём самую свежую кассету (для обратной совместимости)
+                var cassetteBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
+                    new CommandDefinition(@"
+                    SELECT cs.cassette_business_key 
+                    FROM mes.cassette_sheets cs
+                    INNER JOIN mes.inputdata id ON cs.mat_id = id.matid
+                    WHERE id.sheet_number = @Sheet
+                    AND id.melt_number  = @Melt
+                    AND id.batch_number = @PartNo
+                    AND id.pack_number  = @Pack
+                    AND (@ReheatNum IS NULL OR cs.reheat_num = @ReheatNum)
+                    ORDER BY cs.reheat_num DESC, cs.added_at DESC
+                    LIMIT 1",
+                        new
+                        {
+                            Sheet = sheet,
+                            Melt = melt,
+                            PartNo = partNo,
+                            Pack = pack,
+                            ReheatNum = reheatNum
+                        },
+                        cancellationToken: ct));
+
+                if (string.IsNullOrEmpty(cassetteBusinessKey))
+                {
+                    return NotFound(new
+                    {
+                        error = "Лист не найден ни в одной кассете отпуска. " +
+                                "Возможно, он ещё не прошёл закалку или отпуск для этого reheat_num."
+                    });
+                }
+
+                return Ok(new { cassetteBusinessKey });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetCassetteKeyBySheet failed for sheet={Sheet}, reheatNum={ReheatNum}",
+                    sheet, reheatNum);
+                return StatusCode(500, new { error = "Ошибка при поиске кассеты" });
+            }
+        }
+
+        [HttpGet("history")]
+        public async Task<IActionResult> GetHistory(
+            [FromQuery] int page = 1, [FromQuery] int pageSize = 30)
         {
             await using var con = await _dataSource.OpenConnectionAsync();
 
-            // ✅ ПРАВИЛЬНЫЙ ЗАПРОС: ищем cassette_business_key через таблицу связей
-            var cassetteBusinessKey = await con.QueryFirstOrDefaultAsync<string>(
-                new CommandDefinition(@"
-                SELECT cs.cassette_business_key 
-                FROM mes.cassette_sheets cs
-                INNER JOIN mes.inputdata id ON cs.mat_id = id.matid
-                WHERE id.sheet_number = @Sheet
-                  AND id.melt_number = @Melt
-                  AND id.batch_number = @PartNo
-                  AND id.pack_number = @Pack
-                ORDER BY cs.added_at DESC
-                LIMIT 1",
-                    new { Sheet = sheet, Melt = melt, PartNo = partNo, Pack = pack },
-                    cancellationToken: ct));
+            var totalCount = await con.QueryFirstOrDefaultAsync<int>(
+                "SELECT COUNT(*) FROM mes.tempering_sessions_new WHERE unloaded_at IS NOT NULL");
 
-            if (string.IsNullOrEmpty(cassetteBusinessKey))
-            {
-                return NotFound(new { error = "Лист не найден ни в одной кассете отпуска. Возможно, он ещё не прошёл закалку." });
-            }
+            var sessions = await con.QueryAsync(
+                @"SELECT tsn.id, tsn.furnace_number, tsn.business_key, 
+                        tsn.loaded_at, tsn.loaded_by, tsn.unloaded_at, tsn.unloaded_by,
+                        tsn.completed_by_plc, tsn.status,
+                        (SELECT COUNT(*) FROM mes.cassette_sheets cs 
+                        WHERE cs.cassette_business_key = tsn.business_key) AS sheet_count,
+                        COALESCE((SELECT MAX(cs.reheat_num) FROM mes.cassette_sheets cs 
+                                WHERE cs.cassette_business_key = tsn.business_key), 0) AS max_reheat_num
+                FROM mes.tempering_sessions_new tsn
+                WHERE tsn.unloaded_at IS NOT NULL
+                ORDER BY tsn.unloaded_at DESC
+                LIMIT @Limit OFFSET @Offset",
+                new { Limit = pageSize, Offset = (page - 1) * pageSize });
 
-            return Ok(new { cassetteBusinessKey });
+            return Ok(new { sessions, totalCount, page, pageSize });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "GetCassetteKeyBySheet failed for sheet={Sheet}", sheet);
-            return StatusCode(500, new { error = "Ошибка при поиске кассеты" });
-        }
-    }
 }
 
 public class LoadCassetteRequest

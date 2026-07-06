@@ -358,48 +358,69 @@ private async Task HandleSheetExitedAsync(AppDbContext context, string zoneName)
 // ====================================================================
 // 🆕 СОЗДАНИЕ ЗАПИСИ ИЗМЕРЕНИЯ ПЛАНШЕТНОСТИ (после завершения закалки)
 // ====================================================================
+
+        /// <summary>
+        /// Определяет текущий номер повторного нагрева листа по plc.heating_sessions.
+        /// Возвращает 0, если сессий ещё нет (первый проход).
+        /// </summary>
+        private async Task<int> GetCurrentReheatNumAsync(
+            NpgsqlConnection con, int? melt, int? partNo, int? pack, int sheet)
+        {
+            if (melt is null || partNo is null || pack is null) return 0;
+
+            var rn = await con.QueryFirstOrDefaultAsync<int?>(
+                @"SELECT MAX(reheat_num)
+                    FROM plc.heating_sessions
+                WHERE melt    = @Melt
+                    AND part_no = @Part
+                    AND pack    = @Pack
+                    AND sheet   = @Sheet",
+                new { Melt = melt.Value, Part = partNo.Value, Pack = pack.Value, Sheet = sheet });
+            return rn ?? 0;
+        }
 private async Task CreateSheetMeasurementAsync(AppDbContext context, string matId)
 {
     try
     {
-        // Проверяем, не создана ли уже запись
-        var exists = await context.Set<SheetMeasurement>()
-            .AnyAsync(sm => sm.MatId == matId);
-        
-        if (exists)
-        {
-            _logger.LogDebug("Запись измерения для листа {MatId} уже существует", matId);
-            return;
-        }
-
-        // Получаем данные листа из БД
-        var sheet = await context.InputData
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.MatId == matId);
-        
+        var sheet = await context.InputData.AsNoTracking()
+                        .FirstOrDefaultAsync(s => s.MatId == matId);
         if (sheet == null)
         {
-            _logger.LogError("❌ Лист {MatId} не найден в БД для создания записи измерения", matId);
+            _logger.LogError("❌ Лист {MatId} не найден в БД", matId);
             return;
         }
 
-        _logger.LogInformation(
-            "📊 Данные листа {MatId}: Melt={Melt}, PartNo={PartNo}, Pack={Pack}, Sheet={Sheet}",
-            matId, sheet.MeltNumber, sheet.BatchNumber, sheet.PackNumber, sheet.SheetNumber);
+        int? melt = int.TryParse(sheet.MeltNumber, out var m) ? m : null;
+        int? partNo = int.TryParse(sheet.BatchNumber, out var p) ? p : null;
+        int? pack = int.TryParse(sheet.PackNumber, out var pk) ? pk : null;
+        int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
 
-        // Создаём запись измерения
+        await using var con = await _dataSource.OpenConnectionAsync();
+        int reheatNum = await GetCurrentReheatNumAsync(con, melt, partNo, pack, sheetNum);
+
+        // Дедупликация по новому уникальному ключу
+        var exists = await context.Set<SheetMeasurement>()
+            .AnyAsync(sm => sm.MatId == matId && sm.ReheatNum == reheatNum);
+        if (exists)
+        {
+            _logger.LogDebug(
+                "Запись измерения {MatId} reheat_num={Reheat} уже существует",
+                matId, reheatNum);
+            return;
+        }
+
         var measurement = new SheetMeasurement
         {
             MatId         = matId,
-            Melt          = int.TryParse(sheet.MeltNumber, out var m) ? m : null,
-            PartNo        = int.TryParse(sheet.BatchNumber, out var p) ? p : null,
-            Pack          = int.TryParse(sheet.PackNumber, out var pk) ? pk : null,
-            Sheet         = int.TryParse(sheet.SheetNumber, out var s) ? s : 0,
-            Slab          = int.TryParse(sheet.SlabNumber, out var sl) ? sl : 0,
+            Melt          = melt,
+            PartNo        = partNo,
+            Pack          = pack,
+            Sheet         = sheetNum,
+            Slab          = int.TryParse(sheet.SlabNumber, out var sl) ? sl : null,
             Thickness     = float.TryParse(sheet.SheetDimensions, out var th) ? th : null,
             AlloyCodeText = sheet.SteelGrade,
-            SheetInPack   = null, // Эти данные не хранятся в InputDatum
             SheetsInPack  = sheet.SheetsCount,
+            ReheatNum     = reheatNum,
             EnteredX2At   = DateTime.UtcNow,
             CreatedAt     = DateTime.UtcNow,
         };
@@ -408,10 +429,9 @@ private async Task CreateSheetMeasurementAsync(AppDbContext context, string matI
         await context.SaveChangesAsync();
 
         _logger.LogInformation(
-            "✅ Создана запись измерения для листа {MatId} (Id={Id}, Melt={Melt}, Sheet={Sheet})",
-            matId, measurement.Id, measurement.Melt, measurement.Sheet);
+            "✅ Создана запись измерения {MatId} reheat_num={Reheat} (Id={Id})",
+            matId, reheatNum, measurement.Id);
 
-        // Уведомляем фронтенд через SignalR
         await _measurementHub.Clients.Group("queue").SendAsync("NewMeasurement", new
         {
             id = measurement.Id,
@@ -420,14 +440,18 @@ private async Task CreateSheetMeasurementAsync(AppDbContext context, string matI
             sheet = measurement.Sheet,
             partNo = measurement.PartNo,
             pack = measurement.Pack,
+            reheatNum = measurement.ReheatNum,
             enteredX2At = measurement.EnteredX2At
         });
-        
-        _logger.LogInformation("📡 Уведомление SignalR отправлено для листа {MatId}", matId);
+    }
+    catch (PostgresException ex) when (ex.SqlState == "23505")
+    {
+        _logger.LogWarning(
+            "Параллельное создание записи измерения для {MatId} — конфликт уникальности", matId);
     }
     catch (Exception ex)
     {
-        _logger.LogError(ex, "❌ Ошибка создания записи измерения для листа {MatId}", matId);
+        _logger.LogError(ex, "❌ Ошибка создания записи измерения для {MatId}", matId);
     }
 }
     // ====================================================================

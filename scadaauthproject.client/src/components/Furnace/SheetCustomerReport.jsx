@@ -497,9 +497,10 @@ useEffect(() => {
         setLoadingTempering(true);
         try {
             // 1. Ищем ключ кассеты
+            const reheatNum = f?.reheatNum ?? q?.reheatNum ?? 0;
             const keyRes = await api.get(
-                `/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(sheet)}&melt=${encodeURIComponent(melt)}&partNo=${encodeURIComponent(partNo)}&pack=${encodeURIComponent(pack)}`,
-                { signal: controller.signal }           // ← отмена
+                `/tempering/cassette-key-by-sheet?sheet=${encodeURIComponent(sheet)}&melt=${encodeURIComponent(melt)}&partNo=${encodeURIComponent(partNo)}&pack=${encodeURIComponent(pack)}&reheatNum=${reheatNum}`,
+                { signal: controller.signal }
             );
 
             if (controller.signal.aborted) return;
