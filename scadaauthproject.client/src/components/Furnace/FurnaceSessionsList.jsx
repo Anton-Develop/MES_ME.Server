@@ -40,8 +40,11 @@ const columns = [
   { id: 'enteredAt', label: 'Вход', type: 'datetime' },
   { id: 'exitedAt', label: 'Выход', type: 'datetime' },
   { id: 'totalMin', label: 'Время', type: 'number' },
-  { id: 'zonesPath', label: 'Маршрут', type: 'string' },
+ // { id: 'zonesPath', label: 'Маршрут', type: 'string' },
   { id: 'alloyCodeText', label: 'Марка стали', type: 'string' },
+   { id: 'loadSpeed', label: 'Скорость загрузки мм/с', type: 'float' },
+   { id: 'unloadSpeed', label: 'Скорость выгрузки мм/с', type: 'float' },
+   { id: 'tmpSet', label: 'Задание температуры', type: 'number' },
   { id: 'hadAlarm', label: 'Авария', type: 'boolean' },
 ];
 
@@ -399,23 +402,32 @@ const FurnaceSessionsList = () => {
 
       <TableContainer component={Paper} sx={{ borderRadius: 2, overflowX: 'auto', maxWidth: '100%' }}>
         <Table size="small" stickyHeader>
-          <TableHead>
+                    <TableHead>
             <TableRow>
               {columns.map((col) => (
-                <TableCell key={col.id} sx={{ fontWeight: 600, backgroundColor: '#fafafa', whiteSpace: 'nowrap' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Button size="small" onClick={() => handleSort(col.id)} sx={{ minWidth: 'auto', p: 0.5, fontWeight: 600, textTransform: 'none', color: 'text.primary', '&:hover': { backgroundColor: 'transparent' } }}>
-                      {col.label}{getSortIcon(col.id)}
-                    </Button>
-                    <Tooltip title="Фильтр по столбцу">
-                      <IconButton size="small" onClick={(e) => handleOpenFilter(e, col.id)} sx={{ p: 0.5, color: isFilterActive(col.id) ? 'primary.main' : 'action.active' }}>
-                        <FilterList fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
+                <React.Fragment key={col.id}>
+                  <TableCell sx={{ fontWeight: 600, backgroundColor: '#fafafa', whiteSpace: 'nowrap' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Button size="small" onClick={() => handleSort(col.id)} sx={{ minWidth: 'auto', p: 0.5, fontWeight: 600, textTransform: 'none', color: 'text.primary', '&:hover': { backgroundColor: 'transparent' } }}>
+                        {col.label}{getSortIcon(col.id)}
+                      </Button>
+                      <Tooltip title="Фильтр по столбцу">
+                        <IconButton size="small" onClick={(e) => handleOpenFilter(e, col.id)} sx={{ p: 0.5, color: isFilterActive(col.id) ? 'primary.main' : 'action.active' }}>
+                          <FilterList fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </TableCell>
+                  
+                  {/* Вставляем заголовок "Действия" сразу после "Марка стали" */}
+                  {col.id === 'alloyCodeText' && (
+                    <TableCell sx={{ fontWeight: 600, backgroundColor: '#fafafa', whiteSpace: 'nowrap' }} align="center">
+                      Действия
+                    </TableCell>
+                  )}
+                </React.Fragment>
               ))}
-              <TableCell sx={{ fontWeight: 600, backgroundColor: '#fafafa', whiteSpace: 'nowrap' }} align="center">Действия</TableCell>
+              {/* Удалите отсюда отдельный <TableCell>Действия</TableCell>, который был после цикла map */}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -424,7 +436,7 @@ const FurnaceSessionsList = () => {
             ) : paginatedSessions.length === 0 ? (
               <TableRow><TableCell colSpan={columns.length + 1} align="center" sx={{ py: 4, color: 'text.secondary' }}>Нет данных</TableCell></TableRow>
             ) : (
-              paginatedSessions.map(s => (
+                            paginatedSessions.map(s => (
                 <TableRow key={s.businessKey ?? s.id} hover sx={{ bgcolor: s.reheatNum > 0 ? '#fff8e1' : 'inherit' }}>
                   <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.sheet}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace' }}>{formatSlab(s.slab)}</TableCell>
@@ -437,9 +449,9 @@ const FurnaceSessionsList = () => {
                   <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{fmtDate(s.enteredAt)}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{fmtDate(s.exitedAt)}</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: 'warning.dark' }}>{fmtMin(s.totalMin)}</TableCell>
-                  <TableCell><Chip label={s.zonesPath ?? '—'} size="small" variant="outlined" color="primary" sx={{ fontFamily: 'monospace', fontSize: '0.72rem' }} /></TableCell>
                   <TableCell>{s.alloyCodeText || s.alloyCode || '—'}</TableCell>
-                  <TableCell>{s.hadAlarm && <Chip label="АВАРИЯ" size="small" color="error" />}</TableCell>
+                  
+                  {/* ▼▼▼ СЮДА ПЕРЕНЕСЕН БЛОК ДЕЙСТВИЙ ▼▼▼ */}
                   <TableCell align="center" sx={{ py: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
                       <Tooltip title="Сводный отчёт по листу">
@@ -481,6 +493,13 @@ const FurnaceSessionsList = () => {
                       </Tooltip>
                     </Box>
                   </TableCell>
+                  {/* ▲▲▲ КОНЕЦ БЛОКА ДЕЙСТВИЙ ▲▲▲ */}
+
+                   {/* Остальные ячейки идут после */}
+                   <TableCell>{s.loadSpeed*1000 != null ? Number(s.loadSpeed*1000).toFixed(2) : '—'}</TableCell>
+                   <TableCell>{s.unloadSpeed*1000 != null ? Number(s.unloadSpeed*1000).toFixed(2) : '—'}</TableCell>
+                   <TableCell>{s.tmpSet != null ? `${Number(s.tmpSet).toFixed(1)} °C` : '—'}</TableCell>
+                   <TableCell>{s.hadAlarm && <Chip label="АВАРИЯ" size="small" color="error" />}</TableCell>
                 </TableRow>
               ))
             )}
