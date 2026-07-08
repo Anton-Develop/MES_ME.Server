@@ -30,7 +30,7 @@ function addPageFooter(pdf, meta) {
 }
 
 export async function generateSheetPdf({
-    meta, furnaceSession, temperingData, heatingChartRef, temperingChartRef
+    meta, furnaceSession, quenchingSession, temperingData, heatingChartRef, temperingChartRef
 }) {
     const pdf = new jsPDF('l', 'mm', 'a4');
 
@@ -38,7 +38,7 @@ export async function generateSheetPdf({
     pdf.setFont('Roboto', 'normal');
 
     // ── Страница 1: Шапка + Нагрев (всё на одной странице) ──
-    drawHeader(pdf, meta);
+    drawHeader(pdf, meta,quenchingSession);
 
     const heatingChart = heatingChartRef?.current?.chart;
     if (heatingChart) {

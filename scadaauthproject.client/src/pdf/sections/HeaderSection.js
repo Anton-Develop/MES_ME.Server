@@ -1,11 +1,14 @@
 import autoTable from 'jspdf-autotable';
 
-export function drawHeader(pdf, meta) {
+export function drawHeader(pdf, meta,quenchingSession) {
     const pageWidth = pdf.internal.pageSize.getWidth();
+
+    const fmtVal  = (v, dec = 2, unit = '') => v != null ? `${Number(v).toFixed(dec)}${unit ? ' ' + unit : ''}` : null;
+    const fmtTemp = (v) => v  != null ? `${Number(v).toFixed(1)} °C`  : '—';
 
     // ── Цветная полоса сверху ──
     pdf.setFillColor(21, 101, 192); // #1565c0
-    pdf.rect(0, 0, pageWidth, 8, 'F');
+    pdf.rect(0, 0, pageWidth, 7, 'F');
 
     // ── Заголовок ──
     pdf.setFontSize(20);
@@ -22,9 +25,9 @@ export function drawHeader(pdf, meta) {
     // ── Таблица метаданных (2 колонки) ──
     pdf.setTextColor(0, 0, 0);
     autoTable(pdf, {
-        startY: 33,
+        startY: 30,
         theme: 'plain',
-        margin: { left: 20, right: 20 },
+        margin: { left: 10, right: 20 },
         styles: {
             font: 'Roboto',
             fontSize: 10,
@@ -39,16 +42,22 @@ export function drawHeader(pdf, meta) {
             fontSize: 9,
         },
         columnStyles: {
-            0: { cellWidth: 55, fontStyle: 'bold', fillColor: [248, 249, 250] },
-            1: { cellWidth: 90 },
-            2: { cellWidth: 55, fontStyle: 'bold', fillColor: [248, 249, 250] },
-            3: { cellWidth: 90 },
+            0: { cellWidth: 90, fontStyle: 'bold', fillColor: [248, 249, 250] },
+            1: { cellWidth: 50 },
+            2: { cellWidth: 90, fontStyle: 'bold', fillColor: [248, 249, 250] },
+            3: { cellWidth: 50 },
         },
         body: [
-            ['Лист', meta.sheet ?? '—', 'Сляб', meta.slab ?? '—'],
-            ['Плавка', meta.melt ?? '—', 'Партия', meta.partNo ?? '—'],
-            ['Пачка', meta.pack ?? '—', 'Марка стали', meta.alloyCodeText ?? '—'],
-            ['Толщина', meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—'],
+           // ['Лист', meta.sheet ?? '—', 'Сляб', meta.slab ?? '—'],
+           // ['Плавка', meta.melt ?? '—', 'Партия', meta.partNo ?? '—'],
+           // ['Пачка', meta.pack ?? '—', 'Марка стали', meta.alloyCodeText ?? '—'],
+           // ['Толщина', meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—'],
+
+           ['Лист', meta.sheet ?? '—', 'Плавка', meta.melt ?? '—'],
+           ['Партия', meta.partNo ?? '—', 'Пачка', meta.pack ?? '—'],
+           ['Марка стали', meta.alloyCodeText ?? '—','Толщина', meta.thickness != null ? `${Number(meta.thickness).toFixed(1)} мм` : '—'],
+           ['Температура закалочной жидкости', fmtTemp(quenchingSession.tempHaccum ?? '-'),'Давление воды в коллекторе закалочной машины', fmtVal((((quenchingSession.pressTopZak)+(quenchingSession.pressBotZak))/2),2,'бар') ?? '-' ],
+
         ],
     });
 }

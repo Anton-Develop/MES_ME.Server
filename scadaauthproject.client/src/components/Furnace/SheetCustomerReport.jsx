@@ -43,6 +43,9 @@ const fmtSec = (v) => {
   return m > 0 ? `${m} мин ${s % 60} с` : `${s} с`;
 };
 
+//const fmtVal = (v, dec = 2, unit = '') =>
+//  v != null ? `${Number(v).toFixed(dec)}${unit ? ' ' + unit : ''}` : null;
+
 const safeJson = (val) => {
   if (!val) return null;
   if (typeof val === 'object') return val;
@@ -598,9 +601,11 @@ useEffect(() => {
                     await generateSheetPdf({
                         meta,
                         furnaceSession: f,
+                        quenchingSession: q,
                         temperingData,
                         heatingChartRef,
                         temperingChartRef,
+                        
                     });
                 }}
             >
@@ -671,6 +676,18 @@ useEffect(() => {
                         <Typography variant="caption" color="text.secondary">Время закалки</Typography>
                         <Typography variant="body2" fontWeight={700} color="info.dark">
                             {fmtSec(q?.totalSec)}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Давление воды в коллекторе закалочной машины</Typography>
+                        <Typography variant="body2" fontWeight={700} color="info.dark">
+                            {fmtVal((((q?.pressTopZak)+(q?.pressBotZak))/2),2,'бар')}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Температура закалочной жидкости</Typography>
+                        <Typography variant="body2" fontWeight={700} color="info.dark">
+                            {fmtTemp(q?.tempHaccum)}
                         </Typography>
                     </Grid>
                 </Grid>
