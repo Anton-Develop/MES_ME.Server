@@ -48,7 +48,7 @@ export async function drawHeating(pdf, session, chart) {
             1: { cellWidth: 90 },
             2: { cellWidth: 90 },
         },
-        head: [['Вход в печь', 'Выход из печи', 'Время нагрева']],
+        head: [['Вход в печь', 'Выход из печи', 'Время нахождения листа в закалочной печи']],
         body: [[
             fmtDate(session?.enteredAt),
             fmtDate(session?.exitedAt),
