@@ -32,6 +32,44 @@ const fmtDate = (d) => d
 const fmtMin  = (v) => v != null ? `${Number(v).toFixed(1)} мин` : '—';
 const fmtTemp = (v) => v != null ? `${Number(v).toFixed(1)} °C`  : '—';
 
+// Разница во времени → «1ч 23м 45с» / «23м 45с» / «45с»
+const fmtElapsed = (ms) => {
+  if (ms == null || ms < 0) return null;          // точка раньше старта — не показываем
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  if (h > 0) return `${h}ч ${p(m)}м ${p(s)}с`;
+  if (m > 0) return `${m}м ${p(s)}с`;
+  return `${s}с`;
+};
+
+// Фабрика formatter'а тултипа. startTs — timestamp загрузки листа в печь (мс).
+// Возвращаем функцию, у которой this = контекст Highcharts tooltip.
+const makeTooltipFormatter = (startTs) => function () {
+  const chart   = this.chart || this.points?.[0]?.series?.chart;
+  const dateStr = chart ? chart.time.dateFormat('%d.%m.%Y %H:%M:%S', this.x) : '';
+  const elapsed = (startTs != null && this.x != null) ? fmtElapsed(this.x - startTs) : null;
+
+  let html = `<div style="font-size:12px;line-height:1.5">`;
+  html += `<div style="margin-bottom:3px"><b>${dateStr}</b>`;
+  if (elapsed) {
+    html += `<br><span style="color:#666;font-size:11px">⏱ ${elapsed} от загрузки в печь</span>`;
+  }
+  html += `</div>`;
+
+  (this.points || []).forEach((p) => {
+    const dec = p.series.tooltipOptions?.valueDecimals ?? 1;
+    const suf = p.series.tooltipOptions?.valueSuffix  ?? '';
+    const v   = p.y != null ? `${Number(p.y).toFixed(dec)}${suf}` : '—';
+    html += `<div><span style="color:${p.color}">●</span> ${p.series.name}: <b>${v}</b></div>`;
+  });
+
+  html += `</div>`;
+  return html;
+};
+
 const safeJson = (val) => {
   if (!val) return null;
   if (typeof val === 'object') return val;
@@ -135,7 +173,7 @@ const computeZoneAvg = (normalized, seriesDef) => {
 // ---------------------------------------------------------------------------
 // График одной зоны
 // ---------------------------------------------------------------------------
-const ZoneChart = ({ title, tempsObj, seriesDef, refKey, height = 260 }) => {
+const ZoneChart = ({ title, tempsObj, seriesDef, refKey, height = 260, startTs = null }) => {
   const normalized = useMemo(() => normalizeKeys(tempsObj), [tempsObj]);
 
   const options = useMemo(() => {
@@ -152,7 +190,12 @@ const ZoneChart = ({ title, tempsObj, seriesDef, refKey, height = 260 }) => {
         dashStyle: 'Solid',
         data:      timestamps.map((ts, i) => [ts, normalized[s.key]?.[i] ?? null]),
         marker:    { enabled: false },
-        tooltip:   { valueSuffix: ' °C', valueDecimals: 1 },
+       tooltip: {
+                shared:    true,
+                useHTML:   true,
+                formatter: makeTooltipFormatter(startTs),
+                style:     { fontSize: '11px' },
+              },
       }));
 
     const refData = normalized[refKey];
@@ -291,7 +334,7 @@ const buildContinuousSeries = (zonesDef) => {
 // ---------------------------------------------------------------------------
 // Общий нижний график — среднее по каждой зоне + задание
 // ---------------------------------------------------------------------------
-const CombinedChart = ({ zones }) => {
+const CombinedChart = ({ zones, startTs = null }) => {
   const options = useMemo(() => {
     const profile = buildContinuousSeries(zones);
     if (!profile) return null;
@@ -355,7 +398,7 @@ if (refMap.size) {
       xAxis:    { type: 'datetime', crosshair: true, labels: { format: '{value:%H:%M}', style: { fontSize: '11px' } } },
       yAxis:    { title: { text: '°C', style: { color: '#555' } }, gridLineColor: '#e0e0e0',
                   labels: { style: { fontSize: '11px' } } },
-      tooltip:  { shared: true, xDateFormat: '%d.%m.%Y %H:%M:%S', style: { fontSize: '12px' } },
+      tooltip:  { shared: true, useHTML: true, formatter: makeTooltipFormatter(startTs), style: { fontSize: '12px' } },
       legend:   { enabled: true, itemStyle: { fontSize: '12px', color: '#333' } },
       plotOptions: { series: { boostThreshold: 300, turboThreshold: 0, animation: false, connectNulls: false } },
       boost:     { enabled: true, useGPUTranslations: true, seriesThreshold: 1 },
@@ -374,7 +417,7 @@ if (refMap.size) {
 // ---------------------------------------------------------------------------
 // Колонка одной зоны
 // ---------------------------------------------------------------------------
-const ZoneColumn = ({ zKey, label, fMin, avgCells, tempsObj, seriesDef, refKey }) => {
+const ZoneColumn = ({ zKey, label, fMin, avgCells, tempsObj, seriesDef, refKey, startTs = null }) => {
   const color = ZONE_COLORS[zKey];
   const hasData = useMemo(() => {
     const n = normalizeKeys(tempsObj);
@@ -439,6 +482,7 @@ const ZoneColumn = ({ zKey, label, fMin, avgCells, tempsObj, seriesDef, refKey }
             seriesDef={seriesDef}
             refKey={refKey}
             height={260}
+            startTs={startTs} 
           />
         ) : (
           <Box sx={{ p: 2, textAlign: 'center', mt: 2 }}>
@@ -510,6 +554,8 @@ const FurnaceReport = () => {
     }
     return 0;
   }, [tempsZ1, tempsZ2, tempsZ3, tempsZ4]);
+
+  const startTs = session?.enteredAt ? new Date(session.enteredAt).getTime() : null;
 
   // ---------------------------------------------------------------------------
   if (loading) {
@@ -729,7 +775,7 @@ const FurnaceReport = () => {
           }}>
             {columns.map((col) => (
               <Box key={col.zKey} sx={{ flex: '1 1 0', minWidth: 0, display: 'flex' }}>
-                <ZoneColumn {...col} />
+                <ZoneColumn {...col} startTs={startTs} />
               </Box>
             ))}
           </Box>
@@ -745,7 +791,7 @@ const FurnaceReport = () => {
               </Typography>
             </Box>
             <Box sx={{ p: 1 }}>
-              <CombinedChart zones={columns} />
+              <CombinedChart zones={columns} startTs={startTs} />
             </Box>
           </Paper>
         </>

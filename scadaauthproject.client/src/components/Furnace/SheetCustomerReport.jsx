@@ -36,6 +36,44 @@ const fmtTemp = (v) => v  != null ? `${Number(v).toFixed(1)} °C`  : '—';
 const fmtVal  = (v, dec = 2, unit = '') =>
   v != null ? `${Number(v).toFixed(dec)}${unit ? ' ' + unit : ''}` : null;
 
+// Разница во времени → «1ч 23м 45с» / «23м 45с» / «45с»
+const fmtElapsed = (ms) => {
+  if (ms == null || ms < 0) return null;          // точка раньше старта — не показываем
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  if (h > 0) return `${h}ч ${p(m)}м ${p(s)}с`;
+  if (m > 0) return `${m}м ${p(s)}с`;
+  return `${s}с`;
+};
+
+// Фабрика formatter'а тултипа. startTs — timestamp загрузки листа в печь (мс).
+// Возвращаем функцию, у которой this = контекст Highcharts tooltip.
+const makeTooltipFormatter = (startTs) => function () {
+  const chart   = this.chart || this.points?.[0]?.series?.chart;
+  const dateStr = chart ? chart.time.dateFormat('%d.%m.%Y %H:%M:%S', this.x) : '';
+  const elapsed = (startTs != null && this.x != null) ? fmtElapsed(this.x - startTs) : null;
+
+  let html = `<div style="font-size:12px;line-height:1.5">`;
+  html += `<div style="margin-bottom:3px"><b>${dateStr}</b>`;
+  if (elapsed) {
+    html += `<br><span style="color:#666;font-size:11px">⏱ ${elapsed} от загрузки в печь</span>`;
+  }
+  html += `</div>`;
+
+  (this.points || []).forEach((p) => {
+    const dec = p.series.tooltipOptions?.valueDecimals ?? 1;
+    const suf = p.series.tooltipOptions?.valueSuffix  ?? '';
+    const v   = p.y != null ? `${Number(p.y).toFixed(dec)}${suf}` : '—';
+    html += `<div><span style="color:${p.color}">●</span> ${p.series.name}: <b>${v}</b></div>`;
+  });
+
+  html += `</div>`;
+  return html;
+};
+
 const fmtSec = (v) => {
   if (v == null) return '—';
   const s = Math.round(v);
@@ -176,7 +214,7 @@ const buildContinuousSeries = (zonesDef) => {
 // ---------------------------------------------------------------------------
 // Сводный график нагрева — аналог CombinedChart из FurnaceReport
 // ---------------------------------------------------------------------------
-const HeatingCombinedChart = ({ zones, chartRef  }) => {
+const HeatingCombinedChart = ({ zones, chartRef, startTs = null }) => {
   const options = useMemo(() => {
     const profile = buildContinuousSeries(zones);
     if (!profile) return null;
@@ -259,7 +297,7 @@ const HeatingCombinedChart = ({ zones, chartRef  }) => {
         gridLineColor: '#e0e0e0',
         labels:        { style: { fontSize: '11px' } },
       },
-      tooltip:  { shared: true, xDateFormat: '%d.%m.%Y %H:%M:%S', style: { fontSize: '12px' } },
+     tooltip:  { shared: true, useHTML: true, formatter: makeTooltipFormatter(startTs), style: { fontSize: '12px' } },
       legend:   { enabled: true, itemStyle: { fontSize: '12px', color: '#333' } },
       plotOptions: {
         series: { boostThreshold: 300, turboThreshold: 0, animation: false, connectNulls: false },
@@ -307,7 +345,7 @@ const ValueRow = ({ label, value, color }) => (
 // ---------------------------------------------------------------------------
 // График отпуска
 // ---------------------------------------------------------------------------
-const TemperingChart = ({ tempData, chartRef }) => {
+const TemperingChart = ({ tempData, chartRef, startTs = null }) => {
   const options = useMemo(() => {
     if (!tempData || tempData.length === 0) return null;
 
@@ -372,10 +410,15 @@ const TemperingChart = ({ tempData, chartRef }) => {
         title: { text: '°C', style: { color: '#555' } }, min: 0,
         gridLineColor: '#e0e0e0', labels: { style: { fontSize: '11px' } }
       },
-      tooltip: {
+     /* tooltip: {
         shared: true, crosshairs: true, xDateFormat: '%d.%m.%Y %H:%M:%S',
         valueSuffix: ' °C', style: { fontSize: '12px' }
-      },
+      },*/
+      tooltip: {
+  shared: true, crosshairs: true, useHTML: true,
+  formatter: makeTooltipFormatter(startTs),
+  style: { fontSize: '12px' },
+},
       legend: { enabled: true, itemStyle: { fontSize: '12px', color: '#333' } },
       plotOptions: {
         series: { boostThreshold: 300, marker: { enabled: false }, animation: false, connectNulls: false }
@@ -390,6 +433,7 @@ const TemperingChart = ({ tempData, chartRef }) => {
           color: '#1976d2',
           dashStyle: 'Dash',
           lineWidth: 2,
+          tooltip: { valueSuffix: ' °C', valueDecimals: 1 },
           dataLabels: {
             enabled: true,
             allowOverlap: false,           // скроет дубли, если max и last совпали
@@ -414,6 +458,7 @@ const TemperingChart = ({ tempData, chartRef }) => {
           data: toChartData('tempAct'),
           color: '#d29922',
           lineWidth: 2,
+          tooltip: { valueSuffix: ' °C', valueDecimals: 1 },
         },
       ],
     };
@@ -566,6 +611,7 @@ const hasTemps = zones.some(({ tempsObj }) => {
 });
 
 
+
   // ── Загрузка данных отпуска ───────────────────────────────
 useEffect(() => {
     const sheet = f?.sheet ?? q?.sheet;
@@ -645,6 +691,12 @@ useEffect(() => {
         alloyCodeText: f?.alloyCodeText ?? q?.alloyCodeText ?? f?.alloyCode ?? q?.alloyCode,
         thickness: f?.thickness ?? q?.thickness,
     };
+    // Нагрев: отсчёт от входа листа в печь нагрева
+const heatingStartTs   = f?.enteredAt ? new Date(f.enteredAt).getTime() : null;
+// Отпуск: отсчёт от загрузки кассеты/листа в печь отпуска
+const temperingStartTs = temperingData?.session?.loadedAt
+  ? new Date(temperingData.session.loadedAt).getTime()
+  : null;
  if (loading) {
     return (
       <Box sx={{ p: 5, textAlign: 'center' }}>
@@ -786,7 +838,7 @@ useEffect(() => {
                 </Box>
                 <Box sx={{ p: 1 }} className="chart-container">
                     {hasTemps ? (
-                        <HeatingCombinedChart zones={zones} chartRef={heatingChartRef} />
+                        <HeatingCombinedChart zones={zones} chartRef={heatingChartRef} startTs={heatingStartTs} />
                     ) : (
                         <Alert severity="info">Температурные данные нагрева отсутствуют</Alert>
                     )}
@@ -853,6 +905,7 @@ useEffect(() => {
                     <TemperingChart
                         tempData={temperingData.tempData}
                         chartRef={temperingChartRef}
+                        startTs={temperingStartTs}
                     />
                 </Box>
             </>
