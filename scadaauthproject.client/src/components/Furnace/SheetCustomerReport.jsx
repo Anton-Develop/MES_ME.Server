@@ -218,6 +218,23 @@ const HeatingCombinedChart = ({ zones, chartRef  }) => {
           data:      refSorted,
           marker:    { enabled: false },
           tooltip:   { valueSuffix: ' °C', valueDecimals: 0 },
+          dataLabels: {
+                        enabled: true,
+                        formatter() {
+                          const i = this.point.index;
+                          const last = this.series.data.length - 1;
+                          if (i === 0 || i === last) {
+                            return `${Math.round(this.y)} °C`;
+                          }
+                          return null;
+                        },
+                        style: {
+                          fontSize: '14px',
+                          fontWeight: '700',
+                          color: '#212121',
+                          textOutline: '2px white',
+                        },
+                      },
         });
       }
     }
@@ -290,7 +307,7 @@ const ValueRow = ({ label, value, color }) => (
 // ---------------------------------------------------------------------------
 // График отпуска
 // ---------------------------------------------------------------------------
-const TemperingChart = ({ tempData, chartRef  }) => {
+const TemperingChart = ({ tempData, chartRef }) => {
   const options = useMemo(() => {
     if (!tempData || tempData.length === 0) return null;
 
@@ -300,10 +317,46 @@ const TemperingChart = ({ tempData, chartRef  }) => {
         return [new Date(d.time).getTime(), val != null ? Number(val) : null];
       });
 
+    const refData = toChartData('tempRef');
+
+    // ── Предвычисляем индексы точек, которые надо подписать ──
+    const labelIdx = (() => {
+      const set = new Set();
+      if (!refData.length) return set;
+
+      // первая и последняя НЕПУСТЫЕ точки
+      const firstNZ = refData.findIndex(p => p[1] != null);
+      let lastNZ = -1;
+      for (let i = refData.length - 1; i >= 0; i--) {
+        if (refData[i][1] != null) { lastNZ = i; break; }
+      };
+     /* if (firstNZ >= 0) set.add(firstNZ);
+      if (lastNZ  >= 0) set.add(lastNZ);*/
+
+      // индекс максимума = целевая температура выдержки
+      let maxI = firstNZ >= 0 ? firstNZ : 0;
+      for (let i = 0; i < refData.length; i++) {
+        const v = refData[i][1], m = refData[maxI]?.[1];
+        if (v != null && (m == null || v > m)) maxI = i;
+      }
+      set.add(maxI);
+
+      // ступеньки (на случай ступенчатого задания)
+     /* const STEP = 2; // °C за один шаг
+      let lastLabeledVal = refData[firstNZ]?.[1] ?? null;
+      for (let i = (firstNZ >= 0 ? firstNZ + 1 : 1); i < refData.length; i++) {
+        const v = refData[i][1];
+        if (v == null) continue;
+        if (lastLabeledVal != null && Math.abs(v - lastLabeledVal) > STEP) {
+          set.add(i);
+          lastLabeledVal = v;
+        }
+      }*/
+      return set;
+    })();
+
     return {
-      time: { 
-      timezone: 'Asia/Yekaterinburg'
-    },
+      time: { timezone: 'Asia/Yekaterinburg' },
       chart: { type: 'spline', height: 320, zoomType: 'xy', animation: false, backgroundColor: '#fff' },
       title: { text: null },
       credits: { enabled: false },
@@ -328,15 +381,46 @@ const TemperingChart = ({ tempData, chartRef  }) => {
         series: { boostThreshold: 300, marker: { enabled: false }, animation: false, connectNulls: false }
       },
       boost: { enabled: true, useGPUTranslations: true },
-      exporting: { enabled: true, buttons: EXPORT_BUTTONS }, // Кнопки экспорта как у нагрева
+      exporting: { enabled: true, buttons: EXPORT_BUTTONS },
+
       series: [
-        { name: 'Заданная', data: toChartData('tempRef'), color: '#1976d2', dashStyle: 'Dash', lineWidth: 2 },
-        { name: 'Фактическая', data: toChartData('tempAct'), color: '#d29922', lineWidth: 2 }
-      ]
+        {
+          name: 'Заданная',
+          data: refData,
+          color: '#1976d2',
+          dashStyle: 'Dash',
+          lineWidth: 2,
+          dataLabels: {
+            enabled: true,
+            allowOverlap: false,           // скроет дубли, если max и last совпали
+            formatter() {
+              if (this.y == null) return null;                 // guard от null-точек
+              if (!labelIdx.has(this.point.index)) return null; // рисуем только ключевые
+              return `${Math.round(this.y)} °C`;
+            },
+            align: 'left',
+            x: 6,
+            y: -4,
+            style: {
+              fontSize: '14px',
+              fontWeight: '700',
+              color: '#1976d2',
+              textOutline: '2px white',
+            },
+          },
+        },
+        {
+          name: 'Фактическая',
+          data: toChartData('tempAct'),
+          color: '#d29922',
+          lineWidth: 2,
+        },
+      ],
     };
   }, [tempData]);
 
-  if (!options) return <Alert severity="info" sx={{ m: 1 }}>Температурные данные отпуска отсутствуют</Alert>;
+  if (!options)
+    return <Alert severity="info" sx={{ m: 1 }}>Температурные данные отпуска отсутствуют</Alert>;
 
   return (
     <HighchartsReact
