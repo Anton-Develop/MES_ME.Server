@@ -35,6 +35,7 @@ import Defect from './pages/DefectsPage';
 import CassetteBuilder from './pages/CassetteBuilder';
 import OperatorWorkplace from './pages/OperatorWorkplace';
 import CassetteHistoryPage from './pages/CassetteHistoryPage';
+import LineMonitoringHMI from './pages/LineMonitoringHMI';
 
 
 import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
@@ -65,6 +66,7 @@ const App = () => (
                         <Route path="/login" element={<Login />} />
                         <Route path="/unauthorized" element={<Unauthorized />} />
 						<Route path="/tempering/report" element={<TemperingReport />} />
+                        
                         {/* Все защищённые маршруты вложены в MainLayout */}
                         <Route
                             path="/"
@@ -203,6 +205,7 @@ const App = () => (
                                     </ProtectedRoute>
                                 }
                             />
+                            <Route path="LineMonitoringHMI" element={<ProtectedRoute><LineMonitoringHMI /></ProtectedRoute>} />
                             <Route 
                                 path="measurement-hmi" element={
                                 <ProtectedRoute>
