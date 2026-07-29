@@ -230,7 +230,7 @@ public class TemperingAutoCompletionService : BackgroundService
             new CommandDefinition(@"
                 UPDATE mes.inputdata 
                 SET status = 'Отпуск пройден'
-                WHERE mat_id IN (
+                WHERE matid IN (
                     SELECT cs.mat_id 
                     FROM mes.cassette_sheets cs
                     WHERE cs.cassette_business_key = @BusinessKey
