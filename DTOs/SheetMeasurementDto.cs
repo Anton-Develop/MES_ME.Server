@@ -34,6 +34,7 @@ namespace MES_ME.Server.DTOs
         public DateTime? MeasuredAt { get; set; }
         public string? MeasuredBy { get; set; }
         public DateTime? CreatedAt { get; set; }
+        public int ReheatNum { get; set; }
     }
 
     public class CreateMeasurementRequest

@@ -191,15 +191,40 @@ public async Task<IActionResult> AddSheetToCassette(
     int pack = int.TryParse(sheet.PackNumber, out var pk) ? pk : 0;
     int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
 
-    int reheatNum = await con.QueryFirstOrDefaultAsync<int>(
-        @"SELECT COALESCE(MAX(reheat_num), 0)
-            FROM plc.heating_sessions
-           WHERE melt    = @Melt AND part_no = @Part
-             AND pack    = @Pack AND sheet   = @Sheet",
-        new { Melt = melt, Part = partNo, Pack = pack, Sheet = sheetNum });
+            /* int reheatNum = await con.QueryFirstOrDefaultAsync<int>(
+                 @"SELECT COALESCE(MAX(reheat_num), 0)
+                     FROM plc.heating_sessions
+                    WHERE melt    = @Melt AND part_no = @Part
+                      AND pack    = @Pack AND sheet   = @Sheet",
+                 new { Melt = melt, Part = partNo, Pack = pack, Sheet = sheetNum });*/
 
-    // 🔒 Дубликат — с учётом reheat_num
-    var alreadyAdded = await _context.Set<CassetteSheet>()
+            int reheatNum = await con.QueryFirstOrDefaultAsync<int>(
+     @"SELECT GREATEST(
+            COALESCE((
+                SELECT MAX(reheat_num)
+                  FROM plc.heating_sessions
+                 WHERE melt    = @Melt
+                   AND part_no = @Part
+                   AND pack    = @Pack
+                   AND sheet   = @Sheet
+            ), 0),
+            COALESCE((
+                SELECT MAX(reheat_num)
+                  FROM plc.sheet_measurements
+                 WHERE mat_id = @MatId
+            ), 0)
+        )",
+     new
+     {
+         Melt = melt,
+         Part = partNo,
+         Pack = pack,
+         Sheet = sheetNum,
+         MatId = request.MatId
+     });
+
+            // 🔒 Дубликат — с учётом reheat_num
+            var alreadyAdded = await _context.Set<CassetteSheet>()
         .AnyAsync(cs => cs.CassetteBusinessKey == businessKey
                     && cs.MatId == request.MatId
                     && cs.ReheatNum == reheatNum);
@@ -807,7 +832,14 @@ public async Task<IActionResult> GetActiveCassette()
             }
 
             var sql = @"
-                SELECT x.mat_id, COALESCE(MAX(hs.reheat_num), 0) AS reheat
+                SELECT x.mat_id, GREATEST(
+                                        COALESCE(MAX(hs.reheat_num), -1),
+                                        COALESCE((
+                                            SELECT MAX(sm.reheat_num)
+                                              FROM plc.sheet_measurements sm
+                                             WHERE sm.mat_id = x.mat_id
+                                        ), -1)
+                                    ) AS reheat
                 FROM (VALUES " + string.Join(",", valuesList) + @") AS x(mat_id, melt, part_no, pack, sheet)
                 LEFT JOIN plc.heating_sessions hs
                     ON hs.melt    = x.melt

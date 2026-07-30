@@ -25,23 +25,36 @@ namespace MES_ME.Server.Controllers
         /// </summary>
         [HttpGet("current")]
         public async Task<IActionResult> GetCurrent(
-            [FromQuery] int? melt,
-            [FromQuery] int? partNo,
-            [FromQuery] int? pack,
-            [FromQuery] int? sheet)
+    [FromQuery] int? melt,
+    [FromQuery] int? partNo,
+    [FromQuery] int? pack,
+    [FromQuery] int? sheet,
+    [FromQuery] int? reheatNum = null)
         {
             if (melt == null || partNo == null || pack == null || sheet == null)
                 return BadRequest(new { message = "Требуются melt, partNo, pack, sheet" });
 
-            var record = await _context.Set<SheetMeasurement>()
+            var query = _context.Set<SheetMeasurement>()
                 .Where(sm =>
                     sm.Melt == melt &&
                     sm.PartNo == partNo &&
                     sm.Pack == pack &&
-                    sm.Sheet == sheet)
+                    sm.Sheet == sheet);
+
+            if (reheatNum.HasValue)
+            {
+                query = query.Where(sm => sm.ReheatNum == reheatNum.Value);
+            }
+
+            var record = await query
+                .OrderByDescending(sm => sm.ReheatNum)
+                .ThenByDescending(sm => sm.Id)
                 .Select(sm => new SheetMeasurementDto
                 {
                     Id = sm.Id,
+                    MatId = sm.MatId,
+                    ReheatNum = sm.ReheatNum,
+
                     Sheet = sm.Sheet,
                     Melt = sm.Melt,
                     Slab = sm.Slab,
@@ -52,6 +65,7 @@ namespace MES_ME.Server.Controllers
                     Thickness = sm.Thickness,
                     AlloyCodeText = sm.AlloyCodeText,
                     EnteredX2At = sm.EnteredX2At,
+
                     H1Before = sm.H1Before,
                     H2Before = sm.H2Before,
                     H3Before = sm.H3Before,
@@ -60,6 +74,7 @@ namespace MES_ME.Server.Controllers
                     H6Before = sm.H6Before,
                     H7Before = sm.H7Before,
                     H8Before = sm.H8Before,
+
                     H1After = sm.H1After,
                     H2After = sm.H2After,
                     H3After = sm.H3After,
@@ -68,6 +83,7 @@ namespace MES_ME.Server.Controllers
                     H6After = sm.H6After,
                     H7After = sm.H7After,
                     H8After = sm.H8After,
+
                     MeasuredAt = sm.MeasuredAt,
                     MeasuredBy = sm.MeasuredBy,
                     CreatedAt = sm.CreatedAt,
@@ -248,7 +264,8 @@ namespace MES_ME.Server.Controllers
             H8After = sm.H8After,
             MeasuredAt = sm.MeasuredAt,
             MeasuredBy = sm.MeasuredBy,
-            CreatedAt = sm.CreatedAt,
+            CreatedAt = sm.CreatedAt,            
+            ReheatNum = sm.ReheatNum,
         };
 
 
@@ -268,6 +285,7 @@ namespace MES_ME.Server.Controllers
                 {
                     sm.Id,
                     sm.MatId,
+                    sm.ReheatNum,
                     sm.Melt,
                     sm.Slab,
                     sm.PartNo,

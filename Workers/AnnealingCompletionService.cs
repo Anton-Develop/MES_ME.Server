@@ -366,7 +366,7 @@ private async Task HandleSheetExitedAsync(AppDbContext context, string zoneName)
         private async Task<int> GetCurrentReheatNumAsync(
             NpgsqlConnection con, int? melt, int? partNo, int? pack, int sheet)
         {
-            if (melt is null || partNo is null || pack is null) return 0;
+            if (melt is null || partNo is null || pack is null) return -1;
 
             var rn = await con.QueryFirstOrDefaultAsync<int?>(
                 @"SELECT MAX(reheat_num)
@@ -376,7 +376,7 @@ private async Task HandleSheetExitedAsync(AppDbContext context, string zoneName)
                     AND pack    = @Pack
                     AND sheet   = @Sheet",
                 new { Melt = melt.Value, Part = partNo.Value, Pack = pack.Value, Sheet = sheet });
-            return rn ?? 0;
+            return rn ?? -1;
         }
 private async Task CreateSheetMeasurementAsync(AppDbContext context, string matId)
 {
@@ -396,14 +396,26 @@ private async Task CreateSheetMeasurementAsync(AppDbContext context, string matI
         int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
 
         await using var con = await _dataSource.OpenConnectionAsync();
-        int reheatNum = await GetCurrentReheatNumAsync(con, melt, partNo, pack, sheetNum);
+            // Что уже знает таблица heating_sessions
+            int sessionMax = await GetCurrentReheatNumAsync(con, melt, partNo, pack, sheetNum);
+            // Что уже есть в измерениях листа
+            int measurementMax = await context.Set<SheetMeasurement>()
+                .AsNoTracking()
+                .Where(sm => sm.MatId == matId)
+                .MaxAsync(sm => (int?)sm.ReheatNum) ?? -1;
 
-        // Дедупликация по новому уникальному ключу
-        var exists = await context.Set<SheetMeasurement>()
-            .AnyAsync(sm => sm.MatId == matId && sm.ReheatNum == reheatNum);
-        if (exists)
+            // int reheatNum = await GetCurrentReheatNumAsync(con, melt, partNo, pack, sheetNum);
+            // Если heating_sessions уже знает более новый нагрев — берём его.
+            // Если heating_sessions ещё отстаёт — считаем следующий нагрев по измерениям.
+            int reheatNum = Math.Max(sessionMax, measurementMax + 1);
+
+            // Дедупликация по новому уникальному ключу
+            var exists = await context.Set<SheetMeasurement>()
+                 .AsNoTracking()
+                 .AnyAsync(sm => sm.MatId == matId && sm.ReheatNum == reheatNum);
+            if (exists)
         {
-            _logger.LogDebug(
+            _logger.LogWarning(
                 "Запись измерения {MatId} reheat_num={Reheat} уже существует",
                 matId, reheatNum);
             return;
