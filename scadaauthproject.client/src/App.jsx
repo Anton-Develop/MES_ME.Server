@@ -36,7 +36,7 @@ import CassetteBuilder from './pages/CassetteBuilder';
 import OperatorWorkplace from './pages/OperatorWorkplace';
 import CassetteHistoryPage from './pages/CassetteHistoryPage';
 import LineMonitoringHMI from './pages/LineMonitoringHMI';
-
+import CassetteEditPage from './pages/CassetteEditPage';
 
 import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
 import FurnaceReport from './components/Furnace/FurnaceReport';
@@ -219,6 +219,16 @@ const App = () => (
                                 element={
                                     <ProtectedRoute>
                                         <CassetteManagementPage />
+                                    </ProtectedRoute>
+                                }
+                            />
+
+                            {/* Редактирование кассет */}
+                            <Route
+                                path="CassetteEditPage"
+                                element={
+                                    <ProtectedRoute>
+                                        <CassetteEditPage />
                                     </ProtectedRoute>
                                 }
                             />

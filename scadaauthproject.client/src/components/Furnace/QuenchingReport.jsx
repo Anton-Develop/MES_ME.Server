@@ -443,8 +443,8 @@ const QuenchingReport = () => {
             <Typography variant="caption" color="text.secondary" fontWeight={600}>
               Клапан X1 (закалка)
             </Typography>
-            <ValvePositionRow label="Верх" posRef={s.valveX1UpPosRef}   posFbk={s.valveX1UpPosFbk}   />
-            <ValvePositionRow label="Низ"  posRef={s.valveX1DownPosRef} posFbk={s.valveX1DownPosFbk} />
+            <ValvePositionRow label="Верх" posRef={s.valveX1DownPosRef}   posFbk={s.valveX1DownPosFbk}   />
+            <ValvePositionRow label="Низ"  posRef={s.valveX1UpPosRef} posFbk={s.valveX1UpPosFbk} />
           </Grid>
           <Grid item xs={12} sm={4}>
             <Typography variant="caption" color="text.secondary" fontWeight={600}>

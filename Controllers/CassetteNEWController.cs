@@ -877,41 +877,373 @@ public async Task<IActionResult> GetActiveCassette()
         /// Переоткрыть закрытую кассету для редактирования. ТОЛЬКО master+.
         /// </summary>
         [HttpPost("{businessKey}/reopen")]
-public async Task<IActionResult> ReopenCassette(string businessKey, [FromBody] EditReasonRequest request)
-{
-    //if (!IsMasterOrAbove())
-    //    return Forbid("Переоткрытие кассеты доступно только мастеру или администратору");
+        public async Task<IActionResult> ReopenCassette(string businessKey, [FromBody] EditReasonRequest request)
+        {
+            //if (!IsMasterOrAbove())
+            //    return Forbid("Переоткрытие кассеты доступно только мастеру или администратору");
 
-    var userName = GetUserName();
-    businessKey = Uri.UnescapeDataString(businessKey); // ← не забываем про URL-кодирование!
+            var userName = GetUserName();
+            businessKey = Uri.UnescapeDataString(businessKey); // ← не забываем про URL-кодирование!
 
-    await using var con = await _dataSource.OpenConnectionAsync();
+            await using var con = await _dataSource.OpenConnectionAsync();
 
-    var exists = await con.QueryFirstOrDefaultAsync<bool>(
-        "SELECT COUNT(*) > 0 FROM mes.active_cassettes WHERE business_key = @Key",
-        new { Key = businessKey });
+            var exists = await con.QueryFirstOrDefaultAsync<bool>(
+                "SELECT COUNT(*) > 0 FROM mes.active_cassettes WHERE business_key = @Key",
+                new { Key = businessKey });
 
-    if (!exists)
-        return NotFound(new { message = "Активная кассета не найдена (возможно, уже в печи)" });
+            if (!exists)
+                return NotFound(new { message = "Активная кассета не найдена (возможно, уже в печи)" });
 
-    await con.ExecuteAsync(
-        @"UPDATE mes.active_cassettes 
-          SET is_closed = FALSE, closed_at = NULL, closed_by = NULL
-          WHERE business_key = @Key",
-        new { Key = businessKey });
+            await con.ExecuteAsync(
+                @"UPDATE mes.active_cassettes 
+                SET is_closed = FALSE, closed_at = NULL, closed_by = NULL
+                WHERE business_key = @Key",
+                new { Key = businessKey });
 
-    // Лог
-    await LogAuditAsync(con, businessKey, "reopen", null, userName,
-        new { reason = request?.Reason ?? "Не указана" });
+            // Лог
+            await LogAuditAsync(con, businessKey, "reopen", null, userName,
+                new { reason = request?.Reason ?? "Не указана" });
 
-    _logger.LogWarning(
-        "🔓 Кассета {Key} ПЕРЕОТКРЫТА мастером {User}. Причина: {Reason}",
-        businessKey, userName, request?.Reason);
+            _logger.LogWarning(
+                "🔓 Кассета {Key} ПЕРЕОТКРЫТА мастером {User}. Причина: {Reason}",
+                businessKey, userName, request?.Reason);
 
-    return Ok(new { message = "Кассета переоткрыта" });
-}
-    
-}
+            return Ok(new { message = "Кассета переоткрыта" });
+        }
+
+
+        // ═══════════════════════════════════════════════════════════════
+        // РЕДАКТИРОВАНИЕ ЗАВЕРШЁННЫХ КАССЕТ (tempering_sessions_new)
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// GET /api/cassettenew/completed?page=1&pageSize=25
+        /// Список завершённых кассет для редактирования
+        /// </summary>
+        [HttpGet("completed")]
+        public async Task<IActionResult> GetCompletedCassettes(
+            [FromQuery] int page = 1, [FromQuery] int pageSize = 25)
+        {
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            var totalCount = await con.QueryFirstOrDefaultAsync<int>(
+                "SELECT COUNT(*) FROM mes.tempering_sessions_new WHERE unloaded_at IS NOT NULL");
+
+            var sessions = await con.QueryAsync(
+                @"SELECT tsn.id, tsn.furnace_number, tsn.business_key, tsn.cassette_number,
+                        tsn.loaded_at, tsn.loaded_by, tsn.unloaded_at, tsn.unloaded_by,
+                        tsn.status, tsn.completed_by_plc, tsn.notes,
+                        tsn.slot_number, tsn.total_time_min, tsn.max_temp,
+                        (SELECT COUNT(*) FROM mes.cassette_sheets cs
+                        WHERE cs.cassette_business_key = tsn.business_key) AS sheet_count
+                FROM mes.tempering_sessions_new tsn
+                WHERE tsn.unloaded_at IS NOT NULL
+                ORDER BY tsn.unloaded_at DESC
+                LIMIT @Limit OFFSET @Offset",
+                new { Limit = pageSize, Offset = (page - 1) * pageSize });
+
+            return Ok(new { sessions, totalCount, page, pageSize });
+        }
+
+        /// <summary>
+        /// GET /api/cassettenew/completed/{id}/details
+        /// Полные детали сессии + листы
+        /// </summary>
+        [HttpGet("completed/{id:long}/details")]
+        public async Task<IActionResult> GetCompletedCassetteDetails(long id)
+        {
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            var session = await con.QueryFirstOrDefaultAsync(
+                @"SELECT id, furnace_number, business_key, cassette_number,
+                        loaded_at, loaded_by, unloaded_at, unloaded_by,
+                        status, completed_by_plc, notes,
+                        slot_number, total_time_min, max_temp
+                FROM mes.tempering_sessions_new
+                WHERE id = @Id",
+                new { Id = id });
+
+            if (session == null)
+                return NotFound(new { message = "Сессия не найдена" });
+
+            var businessKey = (string)session.business_key;
+
+            var sheets = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.CassetteBusinessKey == businessKey)
+                .OrderBy(cs => cs.SortOrder)
+                .Select(cs => new
+                {
+                    cs.Id,
+                    cs.MatId,
+                    cs.ReheatNum,
+                    cs.AddedAt,
+                    cs.AddedBy,
+                    cs.SortOrder,
+                    Sheet = new
+                    {
+                        cs.Sheet!.MeltNumber,
+                        cs.Sheet.BatchNumber,
+                        cs.Sheet.PackNumber,
+                        cs.Sheet.SheetNumber,
+                        cs.Sheet.SteelGrade,
+                        cs.Sheet.SheetDimensions,
+                        cs.Sheet.Status,
+                        cs.Sheet.QuenchingStatus,
+                    },
+                    Measurement = _context.Set<SheetMeasurement>()
+                        .Where(m => m.MatId == cs.MatId && m.ReheatNum == cs.ReheatNum && m.MeasuredAt != null)
+                        .OrderByDescending(m => m.MeasuredAt)
+                        .Select(m => new
+                        {
+                            m.Id, m.ReheatNum,
+                            m.H1Before, m.H2Before, m.H3Before, m.H4Before,
+                            m.H5Before, m.H6Before, m.H7Before, m.H8Before,
+                            m.H1After, m.H2After, m.H3After, m.H4After,
+                            m.H5After, m.H6After, m.H7After, m.H8After,
+                            m.MeasuredAt, m.MeasuredBy
+                        })
+                        .FirstOrDefault()
+                })
+                .ToListAsync();
+
+            return Ok(new { session, sheets });
+        }
+
+        /// <summary>
+        /// PUT /api/cassettenew/completed/{id}
+        /// Редактировать поля сессии tempering_sessions_new
+        /// </summary>
+        [HttpPut("completed/{id:long}")]
+        public async Task<IActionResult> UpdateCompletedSession(long id, [FromBody] UpdateSessionRequest request)
+        {
+            var userName = GetUserName();
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            var existing = await con.QueryFirstOrDefaultAsync(
+                "SELECT business_key FROM mes.tempering_sessions_new WHERE id = @Id",
+                new { Id = id });
+
+            if (existing == null)
+                return NotFound(new { message = "Сессия не найдена" });
+
+            await con.ExecuteAsync(
+                @"UPDATE mes.tempering_sessions_new SET
+                    furnace_number   = @FurnaceNumber,
+                    loaded_at        = @LoadedAt,
+                    loaded_by        = @LoadedBy,
+                    unloaded_at      = @UnloadedAt,
+                    unloaded_by      = @UnloadedBy,
+                    status           = @Status,
+                    completed_by_plc = @CompletedByPlc,
+                    notes            = @Notes,
+                    slot_number      = @SlotNumber,
+                    total_time_min   = @TotalTimeMin,
+                    max_temp         = @MaxTemp
+                WHERE id = @Id",
+                new
+                {
+                    Id = id,
+                    request.FurnaceNumber,
+                    LoadedAt = request.LoadedAt ?? DateTime.UtcNow,
+                    LoadedBy = request.LoadedBy ?? userName,
+                    UnloadedAt = request.UnloadedAt,
+                    UnloadedBy = request.UnloadedBy ?? userName,
+                    Status = request.Status ?? "Завершена",
+                    CompletedByPlc = request.CompletedByPlc ?? false,
+                    request.Notes,
+                    SlotNumber = request.SlotNumber ?? 1,
+                    request.TotalTimeMin,
+                    request.MaxTemp
+                });
+
+            // Аудит
+            var bk = (string)existing.business_key;
+            await LogAuditAsync(con, bk, "edit_session", null, userName,
+                new { reason = request.Reason ?? "Редактирование завершённой кассеты", fields = request });
+
+            _logger.LogWarning("✏️ Сессия #{Id} ({BK}) отредактирована: {User}", id, bk, userName);
+
+            return Ok(new { message = "Сессия обновлена" });
+        }
+
+        /// <summary>
+        /// POST /api/cassettenew/completed/{id}/add-sheet
+        /// Добавить лист в завершённую кассету
+        /// </summary>
+        [HttpPost("completed/{id:long}/add-sheet")]
+        public async Task<IActionResult> AddSheetToCompleted(long id, [FromBody] AddSheetToCompletedRequest request)
+        {
+            var userName = GetUserName();
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            var session = await con.QueryFirstOrDefaultAsync(
+                "SELECT business_key, cassette_number FROM mes.tempering_sessions_new WHERE id = @Id",
+                new { Id = id });
+
+            if (session == null)
+                return NotFound(new { message = "Сессия не найдена" });
+
+            var businessKey = (string)session.business_key;
+            var cassetteNumber = (int)session.cassette_number;
+
+            // Проверяем лист
+            var sheet = await _context.InputData.FirstOrDefaultAsync(s => s.MatId == request.MatId);
+            if (sheet == null)
+                return NotFound(new { message = $"Лист {request.MatId} не найден" });
+
+            // Определяем reheat_num
+            int melt = int.TryParse(sheet.MeltNumber, out var m) ? m : 0;
+            int partNo = int.TryParse(sheet.BatchNumber, out var p) ? p : 0;
+            int pack = int.TryParse(sheet.PackNumber, out var pk) ? pk : 0;
+            int sheetNum = int.TryParse(sheet.SheetNumber, out var s) ? s : 0;
+
+            int reheatNum = request.ReheatNum ?? await con.QueryFirstOrDefaultAsync<int>(
+                @"SELECT GREATEST(
+                    COALESCE((SELECT MAX(reheat_num) FROM plc.heating_sessions
+                            WHERE melt=@Melt AND part_no=@Part AND pack=@Pack AND sheet=@Sheet), 0),
+                    COALESCE((SELECT MAX(reheat_num) FROM plc.sheet_measurements
+                            WHERE mat_id=@MatId), 0)
+                )",
+                new { Melt = melt, Part = partNo, Pack = pack, Sheet = sheetNum, MatId = request.MatId });
+
+            // Дубликат
+            var alreadyAdded = await _context.Set<CassetteSheet>()
+                .AnyAsync(cs => cs.CassetteBusinessKey == businessKey
+                            && cs.MatId == request.MatId
+                            && cs.ReheatNum == reheatNum);
+            if (alreadyAdded)
+                return Conflict(new { message = "Лист с таким номером нагрева уже в кассете" });
+
+            var maxOrder = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.CassetteBusinessKey == businessKey)
+                .MaxAsync(cs => (int?)cs.SortOrder) ?? 0;
+
+            var cassetteSheet = new CassetteSheet
+            {
+                CassetteBusinessKey = businessKey,
+                MatId = request.MatId,
+                ReheatNum = reheatNum,
+                AddedBy = userName,
+                SortOrder = maxOrder + 1
+            };
+            _context.Set<CassetteSheet>().Add(cassetteSheet);
+
+            // Обновляем статус листа
+            sheet.Status = $"В кассете №{cassetteNumber}";
+            sheet.QuenchingStatus = "В кассете";
+
+            await _context.SaveChangesAsync();
+
+            await LogAuditAsync(con, businessKey, "add_sheet", request.MatId, userName,
+                new { melt = sheet.MeltNumber, sheet = sheet.SheetNumber, reheatNum, source = "completed_edit" });
+
+            return Ok(new { message = "Лист добавлен", sortOrder = cassetteSheet.SortOrder, reheatNum });
+        }
+
+        /// <summary>
+        /// DELETE /api/cassettenew/completed/{id}/remove-sheet/{matId}/{reheatNum}
+        /// Удалить лист из завершённой кассеты
+        /// </summary>
+        [HttpDelete("completed/{id:long}/remove-sheet/{matId}/{reheatNum:int}")]
+        public async Task<IActionResult> RemoveSheetFromCompleted(
+            long id, string matId, int reheatNum, [FromBody] EditReasonRequest? request)
+        {
+            var userName = GetUserName();
+            await using var con = await _dataSource.OpenConnectionAsync();
+
+            var session = await con.QueryFirstOrDefaultAsync(
+                "SELECT business_key FROM mes.tempering_sessions_new WHERE id = @Id",
+                new { Id = id });
+
+            if (session == null)
+                return NotFound(new { message = "Сессия не найдена" });
+
+            var businessKey = (string)session.business_key;
+
+            var cassetteSheet = await _context.Set<CassetteSheet>()
+                .FirstOrDefaultAsync(cs => cs.CassetteBusinessKey == businessKey
+                                        && cs.MatId == matId
+                                        && cs.ReheatNum == reheatNum);
+            if (cassetteSheet == null)
+                return NotFound(new { message = "Лист не найден в кассете" });
+
+            _context.Set<CassetteSheet>().Remove(cassetteSheet);
+
+            // Возвращаем статус
+            var maxReheatInDb = await _context.Set<CassetteSheet>()
+                .Where(cs => cs.MatId == matId)
+                .MaxAsync(cs => (int?)cs.ReheatNum) ?? -1;
+
+            if (reheatNum >= maxReheatInDb)
+            {
+                var sheet = await _context.InputData.FindAsync(matId);
+                if (sheet != null)
+                {
+                    sheet.Status = "Закалка пройдена, измерен";
+                    sheet.QuenchingStatus = "Завершена";
+                }
+            }
+
+            await _context.SaveChangesAsync();
+
+            await LogAuditAsync(con, businessKey, "remove_sheet", matId, userName,
+                new { reason = request?.Reason ?? "Удаление при редактировании", reheatNum, source = "completed_edit" });
+
+            return Ok(new { message = "Лист удалён из кассеты" });
+        }
+
+        /// <summary>
+        /// GET /api/cassettenew/search-sheets?melt=&batch=&pack=&sheet=&matId=&limit=50
+        /// Поиск листов для добавления (с фильтрами)
+        /// </summary>
+        [HttpGet("search-sheets")]
+        public async Task<IActionResult> SearchSheets(
+            [FromQuery] string? melt = null, [FromQuery] string? batch = null,
+            [FromQuery] string? pack = null, [FromQuery] string? sheet = null,
+            [FromQuery] string? matId = null, [FromQuery] int limit = 50)
+        {
+            var query = _context.InputData.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(matId))
+            {
+                var term = matId.Trim();
+                query = query.Where(s => s.MatId != null && s.MatId.Contains(term));
+            }
+            if (!string.IsNullOrWhiteSpace(melt))
+            {
+                var term = melt.Trim();
+                query = query.Where(s => s.MeltNumber != null && s.MeltNumber.Contains(term));
+            }
+            if (!string.IsNullOrWhiteSpace(batch))
+            {
+                var term = batch.Trim();
+                query = query.Where(s => s.BatchNumber != null && s.BatchNumber.Contains(term));
+            }
+            if (!string.IsNullOrWhiteSpace(pack))
+            {
+                var term = pack.Trim();
+                query = query.Where(s => s.PackNumber != null && s.PackNumber.Contains(term));
+            }
+            if (!string.IsNullOrWhiteSpace(sheet))
+            {
+                var term = sheet.Trim();
+                query = query.Where(s => s.SheetNumber != null && s.SheetNumber.Contains(term));
+            }
+
+            var results = await query
+                .OrderByDescending(s => s.MatId)
+                .Take(limit)
+                .Select(s => new
+                {
+                    s.MatId, s.MeltNumber, s.BatchNumber, s.PackNumber,
+                    s.SheetNumber, s.SteelGrade, s.SheetDimensions, s.Status, s.QuenchingStatus
+                })
+                .ToListAsync();
+
+            return Ok(results);
+        }
+            
+        }
 
 }
 // ── DTOs ──────────────────────────────────────────────────────────────
@@ -955,4 +1287,26 @@ public class EditMeasurementRequest
 public class FinishCassetteRequest
 {
     public int FurnaceNumber { get; set; }
+}
+
+public class UpdateSessionRequest
+{
+    public int FurnaceNumber { get; set; }
+    public DateTime? LoadedAt { get; set; }
+    public string? LoadedBy { get; set; }
+    public DateTime? UnloadedAt { get; set; }
+    public string? UnloadedBy { get; set; }
+    public string? Status { get; set; }
+    public bool? CompletedByPlc { get; set; }
+    public string? Notes { get; set; }
+    public int? SlotNumber { get; set; }
+    public int? TotalTimeMin { get; set; }
+    public decimal? MaxTemp { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class AddSheetToCompletedRequest
+{
+    public string MatId { get; set; } = string.Empty;
+    public int? ReheatNum { get; set; }
 }
