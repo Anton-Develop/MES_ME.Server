@@ -37,6 +37,7 @@ import OperatorWorkplace from './pages/OperatorWorkplace';
 import CassetteHistoryPage from './pages/CassetteHistoryPage';
 import LineMonitoringHMI from './pages/LineMonitoringHMI';
 import CassetteEditPage from './pages/CassetteEditPage';
+import BatchPassportPage from './pages/BatchPassportPage';
 
 import FurnaceSessionsList from './components/Furnace/FurnaceSessionsList';
 import FurnaceReport from './components/Furnace/FurnaceReport';
@@ -229,6 +230,15 @@ const App = () => (
                                 element={
                                     <ProtectedRoute>
                                         <CassetteEditPage />
+                                    </ProtectedRoute>
+                                }
+                            />
+                            {/* Ленины таблицы */}
+                            <Route
+                                path="BatchPassportPage"
+                                element={
+                                    <ProtectedRoute>
+                                        <BatchPassportPage />
                                     </ProtectedRoute>
                                 }
                             />

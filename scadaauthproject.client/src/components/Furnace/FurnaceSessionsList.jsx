@@ -42,7 +42,7 @@ const columns = [
   { id: 'totalMin', label: 'Время', type: 'number' },
  // { id: 'zonesPath', label: 'Маршрут', type: 'string' },
   { id: 'alloyCodeText', label: 'Марка стали', type: 'string' },
-   { id: 'loadSpeed', label: 'Скорость загрузки мм/с', type: 'float' },
+   { id: 'temperZ1', label: 'Температура в зоне 1', type: 'float' },
    { id: 'unloadSpeed', label: 'Скорость выгрузки мм/с', type: 'float' },
    { id: 'tmpSet', label: 'Задание температуры', type: 'number' },
   { id: 'hadAlarm', label: 'Авария', type: 'boolean' },
@@ -496,7 +496,8 @@ const FurnaceSessionsList = () => {
                   {/* ▲▲▲ КОНЕЦ БЛОКА ДЕЙСТВИЙ ▲▲▲ */}
 
                    {/* Остальные ячейки идут после */}
-                   <TableCell>{s.loadSpeed*1000 != null ? Number(s.loadSpeed*1000).toFixed(2) : '—'}</TableCell>
+                   {/*<TableCell>{s.loadSpeed*1000 != null ? Number(s.loadSpeed*1000).toFixed(2) : '—'}</TableCell>*/}
+                   <TableCell>{s.avgZ1_1 != null ? `${Number(s.avgZ1_1).toFixed(1)} °C` : '—' }</TableCell>
                    <TableCell>{s.unloadSpeed*1000 != null ? Number(s.unloadSpeed*1000).toFixed(2) : '—'}</TableCell>
                    <TableCell>{s.tmpSet != null ? `${Number(s.tmpSet).toFixed(1)} °C` : '—'}</TableCell>
                    <TableCell>{s.hadAlarm && <Chip label="АВАРИЯ" size="small" color="error" />}</TableCell>
