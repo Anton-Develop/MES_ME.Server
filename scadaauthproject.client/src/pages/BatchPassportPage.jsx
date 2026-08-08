@@ -27,6 +27,64 @@ const fmtDateRu = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '';
 const fmtTimeRu = (d) => d ? new Date(d).toLocaleTimeString('ru-RU') : '';
 const fmtNum = (v, dec = 1) => v != null ? Number(v).toFixed(dec) : '';
 
+// Ограниченное количество параллельных запросов, чтобы не слать сразу 1000 detail-запросов
+const mapLimited = async (items, limit, mapper) => {
+    const results = new Array(items.length);
+    let index = 0;
+
+    const workers = Array.from(
+        { length: Math.min(limit, items.length) },
+        async () => {
+            while (index < items.length) {
+                const currentIndex = index++;
+                results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+            }
+        }
+    );
+
+    await Promise.all(workers);
+
+    return results;
+};
+
+// Красиво схлопывает номера листов: [1,2,3,5,7,8] -> "1-3, 5, 7-8"
+const formatSheetNumbers = (values) => {
+    const list = [
+        ...new Set((values || []).map((v) => String(v)).filter(Boolean)),
+    ];
+
+    if (!list.length) return '';
+
+    const numeric = list.map((v) => Number(v));
+
+    // Если номера листов не числовые, просто сортируем и выводим через запятую
+    if (numeric.some((n) => Number.isNaN(n))) {
+        return list.sort((a, b) => a.localeCompare(b, 'ru')).join(', ');
+    }
+
+    const sorted = [...new Set(numeric)].sort((a, b) => a - b);
+
+    const ranges = [];
+    let start = sorted[0];
+    let prev = sorted[0];
+
+    for (let i = 1; i < sorted.length; i += 1) {
+        const current = sorted[i];
+
+        if (current === prev + 1) {
+            prev = current;
+        } else {
+            ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+            start = current;
+            prev = current;
+        }
+    }
+
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+
+    return ranges.join(', ');
+};
+
 const BatchPassportPage = () => {
   const now = new Date();
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -50,6 +108,97 @@ const BatchPassportPage = () => {
   const [quenchTableData, setQuenchTableData] = useState([]);
   // Данные отпуска
   const [temperData, setTemperData] = useState([]);
+
+
+    const fetchTemperData = async (currentSessions = []) => {
+        try {
+            // Берём завершённые кассеты из того же API, что использует CassetteEditPage
+            const res = await api.get('/cassettenew/completed', {
+                params: {
+                    page: 1,
+                    pageSize: 1000,
+                },
+            });
+
+            const completedSessions = res.data.sessions || [];
+
+            const from = filters.dateFrom ? new Date(filters.dateFrom) : null;
+            const to = filters.dateTo ? new Date(filters.dateTo) : null;
+
+            // Сначала фильтруем кассеты по дате загрузки, чтобы не тянуть детали лишних кассет
+            const preFilteredSessions = completedSessions.filter((session) => {
+                const loadedAt = session.loaded_at ? new Date(session.loaded_at) : null;
+
+                const inFrom = !from || (loadedAt && loadedAt >= from);
+                const inTo = !to || (loadedAt && loadedAt <= to);
+
+                return Boolean(inFrom && inTo);
+            });
+
+            // Для каждой кассеты тянем детали, чтобы получить номера листов
+            const detailedSessions = await mapLimited(
+                preFilteredSessions,
+                5,
+                async (session) => {
+                    try {
+                        const detailsRes = await api.get(
+                            `/cassettenew/completed/${session.id}/details`
+                        );
+
+                        const sessionData = detailsRes.data.session || session;
+                        const sheets = detailsRes.data.sheets || [];
+
+                        const sheetNumberList = [
+                            ...new Set(
+                                sheets
+                                    .map((x) => x.sheet?.sheetNumber)
+                                    .filter(Boolean)
+                                    .map(String)
+                            ),
+                        ];
+
+                        return {
+                            ...sessionData,
+                            sheetNumberList,
+                            sheetNumbers: formatSheetNumbers(sheetNumberList),
+                            sheets,
+                        };
+                    } catch (detailsErr) {
+                        console.error(
+                            `Ошибка загрузки деталей кассеты ${session.id}:`,
+                            detailsErr
+                        );
+
+                        return {
+                            ...session,
+                            sheetNumberList: [],
+                            sheetNumbers: '',
+                            sheets: [],
+                        };
+                    }
+                }
+            );
+
+            // Оставляем только те кассеты, где есть листы из текущего паспорта.
+            // Если currentSessions пустые, показываем все кассеты за период.
+            const allowedSheetNumbers = new Set(
+                currentSessions.map((s) => String(s.sheet)).filter(Boolean)
+            );
+
+            const filteredTemperData = detailedSessions.filter((temperSession) => {
+                if (allowedSheetNumbers.size === 0) return true;
+
+                return (temperSession.sheetNumberList || []).some((sheetNumber) =>
+                    allowedSheetNumbers.has(String(sheetNumber))
+                );
+            });
+
+            setTemperData(filteredTemperData);
+        } catch (err) {
+            console.error('Ошибка загрузки данных отпуска:', err);
+            setTemperData([]);
+        }
+    };
 
   const fetchData = async () => {
     setLoading(true);
@@ -94,9 +243,9 @@ const BatchPassportPage = () => {
       setQuenchTableData(enriched);
 
       // 3. ОТПУСК: История завершенных кассет
-      const tRes = await api.get('/tempering/history', { params: { pageSize: 1000 } });
-      setTemperData(tRes.data.sessions || []);
-
+     // const tRes = await api.get('/tempering/history', { params: { pageSize: 1000 } });
+     // setTemperData(tRes.data.sessions || []);
+        await fetchTemperData(sessions);
     } catch (err) {
       console.error("Ошибка загрузки паспорта:", err);
     } finally {
@@ -136,15 +285,15 @@ const BatchPassportPage = () => {
             }));
       fileName = 'Закалка_6мм';
     } else {
-      data = temperData.map((r, i) => ({
-        '№ п/п': i + 1,
-        'Дата': fmtDateRu(r.loaded_at),
-        'Время загрузки листов в печь отпуска': fmtTimeRu(r.loaded_at),
-        'Номера листов': '', // TODO: вычислить диапазон по cassette_business_key
-        'Номер кассеты': r.cassette_number,
-        'Фактическая температура в отпускной печи при выдержке металла, 0С': fmtNum(r.max_temp, 0),
-        'Время выдержки в отпускной печи, мин': r.total_time_min,
-      }));
+        data = temperData.map((r, i) => ({
+            '№ п/п': i + 1,
+            'Дата': fmtDateRu(r.loaded_at),
+            'Время загрузки листов в печь отпуска': fmtTimeRu(r.loaded_at),
+            'Номера листов': r.sheetNumbers || '',
+            'Номер кассеты': r.cassette_number,
+            'Фактическая температура в отпускной печи при выдержке металла, 0С': fmtNum(r.max_temp, 0),
+            'Время выдержки в отпускной печи, мин': r.total_time_min ?? '',
+        }));
       fileName = 'Отпуск_6мм';
     }
     exportToExcel(data, `${fileName}_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -253,17 +402,35 @@ const BatchPassportPage = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {temperData.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell sx={bodyCellSx}>{i + 1}</TableCell>
-                      <TableCell sx={bodyCellSx}>{fmtDateRu(r.loaded_at)}</TableCell>
-                      <TableCell sx={bodyCellSx}>{fmtTimeRu(r.loaded_at)}</TableCell>
-                      <TableCell sx={bodyCellSx}>{/* TODO: range */ ''}</TableCell>
-                      <TableCell sx={{...bodyCellSx, fontWeight: 700}}>{r.cassette_number}</TableCell>
-                      <TableCell sx={bodyCellSx}>{fmtNum(r.max_temp, 0)}</TableCell>
-                      <TableCell sx={bodyCellSx}>{r.total_time_min}</TableCell>
-                    </TableRow>
-                  ))}
+                                  {temperData.map((r, i) => (
+                                      <TableRow key={r.id || i}>
+                                          <TableCell sx={bodyCellSx}>{i + 1}</TableCell>
+
+                                          <TableCell sx={bodyCellSx}>
+                                              {fmtDateRu(r.loaded_at)}
+                                          </TableCell>
+
+                                          <TableCell sx={bodyCellSx}>
+                                              {fmtTimeRu(r.loaded_at)}
+                                          </TableCell>
+
+                                          <TableCell sx={bodyCellSx}>
+                                              {r.sheetNumbers || ''}
+                                          </TableCell>
+
+                                          <TableCell sx={{ ...bodyCellSx, fontWeight: 700 }}>
+                                              {r.cassette_number}
+                                          </TableCell>
+
+                                          <TableCell sx={bodyCellSx}>
+                                              {fmtNum(r.max_temp, 0)}
+                                          </TableCell>
+
+                                          <TableCell sx={bodyCellSx}>
+                                              {r.total_time_min ?? ''}
+                                          </TableCell>
+                                      </TableRow>
+                                  ))}
                 </TableBody>
               </Table>
             </TableContainer>

@@ -8,6 +8,7 @@ using MES_ME.Server.Models;
 using System.Linq.Expressions;
 using MES_ME.Server.DTOs;
 using Microsoft.AspNetCore.Authorization;
+using System.Data;
 
 namespace MES_ME.Server.Controllers
 {
@@ -338,6 +339,228 @@ namespace MES_ME.Server.Controllers
                 // _logger.LogError(ex, "Ошибка при массовом обновлении статуса");
                 return StatusCode(500, new { message = "Произошла внутренняя ошибка сервера." });
             }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> CreateInputData([FromBody] InputDataUpsertRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new { message = GetModelErrorMessage() });
+            }
+
+            try
+            {
+                var matId = await GenerateMatIdAsync();
+
+                var entity = new InputDatum(); // если ваша сущность называется иначе — замените
+
+                entity.MatId = matId;
+
+                ApplyUpsertRequest(request, entity);
+
+                _context.InputData.Add(entity);
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = $"Запись успешно создана. MatId: {matId}",
+                    matId = matId
+                });
+            }
+            catch (DbUpdateException ex)
+            {
+                Console.WriteLine($"Ошибка БД при создании записи InputData: {ex.Message}");
+                return StatusCode(500, new { message = "Ошибка базы данных при создании записи." });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при создании записи InputData: {ex.Message}");
+                return StatusCode(500, new { message = "Произошла ошибка при создании записи." });
+            }
+        }
+
+        [HttpPut("{matId}")]
+        public async Task<IActionResult> UpdateInputData(string matId, [FromBody] InputDataUpsertRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(matId))
+            {
+                return BadRequest(new { message = "MatId не указан." });
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new { message = GetModelErrorMessage() });
+            }
+
+            try
+            {
+                var entity = await _context.InputData
+                    .FirstOrDefaultAsync(x => x.MatId == matId);
+
+                if (entity == null)
+                {
+                    return NotFound(new { message = $"Запись с MatId = {matId} не найдена." });
+                }
+
+                ApplyUpsertRequest(request, entity);
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = $"Запись MatId = {matId} успешно обновлена.",
+                    matId = matId
+                });
+            }
+            catch (DbUpdateException ex)
+            {
+                Console.WriteLine($"Ошибка БД при обновлении записи InputData: {ex.Message}");
+                return StatusCode(500, new { message = "Ошибка базы данных при обновлении записи." });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при обновлении записи InputData: {ex.Message}");
+                return StatusCode(500, new { message = "Произошла ошибка при обновлении записи." });
+            }
+        }
+
+        private async Task<string> GenerateMatIdAsync()
+        {
+            var connection = _context.Database.GetDbConnection();
+
+            var wasClosed = connection.State != ConnectionState.Open;
+
+            if (wasClosed)
+            {
+                await connection.OpenAsync();
+            }
+
+            try
+            {
+                await using var command = connection.CreateCommand();
+
+                command.CommandText = "SELECT LPAD(nextval('mes.matid_seq')::TEXT, 10, '0')";
+
+                var result = await command.ExecuteScalarAsync();
+
+                var matId = result?.ToString();
+
+                if (string.IsNullOrWhiteSpace(matId))
+                {
+                    throw new InvalidOperationException("Не удалось получить следующее значение из последовательности mes.matid_seq.");
+                }
+
+                return matId;
+            }
+            finally
+            {
+                if (wasClosed)
+                {
+                    await connection.CloseAsync();
+                }
+            }
+        }
+        private static string? TrimOrNull(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static void ApplyUpsertRequest(InputDataUpsertRequest request, InputDatum entity)
+        {
+            entity.Status = request.Status!.Trim();
+
+            entity.RollDate = request.RollDate!.Value.Date;
+
+            entity.MeltNumber = request.MeltNumber!.Trim();
+            entity.BatchNumber = request.BatchNumber!.Trim();
+            entity.PackNumber = request.PackNumber!.Trim();
+            entity.PackSystemNumber = request.PackSystemNumber!.Trim();
+            entity.SteelGrade = request.SteelGrade!.Trim();
+
+            entity.SheetDimensions = TrimOrNull(request.SheetDimensions);
+
+            // Если добавите отдельное поле ThicknessMm:
+            // entity.ThicknessMm = request.ThicknessMm;
+
+            entity.SlabNumber = request.SlabNumber!.Trim();
+
+            entity.ActualNetWeightKg = request.ActualNetWeightKg;
+            entity.CertificateNetWeightKg = request.CertificateNetWeightKg;
+
+            entity.SheetsCount = request.SheetsCount;
+            entity.SheetWeightKg = request.SheetWeightKg;
+            entity.RawMaterialKg = request.RawMaterialKg;
+
+            entity.SheetNumber = request.SheetNumber!.Trim();
+
+            entity.QuenchingDate = request.QuenchingDate!.Value.Date;
+            entity.QuenchingStatus = request.QuenchingStatus!.Trim();
+
+            entity.CertificateNumber = TrimOrNull(request.CertificateNumber);
+            entity.ShortOrderNumber = TrimOrNull(request.ShortOrderNumber);
+            entity.CommercialOrderNumber = TrimOrNull(request.CommercialOrderNumber);
+
+            entity.Marking = TrimOrNull(request.Marking);
+            entity.RepeatedToDate = request.RepeatedToDate;
+
+            entity.GpAcceptanceStatusWeight = TrimOrNull(request.GpAcceptanceStatusWeight);
+            entity.NpAcceptanceStatusWeight = TrimOrNull(request.NpAcceptanceStatusWeight);
+            entity.ScrapAcceptanceStatusWeight = TrimOrNull(request.ScrapAcceptanceStatusWeight);
+
+            entity.ActualWeight = request.ActualWeight;
+            entity.NonReturnScrap = request.NonReturnScrap;
+            entity.Trimming = request.Trimming;
+            entity.FlatnessMm = request.FlatnessMm;
+
+            entity.Defect = TrimOrNull(request.Defect);
+            entity.Note = TrimOrNull(request.Note);
+
+            entity.NpAct = TrimOrNull(request.NpAct);
+            entity.MmkClaimReason = TrimOrNull(request.MmkClaimReason);
+            entity.NpDecision = TrimOrNull(request.NpDecision);
+
+            entity.SampleCardsSelection = TrimOrNull(request.SampleCardsSelection);
+            entity.SampleNumberVk = TrimOrNull(request.SampleNumberVk);
+
+            entity.BallisticsSampleSendDate1 = request.BallisticsSampleSendDate1;
+            entity.BallisticsSampleSendDate2 = request.BallisticsSampleSendDate2;
+            entity.BallisticsSampleSendDate3 = request.BallisticsSampleSendDate3;
+
+            entity.MetallographySampleSendDate1 = request.MetallographySampleSendDate1;
+            entity.MetallographySampleSendDate2 = request.MetallographySampleSendDate2;
+
+            entity.HardnessSampleSendDate1 = request.HardnessSampleSendDate1;
+            entity.HardnessSampleSendDate2 = request.HardnessSampleSendDate2;
+            entity.HardnessSampleSendDate3 = request.HardnessSampleSendDate3;
+
+            entity.OrderLink = TrimOrNull(request.OrderLink);
+            entity.IgkLink = TrimOrNull(request.IgkLink);
+            entity.TestingStatus = TrimOrNull(request.TestingStatus);
+
+            entity.GpVpPresentationDate = request.GpVpPresentationDate;
+            entity.ShipmentDate = request.ShipmentDate;
+
+            entity.OrderNumber = TrimOrNull(request.OrderNumber);
+            entity.CertificateNumber2 = TrimOrNull(request.CertificateNumber2);
+
+            entity.ShippedSheetsWeightKg = request.ShippedSheetsWeightKg;
+            entity.SheetWeightAfterToStorageKg = request.SheetWeightAfterToStorageKg;
+            entity.PostShipDiff = request.PostShipDiff;
+        }
+        private string GetModelErrorMessage()
+        {
+            var errors = ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .SelectMany(x => x.Value!.Errors.Select(e => e.ErrorMessage))
+                .Where(m => !string.IsNullOrWhiteSpace(m))
+                .Distinct();
+
+            var message = string.Join(" | ", errors);
+
+            return string.IsNullOrWhiteSpace(message)
+                ? "Некорректные данные."
+                : message;
         }
     }
 

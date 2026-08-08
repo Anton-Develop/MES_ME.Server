@@ -21,6 +21,7 @@ import {
   DialogActions,
   Chip,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -327,225 +328,666 @@ const handleRowSelectionModelChange = (model) => {
     } finally {
         setMassUpdateLoading(false);
     }
-  };
+    };
+
+    const [rowDialog, setRowDialog] = useState({
+        open: false,
+        mode: 'create', // 'create' или 'edit'
+        matId: null,
+    });
+
+    const [rowForm, setRowForm] = useState({});
+    const [rowErrors, setRowErrors] = useState([]);
+    const [savingRow, setSavingRow] = useState(false);
+    const [successMessage, setSuccessMessage] = useState('');
+
+    const REQUIRED_ROW_FIELDS = new Set([
+        'status',
+        'rollDate',
+        'meltNumber',
+        'batchNumber',
+        'packNumber',
+        'packSystemNumber',
+        'steelGrade',
+        'slabNumber',
+        'sheetsCount',
+        'sheetNumber',
+        'quenchingDate',
+        'quenchingStatus',
+    ]);
 
   // Определение колонок для DataGrid
-  const columns = [
-    {
-      field: 'actions', headerName: 'Действия', width: 120, sortable: false, renderCell: (params) => (
-        <IconButton
-          size="small"
-          onClick={() => handleOpenStatusDialog(params.row)} // Передаём всю строку (inputData)
-          color="primary"
-          title="Изменить статус"
-        >
-          <EditIcon />
-        </IconButton>
-      ),
-    },
-    // --- ИСПРАВЛЕНИЕ: Все поля теперь указывают на свойства объекта inputData ---
-    { field: 'matId', headerName: 'MatID', width: 120, sortable: true },
-    { field: 'status', headerName: 'Статус', width: 150, sortable: true },
-    { field: 'certificateNumber', headerName: 'Сертификат', width: 150, sortable: true },
-    { field: 'shortOrderNumber', headerName: 'Короткий заказ', width: 150, sortable: true },
-    { field: 'commercialOrderNumber', headerName: 'Комерческий заказ', width: 150, sortable: true },
-    {
-      field: 'rollDate',
-      headerName: 'Дата поступления проката',
-      width: 180,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    { field: 'meltNumber', headerName: 'Номер плавки', width: 120, sortable: true },
-    { field: 'batchNumber', headerName: 'Номер партии', width: 120, sortable: true },
-    { field: 'packNumber', headerName: 'Номер пачки', width: 120, sortable: true },
-    { field: 'packSystemNumber', headerName: 'Номер пачки в системе', width: 150, sortable: true },
-    { field: 'steelGrade', headerName: 'Марка стали', width: 120, sortable: true },
-    { field: 'sheetDimensions', headerName: 'Размеры листа', width: 150, sortable: true },
-    { field: 'slabNumber', headerName: 'Номер сляба', width: 120, sortable: true },
-    {
-      field: 'actualNetWeightKg',
-      headerName: 'Факт. вес нетто (кг)',
-      width: 180,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'certificateNetWeightKg',
-      headerName: 'Вес по сертификату (кг)',
-      width: 180,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    { field: 'sheetsCount', headerName: 'Кол-во листов', width: 120, sortable: true },
-    {
-      field: 'sheetWeightKg',
-      headerName: 'Вес листа (кг)',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'rawMaterialKg',
-      headerName: 'Сырье (кг)',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    { field: 'sheetNumber', headerName: '№ листа', width: 120, sortable: true },
-    {
-      field: 'quenchingDate',
-      headerName: 'Дата',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    { field: 'quenchingStatus', headerName: 'Закалка', width: 120, sortable: true },
-    { field: 'marking', headerName: 'Маркировка', width: 120, sortable: true },
-    {
-      field: 'repeatedToDate',
-      headerName: 'Повторная ТО',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    { field: 'gpAcceptanceStatusWeight', headerName: 'Приемка ГП', width: 150, sortable: true },
-    { field: 'npAcceptanceStatusWeight', headerName: 'Приемка НП', width: 150, sortable: true },
-    { field: 'scrapAcceptanceStatusWeight', headerName: 'Приемка БРАК', width: 150, sortable: true },
-    {
-      field: 'actualWeight',
-      headerName: 'Факт. вес',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'nonReturnScrap',
-      headerName: 'Невозвратный лом',
-      width: 150,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'trimming',
-      headerName: 'Обрезь',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'flatnessMm',
-      headerName: 'Плоскостность (мм)',
-      width: 150,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    { field: 'defect', headerName: 'Дефект', width: 120, sortable: true },
-    { field: 'note', headerName: 'Примечание', width: 200, sortable: true },
-    { field: 'npAct', headerName: 'Акт НП', width: 120, sortable: true },
-    { field: 'mmkClaimReason', headerName: 'Претензия ММК', width: 150, sortable: true },
-    { field: 'npDecision', headerName: 'Решение НП', width: 120, sortable: true },
-    { field: 'sampleCardsSelection', headerName: 'Отбор проб', width: 150, sortable: true },
-    { field: 'sampleNumberVk', headerName: 'Номер образца ВК', width: 150, sortable: true },
-    {
-      field: 'ballisticsSampleSendDate1',
-      headerName: 'Баллистика 1',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'ballisticsSampleSendDate2',
-      headerName: 'Баллистика 2',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'ballisticsSampleSendDate3',
-      headerName: 'Баллистика 3',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'metallographySampleSendDate1',
-      headerName: 'Металлография 1',
-      width: 150,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'metallographySampleSendDate2',
-      headerName: 'Металлография 2',
-      width: 150,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'hardnessSampleSendDate1',
-      headerName: 'Твердость 1',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'hardnessSampleSendDate2',
-      headerName: 'Твердость 2',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'hardnessSampleSendDate3',
-      headerName: 'Твердость 3',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    { field: 'orderLink', headerName: 'Привязка к заказу', width: 150, sortable: true },
-    { field: 'igkLink', headerName: 'Привязка к ИГК', width: 150, sortable: true },
-    { field: 'testingStatus', headerName: 'Статус испытаний', width: 150, sortable: true },
-    {
-      field: 'gpVpPresentationDate',
-      headerName: 'Предъявление ГП ВП',
-      width: 150,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    {
-      field: 'shipmentDate',
-      headerName: 'Дата отгрузки',
-      width: 120,
-      sortable: true,
-      valueFormatter: (params) => formatDate(params?.value),
-    },
-    { field: 'orderNumber', headerName: 'Номер заказа', width: 120, sortable: true },
-    { field: 'certificateNumber2', headerName: 'Номер сертификата 2', width: 150, sortable: true },
-    {
-      field: 'shippedSheetsWeightKg',
-      headerName: 'Вес отгр. листов (кг)',
-      width: 180,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'sheetWeightAfterToStorageKg',
-      headerName: 'Вес листа после ТО (кг)',
-      width: 200,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    {
-      field: 'postShipDiff',
-      headerName: 'Разница пост/отгр',
-      width: 150,
-      sortable: true,
-      valueFormatter: (params) => formatNumber(params?.value),
-    },
-    // --- /Все поля теперь указывают на свойства объекта inputData ---
-  ];
+    const columns = [
+        {
+            field: 'actions',
+            headerName: 'Действия',
+            width: 110,
+            sortable: false,
+            filterable: false,
+            renderCell: (params) => (
+                <IconButton
+                    size="small"
+                    onClick={() => handleOpenEditRow(params.row)}
+                    color="primary"
+                    title="Редактировать"
+                >
+                    <EditIcon />
+                </IconButton>
+            ),
+        },
+        {
+            field: 'matId',
+            headerName: 'MatID',
+            width: 130,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'status',
+            headerName: 'Статус',
+            width: 170,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'meltNumber',
+            headerName: 'Плавка',
+            width: 120,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'batchNumber',
+            headerName: 'Партия',
+            width: 120,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'packNumber',
+            headerName: 'Пачка',
+            width: 110,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'sheetNumber',
+            headerName: '№ листа',
+            width: 110,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'steelGrade',
+            headerName: 'Марка стали',
+            width: 140,
+            sortable: true,
+            type: 'text',
+        },
 
+        // Пока толщина берется из sheetDimensions.
+        // Если добавите отдельное поле thicknessMm, замените field на 'thicknessMm'.
+        {
+            field: 'sheetDimensions',
+            headerName: 'Толщина',
+            width: 130,
+            sortable: true,
+            type: 'text',
+        },
+
+        // Дальше всё остальное
+        {
+            field: 'certificateNumber',
+            headerName: 'Сертификат',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'shortOrderNumber',
+            headerName: 'Короткий заказ',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'commercialOrderNumber',
+            headerName: 'Коммерческий заказ',
+            width: 170,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'rollDate',
+            headerName: 'Дата поступления проката',
+            width: 190,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'packSystemNumber',
+            headerName: 'Номер пачки в системе',
+            width: 170,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'slabNumber',
+            headerName: 'Номер сляба',
+            width: 120,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'actualNetWeightKg',
+            headerName: 'Факт. вес нетто (кг)',
+            width: 180,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'certificateNetWeightKg',
+            headerName: 'Вес по сертификату (кг)',
+            width: 180,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'sheetsCount',
+            headerName: 'Кол-во листов',
+            width: 120,
+            sortable: true,
+            type: 'number',
+        },
+        {
+            field: 'sheetWeightKg',
+            headerName: 'Вес листа (кг)',
+            width: 130,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'rawMaterialKg',
+            headerName: 'Сырье (кг)',
+            width: 120,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'quenchingDate',
+            headerName: 'Дата закалки',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'quenchingStatus',
+            headerName: 'Закалка',
+            width: 130,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'marking',
+            headerName: 'Маркировка',
+            width: 130,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'repeatedToDate',
+            headerName: 'Повторная ТО',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'gpAcceptanceStatusWeight',
+            headerName: 'Приемка ГП',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'npAcceptanceStatusWeight',
+            headerName: 'Приемка НП',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'scrapAcceptanceStatusWeight',
+            headerName: 'Приемка БРАК',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'actualWeight',
+            headerName: 'Факт. вес',
+            width: 120,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'nonReturnScrap',
+            headerName: 'Невозвратный лом',
+            width: 150,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'trimming',
+            headerName: 'Обрезь',
+            width: 120,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'flatnessMm',
+            headerName: 'Плоскостность (мм)',
+            width: 150,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'defect',
+            headerName: 'Дефект',
+            width: 120,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'note',
+            headerName: 'Примечание',
+            width: 200,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'npAct',
+            headerName: 'Акт НП',
+            width: 120,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'mmkClaimReason',
+            headerName: 'Претензия ММК',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'npDecision',
+            headerName: 'Решение НП',
+            width: 120,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'sampleCardsSelection',
+            headerName: 'Отбор проб',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'sampleNumberVk',
+            headerName: 'Номер образца ВК',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'ballisticsSampleSendDate1',
+            headerName: 'Баллистика 1',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'ballisticsSampleSendDate2',
+            headerName: 'Баллистика 2',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'ballisticsSampleSendDate3',
+            headerName: 'Баллистика 3',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'metallographySampleSendDate1',
+            headerName: 'Металлография 1',
+            width: 150,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'metallographySampleSendDate2',
+            headerName: 'Металлография 2',
+            width: 150,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'hardnessSampleSendDate1',
+            headerName: 'Твердость 1',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'hardnessSampleSendDate2',
+            headerName: 'Твердость 2',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'hardnessSampleSendDate3',
+            headerName: 'Твердость 3',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'orderLink',
+            headerName: 'Привязка к заказу',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'igkLink',
+            headerName: 'Привязка к ИГК',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'testingStatus',
+            headerName: 'Статус испытаний',
+            width: 150,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'gpVpPresentationDate',
+            headerName: 'Предъявление ГП ВП',
+            width: 160,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'shipmentDate',
+            headerName: 'Дата отгрузки',
+            width: 130,
+            sortable: true,
+            type: 'date',
+            valueFormatter: (params) => formatDate(params?.value),
+        },
+        {
+            field: 'orderNumber',
+            headerName: 'Номер заказа',
+            width: 130,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'certificateNumber2',
+            headerName: 'Номер сертификата 2',
+            width: 160,
+            sortable: true,
+            type: 'text',
+        },
+        {
+            field: 'shippedSheetsWeightKg',
+            headerName: 'Вес отгр. листов (кг)',
+            width: 180,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'sheetWeightAfterToStorageKg',
+            headerName: 'Вес листа после ТО (кг)',
+            width: 200,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+        {
+            field: 'postShipDiff',
+            headerName: 'Разница пост/отгр',
+            width: 150,
+            sortable: true,
+            type: 'number',
+            valueFormatter: (params) => formatNumber(params?.value),
+        },
+    ];
+
+
+    const buildEmptyRow = () => {
+        const empty = {};
+
+        columns
+            .filter((col) => col.field !== 'actions')
+            .forEach((col) => {
+                if (col.type === 'date') {
+                    empty[col.field] = null;
+                } else {
+                    empty[col.field] = '';
+                }
+            });
+
+        return empty;
+    };
+
+    const normalizeRowForm = (row) => {
+        const empty = buildEmptyRow();
+
+        const normalized = {
+            ...empty,
+            ...row,
+        };
+
+        columns
+            .filter((col) => col.type === 'date')
+            .forEach((col) => {
+                normalized[col.field] = normalized[col.field]
+                    ? dayjs(normalized[col.field])
+                    : null;
+            });
+
+        return normalized;
+    };
+
+    const handleRowFormChange = (field, value) => {
+        setRowForm((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
+    };
+
+    const handleOpenCreateRow = () => {
+        const empty = buildEmptyRow();
+
+        empty.status = 'Подготовлен к прокату';
+        empty.slabNumber = '0';
+        empty.rollDate = dayjs();
+        empty.quenchingDate = dayjs();
+
+        setRowForm(empty);
+        setRowErrors([]);
+        setRowDialog({
+            open: true,
+            mode: 'create',
+            matId: null,
+        });
+    };
+
+    const handleOpenEditRow = (row) => {
+        const normalized = normalizeRowForm(row);
+
+        setRowForm(normalized);
+        setRowErrors([]);
+        setRowDialog({
+            open: true,
+            mode: 'edit',
+            matId: row.matId,
+        });
+    };
+
+    const handleCloseRowDialog = () => {
+        setRowDialog({
+            open: false,
+            mode: 'create',
+            matId: null,
+        });
+
+        setRowForm({});
+        setRowErrors([]);
+        setSavingRow(false);
+    };
+
+    const validateRowForm = (form) => {
+        const errors = [];
+
+        const editableColumns = columns.filter((col) => col.field !== 'actions');
+
+        editableColumns.forEach((col) => {
+            const value = form[col.field];
+
+            const isEmpty =
+                value === null ||
+                value === undefined ||
+                String(value).trim() === '';
+
+            if (REQUIRED_ROW_FIELDS.has(col.field) && isEmpty) {
+                errors.push(`Поле «${col.headerName}» обязательно.`);
+            }
+
+            if (!isEmpty && col.type === 'number' && isNaN(Number(value))) {
+                errors.push(`Поле «${col.headerName}» должно быть числом.`);
+            }
+
+            if (!isEmpty && col.type === 'date' && !dayjs(value).isValid()) {
+                errors.push(`Поле «${col.headerName}» содержит некорректную дату.`);
+            }
+        });
+
+        if (
+            form.sheetsCount !== '' &&
+            form.sheetsCount !== null &&
+            form.sheetsCount !== undefined &&
+            Number(form.sheetsCount) <= 0
+        ) {
+            errors.push('Поле «Кол-во листов» должно быть больше 0.');
+        }
+
+        return errors;
+    };
+
+    const prepareRowPayload = (form) => {
+        const payload = { ...form };
+
+        columns
+            .filter((col) => col.field !== 'actions')
+            .forEach((col) => {
+                const value = payload[col.field];
+
+                if (col.type === 'date') {
+                    payload[col.field] =
+                        value && dayjs(value).isValid()
+                            ? dayjs(value).startOf('day').toISOString()
+                            : null;
+                }
+
+                if (col.type === 'number') {
+                    payload[col.field] =
+                        value === '' || value === null || value === undefined
+                            ? null
+                            : Number(value);
+                }
+
+                if (typeof payload[col.field] === 'string') {
+                    payload[col.field] = payload[col.field].trim();
+                }
+            });
+
+        return payload;
+    };
+
+    const handleSaveRow = async () => {
+        const errors = validateRowForm(rowForm);
+
+        if (errors.length > 0) {
+            setRowErrors(errors);
+            return;
+        }
+
+        setSavingRow(true);
+        setRowErrors([]);
+
+        try {
+            const payload = prepareRowPayload(rowForm);
+
+            let response;
+
+            if (rowDialog.mode === 'edit') {
+                response = await api.put(`/inputdata/${rowDialog.matId}`, payload);
+            } else {
+                response = await api.post('/inputdata', payload);
+            }
+
+            setSuccessMessage(
+                response?.data?.message ||
+                (rowDialog.mode === 'edit'
+                    ? 'Запись успешно обновлена.'
+                    : 'Запись успешно создана.')
+            );
+
+            handleCloseRowDialog();
+
+            await fetchData();
+        } catch (err) {
+            console.error('Ошибка сохранения строки InputData:', err);
+
+            const message =
+                err.response?.data?.message ||
+                err.message ||
+                'Ошибка при сохранении данных.';
+
+            setRowErrors([message]);
+        } finally {
+            setSavingRow(false);
+        }
+    };
   return (
     <Container maxWidth="xl" sx={{ mt: 4 }}>
       <Paper sx={{ p: 3 }}>
@@ -554,7 +996,14 @@ const handleRowSelectionModelChange = (model) => {
         </Typography>
 
         {/* Контейнер для элементов управления массовым действием */}
-        <Box p={2} display="flex" alignItems="center" gap={2}>
+              <Box p={2} display="flex" alignItems="center" gap={2}>
+                  <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={handleOpenCreateRow}
+                  >
+                      Добавить запись
+                  </Button>
           <FormControl sx={{ minWidth: 200 }} size="small">
             <InputLabel id="select-new-status-label">Новый статус</InputLabel>
             <Select
@@ -585,6 +1034,15 @@ const handleRowSelectionModelChange = (model) => {
           </Button>
         </Box>
 
+              {successMessage && (
+                  <Alert
+                      severity="success"
+                      onClose={() => setSuccessMessage('')}
+                      sx={{ mb: 2 }}
+                  >
+                      {successMessage}
+                  </Alert>
+              )}
         {massUpdateError && <Alert severity="error">{massUpdateError}</Alert>}
 
         {/* Фильтры */}
@@ -852,7 +1310,95 @@ const handleRowSelectionModelChange = (model) => {
             {updatingStatus ? 'Сохранение...' : 'Сохранить'}
           </Button>
         </DialogActions>
-      </Dialog>
+          </Dialog>
+
+          <Dialog
+              open={rowDialog.open}
+              onClose={handleCloseRowDialog}
+              maxWidth="lg"
+              fullWidth
+          >
+              <DialogTitle>
+                  {rowDialog.mode === 'edit'
+                      ? `Редактирование записи MatId: ${rowDialog.matId}`
+                      : 'Создание новой записи'}
+              </DialogTitle>
+
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                  <DialogContent dividers>
+                      {rowErrors.length > 0 && (
+                          <Box sx={{ mb: 2 }}>
+                              {rowErrors.map((error, index) => (
+                                  <Alert key={index} severity="error" sx={{ mb: 1 }}>
+                                      {error}
+                                  </Alert>
+                              ))}
+                          </Box>
+                      )}
+
+                      <Grid container spacing={2}>
+                          {columns
+                              .filter((col) => col.field !== 'actions')
+                              .map((col) => {
+                                  const isRequired = REQUIRED_ROW_FIELDS.has(col.field);
+                                  const isMatId = col.field === 'matId';
+
+                                  return (
+                                      <Grid item xs={12} sm={6} md={4} key={col.field}>
+                                          {col.type === 'date' ? (
+                                              <DatePicker
+                                                  label={col.headerName}
+                                                  value={rowForm[col.field] || null}
+                                                  onChange={(newValue) =>
+                                                      handleRowFormChange(col.field, newValue)
+                                                  }
+                                                  disabled={isMatId || savingRow}
+                                                  slotProps={{
+                                                      textField: {
+                                                          fullWidth: true,
+                                                          size: 'small',
+                                                          required: isRequired,
+                                                      },
+                                                  }}
+                                              />
+                                          ) : (
+                                              <TextField
+                                                  fullWidth
+                                                  size="small"
+                                                  label={col.headerName}
+                                                  value={rowForm[col.field] ?? ''}
+                                                  onChange={(e) =>
+                                                      handleRowFormChange(col.field, e.target.value)
+                                                  }
+                                                  required={isRequired}
+                                                  disabled={isMatId || savingRow}
+                                                  type={col.type === 'number' ? 'number' : 'text'}
+                                              />
+                                          )}
+                                      </Grid>
+                                  );
+                              })}
+                      </Grid>
+                  </DialogContent>
+              </LocalizationProvider>
+
+              <DialogActions>
+                  <Button
+                      onClick={handleCloseRowDialog}
+                      disabled={savingRow}
+                  >
+                      Отмена
+                  </Button>
+
+                  <Button
+                      variant="contained"
+                      onClick={handleSaveRow}
+                      disabled={savingRow}
+                  >
+                      {savingRow ? 'Сохранение...' : 'Сохранить'}
+                  </Button>
+              </DialogActions>
+          </Dialog>
     </Container>
   );
 };
