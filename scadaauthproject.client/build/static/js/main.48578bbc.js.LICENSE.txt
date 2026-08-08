@@ -17,6 +17,10 @@
   PERFORMANCE OF THIS SOFTWARE.
   ***************************************************************************** */
 
+/*! sheetjs (C) 2013-present SheetJS -- http://sheetjs.com */
+
+/*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
+
 /**
    * @license
    * (c) Dean McNamee <dean@gmail.com>, 2013.
