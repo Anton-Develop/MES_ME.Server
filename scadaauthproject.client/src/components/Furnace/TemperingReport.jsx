@@ -26,6 +26,7 @@ const TemperingReport = () => {
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const businessKey = searchParams.get('key');
+  const targetSheet = searchParams.get('sheet');
   const isPrint = searchParams.get('print') === 'true';
 
   const [data, setData] = useState(null);
@@ -158,6 +159,18 @@ const TemperingReport = () => {
       credits: { enabled: false }
     };
   }, [data?.tempData]);
+  const { session, sheets } = data || {};
+  const activeSheet = useMemo(() => {
+  if (!sheets || sheets.length === 0) return {};
+  
+  if (targetSheet) {
+    // Ищем точное совпадение по номеру листа
+    const found = sheets.find(s => String(s.Sheet) === String(targetSheet));
+    if (found) return found;
+  }
+  
+  return sheets[0];
+}, [sheets, targetSheet]);
 
   if (loading) {
     return (
@@ -181,8 +194,10 @@ const TemperingReport = () => {
     );
   }
 
-  const { session, sheets } = data;
-  const firstSheet = sheets?.[0] || {};
+ // const { session, sheets } = data;
+ // const firstSheet = sheets?.[0] || {};
+
+
 
   const getStatusChip = () => {
     if (session.status?.includes('Авария') || session.status?.includes('fault')) {
@@ -229,7 +244,7 @@ const formatThickness = (v) => {
       <Paper sx={{ p: 2.5, mb: 2, borderRadius: 2 }}>
         <Stack direction="row" alignItems="center" spacing={1} mb={2} flexWrap="wrap">
           <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          Отчёт по отпуску листа №{firstSheet.Sheet || '—'}
+          Отчёт по отпуску листа №{activeSheet.Sheet || '—'}
         </Typography>
          {/*  {getStatusChip()}*/}
         </Stack>
@@ -237,13 +252,13 @@ const formatThickness = (v) => {
         {/* Метаданные */}
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
           {[
-            { label: 'Лист',      value: firstSheet.Sheet },
-            { label: 'Сляб',      value: firstSheet.Slab ?? '—' },
-            { label: 'Плавка',    value: firstSheet.Melt ?? '—' },
-            { label: 'Партия',    value: firstSheet.PartNo ?? '—' },
-            { label: 'Пачка',     value: firstSheet.Pack ?? '—' },
-            { label: 'Марка стали', value: firstSheet.AlloyCodeText ?? '—' },
-            { label: 'Толщина',   value: formatThickness(firstSheet.Thickness) },
+            { label: 'Лист',      value: activeSheet.Sheet },
+            { label: 'Сляб',      value: activeSheet.Slab ?? '—' },
+            { label: 'Плавка',    value: activeSheet.Melt ?? '—' },
+            { label: 'Партия',    value: activeSheet.PartNo ?? '—' },
+            { label: 'Пачка',     value: activeSheet.Pack ?? '—' },
+            { label: 'Марка стали', value: activeSheet.AlloyCodeText ?? '—' },
+            { label: 'Толщина',   value: formatThickness(activeSheet.Thickness) },
             { label: 'Кассета',   value: session.cassetteNumber ? `№${session.cassetteNumber}` : '—' },
             { label: 'Печь',      value: session.furnaceNumber ? `№${session.furnaceNumber}` : '—' },
             { label: 'Слот',      value: session.slotNumber != null ? `№${session.slotNumber}` : '—' },
