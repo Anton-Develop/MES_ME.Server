@@ -597,6 +597,9 @@ private async Task CreateSheetMeasurementAsync(AppDbContext context, string matI
                 return existingSheet.MatId;
             }
 
+            // 🆕 Ждём появления геометрии и марки стали (до 3 секунд)
+            await WaitForCompleteSheetDataAsync(zoneName, TimeSpan.FromSeconds(3));
+
             var steelGrade = GetValueFromZone(zoneName, "AlloyCode");
             var thickness = GetValueFromZone(zoneName, "Thickness");
             var slabNumber = GetValueFromZone(zoneName, "Slab");
@@ -665,6 +668,27 @@ private async Task CreateSheetMeasurementAsync(AppDbContext context, string matI
         {
             semaphore.Release();
         }
+    }
+
+    private async Task WaitForCompleteSheetDataAsync(string zoneName, TimeSpan timeout)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.Elapsed < timeout)
+        {
+            var alloy = GetValueFromZone(zoneName, "AlloyCode");
+            var thickness = GetValueFromZone(zoneName, "Thickness");
+            
+            // Считаем данные полными, если есть марка И толщина
+            // (скорректируйте условие под ваши реалии)
+            if (!string.IsNullOrEmpty(alloy) && !string.IsNullOrEmpty(thickness))
+                return;
+
+            await Task.Delay(100);
+        }
+        
+        _logger.LogWarning(
+            "⏱️ Таймаут ожидания полных данных для зоны {Zone}. " +
+            "Лист будет создан с неполными атрибутами.", zoneName);
     }
 
     private async Task UpdateSheetStatusAsync(AppDbContext context, string matId, string newStatus)

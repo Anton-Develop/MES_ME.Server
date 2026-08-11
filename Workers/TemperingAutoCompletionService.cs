@@ -98,6 +98,7 @@ public class TemperingAutoCompletionService : BackgroundService
                 INNER JOIN mes.tempering_sessions_new ts
                     ON ts.furnace_number = ld.furnace_no 
                     AND ts.unloaded_at IS NULL
+                     AND ts.loaded_at < NOW() - INTERVAL '30 minutes' 
                 WHERE ld.proc_end = TRUE 
                    OR (ld.proc_run = FALSE 
                        AND COALESCE(ld.time_proc_set, 0) = 0 

@@ -6,7 +6,8 @@ import {
   CircularProgress, Alert, Stack,
 } from '@mui/material';
 import { Print, GetApp, ArrowBack } from '@mui/icons-material';
-import { quenchingApi } from '../../api/quenchingApi';
+import { quenchingApi } from '../../api/quenchingApi'; 
+import { furnaceApi }   from '../../api/furnaceApi';
 
 // ---------------------------------------------------------------------------
 // Утилиты
@@ -224,22 +225,62 @@ const QuenchingReport = () => {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
 
+  // ---------------------------------------------------------------------------
+  // Конвертация businessKey закалки в формат нагрева
+  // "746|301471|408|200|0" -> "301471-408-200-746-0"
+  // ---------------------------------------------------------------------------
+  const convertToHeatingKey = (quenchingKey) => {
+    if (!quenchingKey || typeof quenchingKey !== 'string') return null;
+    const parts = quenchingKey.split('|');
+    if (parts.length !== 5) return null;
+    
+    const [sheet, melt, partNo, pack, reheat] = parts;
+    // Формат нагрева: плавка-партия-пачка-лист-нагрев
+    return `${melt}-${partNo}-${pack}-${sheet}-${reheat}`;
+  };
+  
   useEffect(() => {
     if (!key) { setLoading(false); return; }
     const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await quenchingApi.getSessionByKey(key);
-        setSession(res.data);
-      } catch (err) {
-        setError(err.response?.data?.message ?? 'Ошибка загрузки отчёта');
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const heatingKey = convertToHeatingKey(key);
+      
+      // Параллельная загрузка обоих источников
+      const promises = [quenchingApi.getSessionByKey(key)];
+      if (heatingKey) {
+        promises.push(
+          furnaceApi.getSessionByKey(heatingKey).catch((err) => {
+            // Не прерываем загрузку, если нагрев не найден — просто логируем
+            console.warn(`Heating session not found for key ${heatingKey}:`, err);
+            return null;
+          })
+        );
       }
-    };
-    load();
-  }, [key]);
+
+      const [quenchRes, heatRes] = await Promise.all(promises);
+      
+      const quenchData = quenchRes.data;
+      const heatData = heatRes?.data ?? null;
+
+      // Объединяем: берём всё из закалки, но unloadSpeed предпочитаем из нагрева
+      setSession({
+        ...quenchData,
+              unloadSpeed: heatData?.unloadSpeed ?? quenchData.x1UnloadSpeed ?? null,
+              // Сохраняем оригинальный x1UnloadSpeed для справки, если нужно
+              _originalX1UnloadSpeed: quenchData.x1UnloadSpeed,
+            });
+          } catch (err) {
+            setError(err.response?.data?.message ?? 'Ошибка загрузки отчёта');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        load();
+      }, [key]);
+
 
   useEffect(() => {
     if (isPrint && session && !loading) {
@@ -368,9 +409,9 @@ const QuenchingReport = () => {
          </Typography>
        </Grid>
        <Grid item xs={6} sm={4} md={3}>
-         <Typography variant="caption" color="text.secondary">Скорость выгрузки (X1)</Typography>
+         <Typography variant="caption" color="text.secondary">Скорость выгрузки (из печи в закалку)</Typography>
          <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
-           {s.x1UnloadSpeed != null ? Number(s.x1UnloadSpeed).toFixed(2) : '—'}
+           {s.unloadSpeed*1000 != null ? Number(s.unloadSpeed*1000).toFixed(2) : '—'}
          </Typography>
        </Grid>
      </Grid>
