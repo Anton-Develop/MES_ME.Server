@@ -186,7 +186,7 @@ internal static class Sql
           FROM agg
           LEFT JOIN plc.heating_sessions hs
             ON hs.sheet = agg.sheet AND hs.melt = agg.melt AND hs.part_no = agg.part_no 
-           AND hs.pack = agg.pack AND hs.entered_at between agg.entered_at - INTERVAL '5 minute' and agg.entered_at + INTERVAL '5 minute'
+           AND hs.pack = agg.pack AND hs.entered_at between agg.entered_at - INTERVAL '5 minute' and agg.entered_at + INTERVAL '5 minute' AND hs.exited_at = agg.exited_at
           LEFT JOIN zones_paths zp
             ON zp.sheet = agg.sheet AND zp.melt = agg.melt AND zp.part_no = agg.part_no 
            AND zp.pack = agg.pack AND zp.pass_id = agg.pass_id
@@ -300,8 +300,9 @@ internal static class Sql
               ROW_NUMBER() OVER (PARTITION BY agg.sheet, agg.melt, agg.part_no, agg.pack ORDER BY agg.entered_at) AS rn
           FROM agg
           LEFT JOIN plc.heating_sessions hs
-            ON hs.sheet = agg.sheet AND hs.melt = agg.melt AND hs.part_no = agg.part_no 
-           AND hs.pack = agg.pack AND hs.entered_at between agg.entered_at - INTERVAL '5 minute' and agg.entered_at + INTERVAL '5 minute'
+            ON hs.sheet = agg.sheet  AND hs.melt = agg.melt  AND hs.part_no = agg.part_no 
+           AND hs.pack = agg.pack  AND hs.entered_at between  agg.entered_at - INTERVAL '5 minute' and agg.entered_at + INTERVAL '5 minute' 
+           AND hs.exited_at = agg.exited_at
           LEFT JOIN zones_paths zp
             ON zp.sheet = agg.sheet AND zp.melt = agg.melt AND zp.part_no = agg.part_no 
            AND zp.pack = agg.pack AND zp.pass_id = agg.pass_id
@@ -553,6 +554,7 @@ WHERE business_key = @Key
         LEFT JOIN plc.quenching_sessions qs
             ON qs.sheet = e.sheet AND qs.melt = e.melt AND qs.part_no = e.part_no 
            AND qs.pack = e.pack AND qs.entered_at between e.entered_at - INTERVAL '5 MINUTES' AND e.entered_at + INTERVAL '5 MINUTES'
+           and hs.exited_at=agg.exited_at
         WHERE qs.id IS NULL
           AND e.exited_at IS NOT NULL
           AND e.exited_at < NOW() - (2 || ' minutes')::INTERVAL
@@ -636,6 +638,7 @@ WHERE business_key = @Key
         LEFT JOIN plc.quenching_sessions qs
             ON qs.sheet = e.sheet AND qs.melt = e.melt AND qs.part_no = e.part_no 
            AND qs.pack = e.pack AND qs.entered_at between e.entered_at - INTERVAL '5 MINUTES' AND e.entered_at + INTERVAL '5 MINUTES'
+           and hs.exited_at=agg.exited_at
         WHERE qs.id IS NULL
           AND e.exited_at IS NOT NULL
           AND e.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
@@ -1175,7 +1178,7 @@ ORDER BY time
     """;
 
     public const string UpdateSheetsStatusToTemperingCompleted = """
-    UPDATE mes.inputdata 
+    UPDATE mes.input_data 
     SET status = 'Отпуск пройден'
     WHERE mat_id IN (
         SELECT scl.mat_id 
