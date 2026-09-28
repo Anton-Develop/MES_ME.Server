@@ -11,6 +11,7 @@ public sealed class HeatingSessionWorker : BackgroundService
     private readonly int _intervalSec;
     private readonly int _gracePeriodMin;
     private readonly int _catchUpDays;
+    private readonly int _preLoadZone1MaxAgeSeconds;
 
     public HeatingSessionWorker(
         IServiceProvider sp,
@@ -22,6 +23,7 @@ public sealed class HeatingSessionWorker : BackgroundService
         _intervalSec = cfg.GetValue("Worker:HeatingSessionIntervalSeconds", 30);
         _gracePeriodMin = cfg.GetValue("Worker:SheetExitGracePeriodMinutes", 2);
         _catchUpDays = cfg.GetValue("Worker:CatchUpDays", 7);
+        _preLoadZone1MaxAgeSeconds = cfg.GetValue("Worker:PreLoadZone1TemperatureMaxAgeSeconds", 30);
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -192,7 +194,25 @@ public sealed class HeatingSessionWorker : BackgroundService
             tempsZ1 = JsonSerializer.Serialize(jsonObj);
         }
 
+        float? tempBeforeLoad = null;
 
+        var probeAt = enteredF1 ?? enteredAt;
+
+        try
+        {
+            tempBeforeLoad = await repo.GetLastZone1TemperatureBeforeAsync(
+                ToUtc(probeAt),
+                _preLoadZone1MaxAgeSeconds,
+                ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex,"Failed to read last zone F1 temperature before entry for sheet {Sheet}");
+        }
 
         // Зона F2
         DateTime? enteredF2 = null, exitedF2 = null;
@@ -320,6 +340,7 @@ public sealed class HeatingSessionWorker : BackgroundService
             TempsZ3 = tempsZ3,
             TempsZ4 = tempsZ4,
             TempsTime = "[]", // или null – в данном варианте временные метки хранятся внутри каждого tempsZx, поэтому общее поле можно не заполнять
+            TempBeforeLoad = tempBeforeLoad,
             TotHeatTime = ConvertToNullableFloat(c.tot_heat_time),
             LoadSpeed = ConvertToNullableFloat(c.load_speed),
             UnloadSpeed = ConvertToNullableFloat(c.unload_speed),

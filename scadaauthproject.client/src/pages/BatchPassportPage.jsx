@@ -277,7 +277,7 @@ const BatchPassportPage = () => {
             
             // ✅ ИЗ ЗАКАЛКИ
             'Давление воды в коллекторе закалочной машины, бар': r.quench 
-                ? fmtNum(((r.quench.pressTopZak || 0) + (r.quench.pressBotZak || 0)) / 2 * 10, 1) 
+                ? fmtNum(((r.quench.pressTopZak || 0) + (r.quench.pressBotZak || 0)) / 2 * 1, 1) 
                 : '',
             'Температура воды в закалочной машине, С': r.quench 
                 ? fmtNum(r.quench.tempHaccum) 
@@ -374,7 +374,7 @@ const BatchPassportPage = () => {
                         
                         {/* Давление и T воды — ТОЛЬКО из закалки */}
                         <TableCell sx={bodyCellSx}>
-                        {r.quench ? fmtNum(((r.quench.pressTopZak||0)+(r.quench.pressBotZak||0))/2*10, 1) : '—'}
+                        {r.quench ? fmtNum(((r.quench.pressTopZak||0)+(r.quench.pressBotZak||0))/2*1, 1) : '—'}
                         </TableCell>
                         <TableCell sx={bodyCellSx}>
                         {r.quench ? fmtNum(r.quench.tempHaccum) : '—'}

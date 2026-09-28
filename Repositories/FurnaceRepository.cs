@@ -31,6 +31,7 @@ public interface IFurnaceRepository
     Task<HeatingSession?> GetSessionByKeyAsync(string key, CancellationToken ct = default);
 
     Task UpsertHeatingSessionAsync(object parameters, CancellationToken ct = default);
+    Task<float?> GetLastZone1TemperatureBeforeAsync( DateTime at, int maxAgeSeconds, CancellationToken ct = default);
 
 
     //For RelFirn
@@ -401,4 +402,26 @@ public sealed class FurnaceRepository : IFurnaceRepository
                return await con.QueryAsync<TemperingDetailDto>(sql, new { FurnaceNo = furnaceNo, StartedAt = startedAt, EndedAt = endedAt });
            });
        }*/
+
+       public async Task<float?> GetLastZone1TemperatureBeforeAsync( DateTime at,  int maxAgeSeconds,  CancellationToken ct = default)
+        {
+            return await _retry.ExecuteAsync(async () =>
+            {
+                await using var con = await OpenAsync(ct);
+
+                var atUtc = DateTime.SpecifyKind(at, DateTimeKind.Utc);
+
+                using var cmd = new NpgsqlCommand(Sql.LastZone1TemperatureBeforeEntry, con);
+
+                cmd.Parameters.AddWithValue("@At", NpgsqlDbType.TimestampTz, atUtc);
+                cmd.Parameters.AddWithValue("@MaxAgeSeconds", NpgsqlDbType.Integer, maxAgeSeconds);
+
+                var scalar = await cmd.ExecuteScalarAsync(ct);
+
+                if (scalar is null || scalar is DBNull)
+                    return (float?)null;
+
+                    return (float?)Convert.ToSingle(scalar);
+            });
+        }
 }

@@ -146,7 +146,7 @@ public sealed class FurnaceController : ControllerBase
             Batch = batch,
             Sheet = sheet,
             Page = page,
-            PageSize = Math.Clamp(pageSize, 1, 200)
+            PageSize = Math.Clamp(pageSize, 1, 1000)
         };
 
         return Ok(await _repo.GetSessionsAsync(filter, ct));

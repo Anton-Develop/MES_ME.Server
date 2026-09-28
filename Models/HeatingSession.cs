@@ -56,6 +56,7 @@ public sealed class HeatingSession
     public string? TempsZ3 { get; init; }  // JSON строка
     public string? TempsZ4 { get; init; }  // JSON строка
     public string? TempsTime { get; init; } // JSON строка временных меток
+    public float? TempBeforeLoad { get; set; }
 
     // Вычисляемые свойства для удобного доступа
     //[NotMapped]

@@ -370,7 +370,7 @@ public const string SessionList = """
         avg_z2_1 AS AvgZ2_1, avg_z2_2 AS AvgZ2_2, avg_z2_3 AS AvgZ2_3, avg_z2_4 AS AvgZ2_4,
         avg_z3_1 AS AvgZ3_1, avg_z3_2 AS AvgZ3_2, avg_z3_3 AS AvgZ3_3, avg_z3_4 AS AvgZ3_4,
         avg_z4_1 AS AvgZ4_1, avg_z4_2 AS AvgZ4_2, avg_z4_3 AS AvgZ4_3, avg_z4_4 AS AvgZ4_4,
-        had_alarm AS HadAlarm, created_at AS CreatedAt,
+        had_alarm AS HadAlarm, created_at AS CreatedAt, temp_before_load AS TempBeforeLoad,
         tot_heat_time AS TotHeatTime, load_speed AS LoadSpeed, unload_speed AS UnloadSpeed, tmp_set AS TmpSet
     FROM plc.heating_sessions
     WHERE (@From      IS NULL OR entered_at  >= @From)
@@ -395,7 +395,7 @@ public const string SessionList = """
         avg_z2_1, avg_z2_2, avg_z2_3, avg_z2_4,
         avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
         avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
-        had_alarm, created_at,
+        had_alarm, created_at, temp_before_load AS TempBeforeLoad,
         tot_heat_time AS TotHeatTime, load_speed AS LoadSpeed, unload_speed AS UnloadSpeed, tmp_set AS TmpSet
     FROM plc.heating_sessions
     WHERE sheet   = @Sheet
@@ -418,7 +418,7 @@ SELECT
     avg_z2_1 AS AvgZ2_1, avg_z2_2 AS AvgZ2_2, avg_z2_3 AS AvgZ2_3, avg_z2_4 AS AvgZ2_4,
     avg_z3_1 AS AvgZ3_1, avg_z3_2 AS AvgZ3_2, avg_z3_3 AS AvgZ3_3, avg_z3_4 AS AvgZ3_4,
     avg_z4_1 AS AvgZ4_1, avg_z4_2 AS AvgZ4_2, avg_z4_3 AS AvgZ4_3, avg_z4_4 AS AvgZ4_4,
-    had_alarm AS HadAlarm, created_at AS CreatedAt,
+    had_alarm AS HadAlarm, created_at AS CreatedAt, temp_before_load AS TempBeforeLoad,
     temps_z1 AS TempsZ1, temps_z2 AS TempsZ2, temps_z3 AS TempsZ3, temps_z4 AS TempsZ4, temps_time AS TempsTime,
     tot_heat_time AS TotHeatTime, load_speed AS LoadSpeed, unload_speed AS UnloadSpeed, tmp_set AS TmpSet
 FROM plc.heating_sessions
@@ -446,7 +446,7 @@ WHERE business_key = @Key
         avg_z2_1, avg_z2_2, avg_z2_3, avg_z2_4,
         avg_z3_1, avg_z3_2, avg_z3_3, avg_z3_4,
         avg_z4_1, avg_z4_2, avg_z4_3, avg_z4_4,
-        temps_z1, temps_z2, temps_z3, temps_z4, temps_time,
+        temps_z1, temps_z2, temps_z3, temps_z4, temps_time, temp_before_load,
         had_alarm,
         tot_heat_time, load_speed, unload_speed, tmp_set
     ) VALUES (
@@ -460,6 +460,7 @@ WHERE business_key = @Key
         @AvgZ4_1, @AvgZ4_2, @AvgZ4_3, @AvgZ4_4,
         @TempsZ1::jsonb, @TempsZ2::jsonb, @TempsZ3::jsonb,
         @TempsZ4::jsonb, @TempsTime::jsonb,
+        @TempBeforeLoad::real,
         @HadAlarm,
         @TotHeatTime, @LoadSpeed, @UnloadSpeed, @TmpSet
     )
@@ -479,6 +480,7 @@ WHERE business_key = @Key
         temps_z1 = EXCLUDED.temps_z1, temps_z2 = EXCLUDED.temps_z2,
         temps_z3 = EXCLUDED.temps_z3, temps_z4 = EXCLUDED.temps_z4,
         temps_time = EXCLUDED.temps_time,
+        temp_before_load = EXCLUDED.temp_before_load,
         tot_heat_time = EXCLUDED.tot_heat_time,
         load_speed = EXCLUDED.load_speed,
         unload_speed = EXCLUDED.unload_speed,
@@ -554,7 +556,6 @@ WHERE business_key = @Key
         LEFT JOIN plc.quenching_sessions qs
             ON qs.sheet = e.sheet AND qs.melt = e.melt AND qs.part_no = e.part_no 
            AND qs.pack = e.pack AND qs.entered_at between e.entered_at - INTERVAL '5 MINUTES' AND e.entered_at + INTERVAL '5 MINUTES'
-           and hs.exited_at=agg.exited_at
         WHERE qs.id IS NULL
           AND e.exited_at IS NOT NULL
           AND e.exited_at < NOW() - (2 || ' minutes')::INTERVAL
@@ -638,7 +639,6 @@ WHERE business_key = @Key
         LEFT JOIN plc.quenching_sessions qs
             ON qs.sheet = e.sheet AND qs.melt = e.melt AND qs.part_no = e.part_no 
            AND qs.pack = e.pack AND qs.entered_at between e.entered_at - INTERVAL '5 MINUTES' AND e.entered_at + INTERVAL '5 MINUTES'
-           and hs.exited_at=agg.exited_at
         WHERE qs.id IS NULL
           AND e.exited_at IS NOT NULL
           AND e.exited_at < NOW() - (@GracePeriodMinutes || ' minutes')::INTERVAL
@@ -1186,5 +1186,39 @@ ORDER BY time
         WHERE scl.cassette_id = @CassetteId
     ) 
     AND status = 'В печи отпуска'
+    """;
+
+
+// -----------------------------------------------------------------------
+// temp_before_load: последняя температура зоны F1 до входа в печь
+// -----------------------------------------------------------------------
+public const string LastZone1TemperatureBeforeEntry = """
+    SELECT AVG(v.temp)::real AS temp_before_load
+    FROM (
+        SELECT
+            ft.z1_1_te,
+            ft.z1_2_te,
+            ft.z1_3_te,
+            ft.z1_4_te
+        FROM plc.furnace_temperatures ft
+        WHERE ft.time <= @At - make_interval(secs => @MaxAgeSeconds/2)
+          AND ft.time >= @At - make_interval(secs => @MaxAgeSeconds)
+          AND (
+                ft.z1_1_te IS NOT NULL OR
+                ft.z1_2_te IS NOT NULL OR
+                ft.z1_3_te IS NOT NULL OR
+                ft.z1_4_te IS NOT NULL
+          )
+        ORDER BY ft.time DESC
+        LIMIT 1
+    ) s
+    CROSS JOIN LATERAL (
+        VALUES
+            (s.z1_1_te),
+            (s.z1_2_te),
+            (s.z1_3_te),
+            (s.z1_4_te)
+    ) AS v(temp)
+    WHERE v.temp IS NOT NULL
     """;
 }
