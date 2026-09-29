@@ -71,17 +71,83 @@ public class TemperingAutoCompletionService : BackgroundService
         _logger.LogInformation("TemperingAutoCompletionService остановлен");
     }
 
+    /* private async Task CheckCompletionsAsync(CancellationToken ct)
+     {
+         using var scope = _services.CreateScope();
+         var dataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+         await using var con = await dataSource.OpenConnectionAsync(ct);
+
+         // ✅ Условие завершения синхронизировано с Sql.UpsertTemperingSessions:
+         //    proc_end = TRUE ИЛИ (proc_run = FALSE И time_proc_set = 0 И act_time_total = 0)
+         // ✅ Также забираем ts.loaded_at — нужно для поиска реального старта цикла
+         var completedFurnaces = (await con.QueryAsync<FurnaceCompletionDto>(
+             new CommandDefinition(@"
+                 WITH latest_data AS (
+                     SELECT DISTINCT ON (furnace_no)
+                         furnace_no, proc_end, proc_run, time_proc_set, act_time_total, time
+                     FROM plc.tempering_data
+                     ORDER BY furnace_no, time DESC
+                 )
+                 SELECT 
+                     ld.furnace_no      AS FurnaceNo,
+                     ts.id              AS SessionId,
+                     ts.business_key    AS BusinessKey,
+                     ts.cassette_number AS CassetteNumber,
+                     ts.loaded_at       AS LoadedAt
+                 FROM latest_data ld
+                 INNER JOIN mes.tempering_sessions_new ts
+                     ON ts.furnace_number = ld.furnace_no 
+                     AND ts.unloaded_at IS NULL
+                      AND ts.loaded_at < NOW() - INTERVAL '30 minutes' 
+                 WHERE ld.proc_end = TRUE 
+                    OR (ld.proc_run = FALSE 
+                        AND COALESCE(ld.time_proc_set, 0) = 0 
+                        AND COALESCE(ld.act_time_total, 0) = 0)",
+                 cancellationToken: ct)
+         )).ToList();
+
+         if (completedFurnaces.Count == 0)
+             return;
+
+         _logger.LogInformation(
+             "🔥 PLC зафиксировал завершение отпуска в {Count} печах",
+             completedFurnaces.Count);
+
+         int processed = 0;
+         foreach (var item in completedFurnaces)
+         {
+             ct.ThrowIfCancellationRequested();
+             try
+             {
+                 await ProcessCompletedFurnaceAsync(con, item, ct);
+                 processed++;
+             }
+             catch (Exception ex)
+             {
+                 _logger.LogError(ex,
+                     "Ошибка при автозавершении печи №{Furnace}, сессия {SessionId}",
+                     item.FurnaceNo, item.SessionId);
+             }
+         }
+
+         if (processed > 0)
+             _logger.LogInformation("✅ Автозавершение: обработано {Count} печей", processed);
+     }
+ */
     private async Task CheckCompletionsAsync(CancellationToken ct)
     {
         using var scope = _services.CreateScope();
         var dataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+        
         await using var con = await dataSource.OpenConnectionAsync(ct);
 
-        // ✅ Условие завершения синхронизировано с Sql.UpsertTemperingSessions:
-        //    proc_end = TRUE ИЛИ (proc_run = FALSE И time_proc_set = 0 И act_time_total = 0)
-        // ✅ Также забираем ts.loaded_at — нужно для поиска реального старта цикла
-        var completedFurnaces = (await con.QueryAsync<FurnaceCompletionDto>(
-            new CommandDefinition(@"
+        // ✅ ВАЖНО: Увеличиваем таймаут команды до 60-90 секунд.
+        // По умолчанию Npgsql/Dapper часто ставят 30 сек, чего мало для тяжелых аналитических запросов.
+        const int COMMAND_TIMEOUT_SECONDS = 90; 
+
+        try 
+        {
+            var sql = @"
                 WITH latest_data AS (
                     SELECT DISTINCT ON (furnace_no)
                         furnace_no, proc_end, proc_run, time_proc_set, act_time_total, time
@@ -98,42 +164,61 @@ public class TemperingAutoCompletionService : BackgroundService
                 INNER JOIN mes.tempering_sessions_new ts
                     ON ts.furnace_number = ld.furnace_no 
                     AND ts.unloaded_at IS NULL
-                     AND ts.loaded_at < NOW() - INTERVAL '30 minutes' 
+                    AND ts.loaded_at < NOW() - INTERVAL '30 minutes' 
                 WHERE ld.proc_end = TRUE 
-                   OR (ld.proc_run = FALSE 
-                       AND COALESCE(ld.time_proc_set, 0) = 0 
-                       AND COALESCE(ld.act_time_total, 0) = 0)",
-                cancellationToken: ct)
-        )).ToList();
+                OR (ld.proc_run = FALSE 
+                    AND COALESCE(ld.time_proc_set, 0) = 0 
+                    AND COALESCE(ld.act_time_total, 0) = 0)";
 
-        if (completedFurnaces.Count == 0)
-            return;
+            // Передаем commandTimeout в CommandDefinition
+            var completedFurnaces = (await con.QueryAsync<FurnaceCompletionDto>(
+                new CommandDefinition(
+                    sql, 
+                    cancellationToken: ct,
+                    commandTimeout: COMMAND_TIMEOUT_SECONDS
+                )
+            )).ToList();
 
-        _logger.LogInformation(
-            "🔥 PLC зафиксировал завершение отпуска в {Count} печах",
-            completedFurnaces.Count);
+            if (completedFurnaces.Count == 0)
+                return;
 
-        int processed = 0;
-        foreach (var item in completedFurnaces)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
+            _logger.LogInformation(
+                "🔥 PLC зафиксировал завершение отпуска в {Count} печах",
+                completedFurnaces.Count);
+
+            int processed = 0;
+            foreach (var item in completedFurnaces)
             {
-                await ProcessCompletedFurnaceAsync(con, item, ct);
-                processed++;
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    await ProcessCompletedFurnaceAsync(con, item, ct);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Ошибка при автозавершении печи №{Furnace}, сессия {SessionId}",
+                        item.FurnaceNo, item.SessionId);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Ошибка при автозавершении печи №{Furnace}, сессия {SessionId}",
-                    item.FurnaceNo, item.SessionId);
-            }
+            
+            if (processed > 0)
+                _logger.LogInformation("✅ Автозавершение: обработано {Count} печей", processed);
         }
-
-        if (processed > 0)
-            _logger.LogInformation("✅ Автозавершение: обработано {Count} печей", processed);
+        catch (TimeoutException ex)
+        {
+            // Логируем как предупреждение, а не ошибку, если это повторяется редко
+            // Или оставляем Error, если хотите видеть частоту проблем
+            _logger.LogWarning(ex, "Таймаут при выполнении запроса поиска завершений. Возможно, БД перегружена.");
+            // Не пробрасываем исключение дальше, чтобы цикл PeriodicTimer продолжил работу через 30 сек
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Непредвиденная ошибка в CheckCompletionsAsync");
+            throw; // Пробрасываем остальные ошибки наверх для обработки в ExecuteAsync
+        }
     }
-
     private async Task ProcessCompletedFurnaceAsync(
         NpgsqlConnection con, FurnaceCompletionDto item, CancellationToken ct)
     {
